@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pancakes for Dinner — Text and Autocomplete</title>
+    <meta name="description" content="A quiet document editor with inline writing suggestions.">
+    <link rel="stylesheet" href="style.css?v=ec08f8bb4142">
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="document-icon" aria-hidden="true"><svg viewBox="0 0 28 34"><path d="M5 1h12l7 7v24H5Z"/><path d="M17 1v8h7M9 15h11M9 20h11M9 25h8"/></svg></div>
+      <div class="document-info"><input id="title" aria-label="Document title" value="Pancakes for Dinner" spellcheck="false"></div>
+      <button id="connect" class="connect-button">Connect OpenAI</button>
+      <div class="avatar" aria-label="Charlie">C</div>
+    </header>
+
+    <nav class="toolbar" aria-label="Document formatting">
+      <div class="group">
+        <button id="undo" aria-label="Undo" title="Undo"><svg viewBox="0 0 24 24"><path d="m8 5-5 5 5 5M3 10h10a7 7 0 0 1 7 7"/></svg></button>
+        <button id="redo" aria-label="Redo" title="Redo"><svg viewBox="0 0 24 24"><path d="m16 5 5 5-5 5m5-5H11a7 7 0 0 0-7 7"/></svg></button>
+      </div>
+      <div class="group">
+        <select id="zoom" aria-label="Zoom">
+          <option value=".8">80%</option>
+          <option value="1" selected>100%</option>
+          <option value="1.2">120%</option>
+        </select>
+      </div>
+      <div class="group">
+        <select id="style" aria-label="Paragraph style">
+          <option value="p">Normal text</option>
+          <option value="h1">Title</option>
+          <option value="h2">Heading</option>
+        </select>
+        <select id="font" aria-label="Font">
+          <option value="DM Sans">DM Sans</option>
+          <option value="Arial">Arial</option>
+          <option value="Georgia">Georgia</option>
+          <option value="monospace">Mono</option>
+        </select>
+      </div>
+      <div class="group">
+        <select id="size" aria-label="Font size">
+          <option>14</option>
+          <option selected>16</option>
+          <option>18</option>
+          <option>20</option>
+          <option>24</option>
+        </select>
+      </div>
+      <div class="group">
+        <button data-command="bold" aria-label="Bold" title="Bold" class="bold">B</button>
+        <button data-command="italic" aria-label="Italic" title="Italic" class="italic">I</button>
+        <button data-command="underline" aria-label="Underline" title="Underline" class="underline">U</button>
+      </div>
+      <div class="group">
+        <button data-command="insertUnorderedList" aria-label="Bulleted list" title="Bulleted list"><svg viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12M3 6h1M3 12h1M3 18h1"/></svg></button>
+      </div>
+      <span id="word-limit" class="word-limit" aria-label="Document word limit">0 / 500</span>
+      <details id="intelligence" class="intelligence">
+        <summary><span class="spark">✧</span> Intelligence <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></summary>
+        <div class="intelligence-menu" role="group" aria-label="Intelligence features">
+          <label><input type="checkbox" id="resize" checked> Drag to expand or shorten</label>
+          <label><input type="checkbox" id="rephrase" checked> Double-click to rephrase</label>
+          <label><input type="checkbox" id="combine" checked> Drag onto a sentence to combine</label>
+          <label><input type="checkbox" id="smart"> Tab autocomplete</label>
+          <label><input type="checkbox" id="multi" checked> Multiple tab autocomplete</label>
+          <label><input type="checkbox" id="paragraph" checked> Suggested paragraph</label>
+        </div>
+      </details>
+    </nav>
+
+    <main class="workspace">
+      <div class="page-stack">
+        <article class="page">
+          <div class="editor-surface">
+            <!-- The document itself: whitespace here is document text, so keep it on one line. -->
+            <div id="editor" class="document-body" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Document body" spellcheck="true"><h1>Pancakes for Dinner</h1><p>Pancakes are too good to stay stuck at breakfast. They take ten minutes, use things you already have in the kitchen, and nobody at the table ever complains. You can go sweet with syrup and berries, or savory with cheese, bacon, and a fried egg on top. After a long day, a warm stack feels like a small party on a plate. Dinner should be easy and fun, and pancakes are both.</p></div>
+          </div>
+          <span id="suggestion" aria-hidden="true" hidden></span>
+          <div id="style-tabs" aria-hidden="true" hidden></div>
+        </article>
+        <div class="page-bottom">
+          <button id="save-debug-log" title="Save recent suggestion diagnostics from this tab, including short text snippets">Save debug log</button>
+          <span>1 of 1</span>
+        </div>
+      </div>
+    </main>
+
+    <div id="rewrite-controls" hidden>
+      <button class="rewrite-handle" role="slider" aria-label="Resize selected text" aria-orientation="horizontal" aria-valuemin="35" aria-valuemax="250" aria-valuenow="100" aria-describedby="rewrite-help"><span></span></button>
+    </div>
+    <p id="rewrite-help" class="sr-only">Drag the end handle right or down for more detail, or left or up to shorten. Release to keep the rewrite. Use arrow keys to adjust, Enter to keep, or Escape to cancel.</p>
+    <p id="notice" class="notice" role="status" aria-live="polite"></p>
+
+    <dialog id="key-dialog" aria-labelledby="key-heading" aria-describedby="key-description key-terms">
+      <button id="close-settings" class="close-settings" aria-label="Close settings">×</button>
+      <p class="series">Interfaces that think</p>
+      <h2 id="key-heading">Text and Autocomplete <span class="prototype-tag">Prototype</span></h2>
+      <div id="key-description">
+        <p>This is a prototype from <a href="https://tareqistyping.com/interfaces-that-think/" target="_blank" rel="noopener noreferrer">Interfaces that think</a>, an exploratory design series about the future of interfaces. It is an experiment, not a finished product, and parts of it may break.</p>
+      </div>
+
+      <section class="dialog-section" aria-labelledby="code-heading">
+        <h3 id="code-heading">See the code</h3>
+        <a class="source-link" href="https://github.com/onepixelaway/interfaces-that-think" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>View source on GitHub</a>
+      </section>
+
+      <section class="dialog-section" aria-labelledby="try-heading">
+        <h3 id="try-heading">Try the prototype</h3>
+        <div id="key-terms">
+          <p>It runs on your own OpenAI API key, and it only works once a key is connected. Create a new key just for this, <a href="https://platform.openai.com/settings/organization/limits" target="_blank" rel="noopener noreferrer">set a low spending limit</a> first, and revoke the key when you are done. The prototype sends requests as you type, select, and drag, so what a session costs is unknown.</p>
+          <p>You use this at your own risk. I hold no responsibility for charges to your account or anything else that comes from using it.</p>
+        </div>
+        <form id="key-form">
+          <div class="key-label-row">
+            <label for="api-key">OpenAI API key</label>
+            <span class="model-name">Model <strong>gpt-realtime-2.1-mini</strong></span>
+          </div>
+          <div class="key-field">
+            <input id="api-key" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false" required maxlength="512" aria-describedby="key-privacy key-error">
+            <button id="forget-key" type="button" hidden>Remove key from this browser</button>
+          </div>
+          <p id="key-privacy" class="key-note">Your key is <strong>only</strong> saved in this browser on this device and used to reconnect after refresh.<br>It is stored unencrypted; use Remove key from this browser to delete it. Your key and document text go directly to OpenAI. API usage is billed to your account.</p>
+          <p id="key-error" class="key-error" role="alert"></p>
+          <div class="dialog-actions">
+            <button id="disconnect" type="button" hidden>Disconnect</button>
+            <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">Get an API key ↗</a>
+            <button id="key-submit" type="submit">I understand, let’s try</button>
+          </div>
+        </form>
+      </section>
+    </dialog>
+
+    <script type="module" src="app.js?v=1659c9d2c205"></script>
+  </body>
+</html>

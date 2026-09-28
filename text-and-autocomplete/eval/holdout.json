@@ -1,0 +1,14 @@
+[
+  {"id":"recipe-heldout","category":"partial word","before":"Fold the egg whites into the bat","after":""},
+  {"id":"past-tense-heldout","category":"grammar","before":"By the time the bus arrived, we had fini","after":""},
+  {"id":"modal-heldout","category":"word boundary","before":"Should","after":""},
+  {"id":"polite-request-heldout","category":"word boundary","before":"Thanks for your patience while we","after":""},
+  {"id":"newline-context-heldout","category":"context","before":"The workshop is nearly full.\nPlease reserve your","after":"\n\nRegards,\nLee"},
+  {"id":"new-sentence-heldout","category":"new sentence","before":"The power is back on.","after":""},
+  {"id":"quoted-sentence-heldout","category":"new sentence","before":"She whispered, “We made it.” ","after":""},
+  {"id":"spanish-heldout","category":"multilingual","before":"La biblioteca está cerrada. ","after":""},
+  {"id":"french-heldout","category":"multilingual","before":"Nous avons presque term","after":""},
+  {"id":"japanese-heldout","category":"multilingual","before":"週末は友達と映画を","after":""},
+  {"id":"valid-repetition-heldout","category":"grammar","before":"The experience she had had","after":""},
+  {"id":"technical-heldout","category":"technical writing","before":"An empty array should return","after":""}
+]

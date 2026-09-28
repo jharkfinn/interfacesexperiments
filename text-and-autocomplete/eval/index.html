@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8">
+  <title>Text and Autocomplete evaluation</title>
+  <style>
+    body { font: 15px system-ui; background: #202124; color: #eee; max-width: 1100px; margin: 32px auto; }
+    button { padding: 12px; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+    summary { cursor: pointer; }
+  </style>
+
+  <h1>Text and Autocomplete evaluation</h1>
+  <p>Runs synthetic writing cases through the real Realtime client using this browser’s saved key. Only test text is sent. Results contain no credentials. API usage is billed normally.</p>
+  <label>Run <select id="variant"><option value="both">Both versions</option><option value="candidate">Candidate only</option></select></label>
+  <label>Cases <select id="suite"><option value="cases">Development set</option><option value="holdout">Held-out set</option></select></label>
+  <button id="run">Run comparison</button> <button id="stop" disabled>Stop</button>
+  <button id="save">Save report locally</button>
+  <p id="status" role="status">Ready</p>
+  <pre id="results"></pre>
+
+  <script>
+    const showError = message => (document.querySelector('#status').textContent = 'Evaluation error: ' + message);
+    window.addEventListener('error', event => showError(`${event.message} at ${event.filename}:${event.lineno}:${event.colno}`));
+    window.addEventListener('unhandledrejection', event => showError(event.reason?.message));
+  </script>
+  <script type="module" src="runner.js"></script>
+</html>

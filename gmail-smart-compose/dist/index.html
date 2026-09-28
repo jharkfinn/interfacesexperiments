@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Movie Night — Gmail Smart Compose</title>
+    <meta name="description" content="An editable compose interaction with inline smart suggestions.">
+    <link rel="stylesheet" href="style.css?v=ee1f3dd0e9e9">
+  </head>
+  <body>
+    <main class="compose" aria-label="Compose email">
+      <header>
+        <span id="window-title">Movie Night</span>
+        <div class="window-actions">
+          <button id="minimize" aria-label="Minimize">−</button>
+          <button id="expand" aria-label="Expand"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7"/></svg></button>
+          <button id="close" aria-label="Close">×</button>
+        </div>
+      </header>
+      <section class="content">
+        <input id="recipient" aria-label="Recipient" value="grandpa.joe@gmail.com" autocomplete="off">
+        <input id="subject" aria-label="Subject" value="Movie Night" autocomplete="off">
+        <div class="editor-wrap"><div id="mirror" aria-hidden="true"></div><textarea id="body" aria-label="Message" spellcheck="false" aria-describedby="compose-help"></textarea></div>
+        <p id="compose-help" class="sr-only">Suggestions appear inline as you type. Press Tab to accept or Escape to dismiss.</p>
+        <footer>
+          <button class="send" id="send">Send</button>
+          <div class="tools" id="tools"></div>
+          <button class="icon trash" id="discard" aria-label="Discard draft"><svg viewBox="0 0 24 24"><path d="M5 7h14M9 4h6l1 3H8l1-3Zm-3 3 1 14h10l1-14" fill="currentColor" stroke="currentColor"/></svg></button>
+          <button class="icon" id="more" aria-label="More options"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></button>
+        </footer>
+        <div id="options" hidden>
+          <label><input type="checkbox" id="smart" checked> Smart Compose</label>
+          <button id="reset">Reset example</button>
+        </div>
+      </section>
+    </main>
+    <button id="reopen" hidden>Compose</button>
+    <div id="toast" role="status"></div>
+    <script type="module" src="app.js?v=ff12b412d070"></script>
+  </body>
+</html>
