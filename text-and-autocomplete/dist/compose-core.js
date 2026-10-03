@@ -20,6 +20,8 @@ export function fitInsertion(before, insertion, after) {
     if (withinLimit(before + insertion.slice(0, middle) + after)) low = middle;
     else high = middle - 1;
   }
+  // Never cut between the two halves of an emoji or other astral character.
+  if (/[\ud800-\udbff]/u.test(insertion[low - 1] || '')) low--;
   return insertion.slice(0, low);
 }
 export function isSentenceBoundary(before) {
@@ -200,18 +202,23 @@ export function previewCompletion(text, before, after) {
   return inspectCompletion(text, before, after, false).text;
 }
 export function reuseCompletion(previous, text, current) {
+  // Contenteditable stores a typed trailing space as a nonbreaking space and
+  // turns it back into a regular one when the next character arrives, so
+  // compare with plainSpaces. It keeps lengths, so the slices stay aligned.
   if (
     !previous ||
     !current ||
     previous.after !== current.after ||
     current.before.length <= previous.before.length ||
-    !current.before.startsWith(previous.before)
+    !plainSpaces(current.before).startsWith(plainSpaces(previous.before))
   ) {
     return '';
   }
   const typed = current.before.slice(previous.before.length);
   // A typed sentence ending requires a fresh request in new_sentence mode.
   if (/[.!?。！？]/u.test(typed)) return '';
-  const remaining = text.startsWith(typed) ? text.slice(typed.length) : '';
+  const remaining = plainSpaces(text).startsWith(plainSpaces(typed))
+    ? text.slice(typed.length)
+    : '';
   return validateInsertion(remaining, current.before, current.after);
 }

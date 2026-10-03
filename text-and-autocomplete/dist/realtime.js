@@ -3,9 +3,9 @@ import {
   responseEvent,
   COMPOSE_INSTRUCTIONS,
   MAX_OUTPUT_TOKENS,
-} from './compose-core.js?v=2b7382bcbabf';
-import { rewriteEvent } from './rewrite-core.js?v=f5f0abd7198f';
-import { combineEvent } from './combine-core.js?v=3a75d9186a2f';
+} from './compose-core.js?v=576be38817a3';
+import { rewriteEvent } from './rewrite-core.js?v=3c07cf8b61c5';
+import { combineEvent } from './combine-core.js?v=1c8f69eb2a6d';
 
 export class RealtimeCompose {
   constructor(

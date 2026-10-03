@@ -1,4 +1,4 @@
-import { withinLimit, wordCount, textResponse } from './compose-core.js?v=2b7382bcbabf';
+import { withinLimit, wordCount, textResponse } from './compose-core.js?v=576be38817a3';
 
 // Dragging a selection onto another sentence asks for both as a single thought.
 const COMBINE_VERSIONS = 3;

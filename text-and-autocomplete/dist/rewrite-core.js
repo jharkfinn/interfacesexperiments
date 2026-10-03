@@ -4,7 +4,7 @@ import {
   wordCount,
   withinLimit,
   textResponse,
-} from './compose-core.js?v=2b7382bcbabf';
+} from './compose-core.js?v=576be38817a3';
 
 const REWRITE_DELAY_MS = 160;
 export const MIN_RATIO = 0.35;

@@ -3,7 +3,7 @@ import {
   LiveRewrite,
   MIN_RATIO,
   MAX_RATIO,
-} from './rewrite-core.js?v=f5f0abd7198f';
+} from './rewrite-core.js?v=3c07cf8b61c5';
 import {
   RewritePreview,
   selectionRects,

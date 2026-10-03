@@ -74,6 +74,13 @@ function render() {
   }
   mirror.scrollTop = body.scrollTop;
 }
+// execCommand keeps the insertion on the native undo stack; setRangeText does not.
+function insert(text) {
+  body.focus();
+  if (!document.execCommand('insertText', false, text)) {
+    body.setRangeText(text, body.selectionStart, body.selectionEnd, 'end');
+  }
+}
 function showSubject() {
   $('window-title').textContent = $('subject').value || 'New Message';
 }
@@ -108,8 +115,7 @@ body.addEventListener('compositionend', () => {
 body.addEventListener('keydown', event => {
   if (event.key === 'Tab' && !event.shiftKey && suggestion && !composing) {
     event.preventDefault();
-    const at = body.selectionStart;
-    body.setRangeText(suggestion, at, at, 'end');
+    insert(suggestion);
     dismissed = '';
     render();
   }
@@ -161,8 +167,7 @@ for (const [index, [label, icon]] of icons.entries()) {
   button.innerHTML = icon;
   button.onclick = () => {
     if (label === 'Insert emoji') {
-      body.setRangeText('☺', body.selectionStart, body.selectionEnd, 'end');
-      body.focus();
+      insert('☺');
       render();
     } else toast(`${label} is outside this compose experiment.`);
   };

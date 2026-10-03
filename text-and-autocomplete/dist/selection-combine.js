@@ -1,4 +1,4 @@
-import { combineText, sentenceAt, removalSpan, mergeSpans } from './combine-core.js?v=3a75d9186a2f';
+import { combineText, sentenceAt, removalSpan, mergeSpans } from './combine-core.js?v=1c8f69eb2a6d';
 import { selectionRects, surfacePlacement } from './rewrite-preview.js?v=0ef16eccfb75';
 
 const BLOCKS = 'p,div,h1,h2,h3,h4,h5,h6,li';

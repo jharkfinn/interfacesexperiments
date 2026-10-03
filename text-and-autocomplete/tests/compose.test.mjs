@@ -145,6 +145,20 @@ test('sentence intent and reuse remain context-bound without grammar heuristics'
     }),
     '',
   );
+  // Contenteditable types a trailing space as U+00A0, then turns it back into
+  // U+0020 when the next character arrives.
+  assert.equal(
+    reuseCompletion({ before: 'A', after: '' }, ' clear goal', { before: 'A ', after: '' }),
+    'clear goal',
+  );
+  assert.equal(
+    reuseCompletion({ before: 'A ', after: '' }, 'clear goal', { before: 'A c', after: '' }),
+    'lear goal',
+  );
+  assert.equal(
+    reuseCompletion({ before: 'A ', after: '' }, 'clear goal', { before: 'A d', after: '' }),
+    '',
+  );
 });
 test('word and character bounds cover huge single words and 500-word documents', () => {
   assert.equal(wordCount(' hello\nworld  '), 2);
@@ -159,6 +173,9 @@ test('paste and acceptance fit the remaining space, including selection replacem
   assert.ok(withinLimit(before + fitted));
   assert.equal(fitInsertion('hello ', 'there', ' world'), 'there');
   assert.equal(fitInsertion('a'.repeat(12000), 'b', ''), '');
+  // One character of room must not keep half of a surrogate pair.
+  assert.equal(fitInsertion('a'.repeat(11999), '🌲🌲', ''), '');
+  assert.equal(fitInsertion('a'.repeat(11998), '🌲🌲', ''), '🌲');
 });
 class FakeSocket {
   static instances = [];
