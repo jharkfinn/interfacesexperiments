@@ -355,6 +355,20 @@ test('revisions are bounded and the closest draft is kept', async () => {
   assert.deepEqual(s.results, ['Join me. ']);
   s.live.close();
 });
+test('a failed revision keeps the closest draft instead of discarding it', async () => {
+  const s = session();
+  s.live.setRatio(0.5);
+  await tick();
+  s.live.release();
+  s.requests[0].resolve('Join.');
+  await tick();
+  assert.equal(s.requests.length, 2);
+  s.requests[1].reject(new Error('Writing request timed out. Try again.'));
+  await tick();
+  assert.deepEqual(s.errors, []);
+  assert.deepEqual(s.results, ['Join. ']);
+  s.live.close();
+});
 test('release aims for the exact dragged length unless the preview already fits it', async () => {
   const fits = session();
   fits.live.setRatio(0.5);

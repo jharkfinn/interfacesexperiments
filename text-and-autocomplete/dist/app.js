@@ -13,9 +13,9 @@ import {
   ALTERNATIVE_COUNT,
   plainSpaces,
 } from './compose-core.js?v=576be38817a3';
-import { RealtimeCompose } from './realtime.js?v=10fa771581dc';
+import { RealtimeCompose } from './realtime.js?v=f6a116bc6cb8';
 import { readSavedKey, saveKey, forgetKey } from './key-storage.js?v=d7465de288af';
-import { SelectionRewrite } from './selection-rewrite.js?v=9b875b56f097';
+import { SelectionRewrite } from './selection-rewrite.js?v=65913731007c';
 import { SelectionCombine } from './selection-combine.js?v=fb918998d8d3';
 
 const $ = id => document.getElementById(id);

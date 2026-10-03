@@ -255,16 +255,24 @@ export class LiveRewrite {
       let best = null;
       for (let attempt = 0; attempt <= MAX_REVISIONS; attempt++) {
         // Only the first draft streams; revisions replace it once they are complete.
-        const raw = await this.request(
-          this.context,
-          ratio,
-          text => {
-            if (attempt || this.closed || this.active !== token || this.ratio !== ratio) return;
-            const preview = rewriteText(text, this.context);
-            if (preview && this.fresh(preview)) this.onPreview(preview, false);
-          },
-          best && { draft: best.text.trim() },
-        );
+        let raw;
+        try {
+          raw = await this.request(
+            this.context,
+            ratio,
+            text => {
+              if (attempt || this.closed || this.active !== token || this.ratio !== ratio) return;
+              const preview = rewriteText(text, this.context);
+              if (preview && this.fresh(preview)) this.onPreview(preview, false);
+            },
+            best && { draft: best.text.trim() },
+          );
+        } catch (error) {
+          // A failed revision keeps the closest draft so far, as running out of revisions does.
+          if (!best || this.closed || this.active !== token) throw error;
+          this.diagnose('rewrite-revision-failed', { attempt, ratio, message: error.message });
+          break;
+        }
         if (this.closed || this.active !== token) return;
         // Some responses separate versions with blank lines; accept that when the selection is one paragraph.
         const separator = new RegExp(

@@ -4,7 +4,7 @@ import {
   COMPOSE_INSTRUCTIONS,
   MAX_OUTPUT_TOKENS,
 } from './compose-core.js?v=576be38817a3';
-import { rewriteEvent } from './rewrite-core.js?v=3c07cf8b61c5';
+import { rewriteEvent } from './rewrite-core.js?v=3b9f63316aa6';
 import { combineEvent } from './combine-core.js?v=1c8f69eb2a6d';
 
 export class RealtimeCompose {
