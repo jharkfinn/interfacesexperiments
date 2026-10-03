@@ -17,6 +17,7 @@ for (const [file, dependencies] of [
     'app.js',
     [
       'compose-core.js',
+      'bridge-client.js',
       'realtime.js',
       'key-storage.js',
       'selection-rewrite.js',

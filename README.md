@@ -18,6 +18,13 @@ python3 -m http.server 4173 --directory gmail-smart-compose/dist
 
 Open `http://localhost:4174/` for Text and Autocomplete or `http://localhost:4173/` for Gmail Smart Compose. Each prototype's README covers the rest, including Text and Autocomplete's API-key setup, tests, and live evaluation.
 
+To run Text and Autocomplete on your Claude plan or ChatGPT plan instead of an API key, start its local bridge and open the link it prints:
+
+```sh
+node text-and-autocomplete/scripts/bridge.mjs --provider claude
+node text-and-autocomplete/scripts/bridge.mjs --provider chatgpt
+```
+
 ## Publish
 
 Each prototype's `dist` folder is a complete static site: plain HTML, CSS, and ES modules with relative paths and no build step. Copy a `dist` folder to any static host, including a subfolder of an existing site. Development tooling (tests, scripts, evaluation) lives outside `dist` and is never published. Each prototype also keeps its own Sites hosting configuration in `.openai/hosting.json`.

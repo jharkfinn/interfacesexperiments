@@ -13,6 +13,7 @@ import {
   ALTERNATIVE_COUNT,
   plainSpaces,
 } from './compose-core.js?v=576be38817a3';
+import { BridgeCompose } from './bridge-client.js?v=22369988f7ea';
 import { RealtimeCompose } from './realtime.js?v=f6a116bc6cb8';
 import { readSavedKey, saveKey, forgetKey } from './key-storage.js?v=d7465de288af';
 import { SelectionRewrite } from './selection-rewrite.js?v=65913731007c';
@@ -97,33 +98,56 @@ window.textAndAutocompleteDebug = Object.freeze({
 $('save-debug-log').addEventListener('click', saveDebugLog);
 let wasReady = false;
 let leaving = false;
-const client = new RealtimeCompose(
-  (state, message) => {
-    trace('connection-state', { state });
-    $('connect').textContent =
-      state === 'ready' ? 'Connected' : state === 'connecting' ? 'Connecting…' : 'Connect OpenAI';
-    $('connect').dataset.state = state;
-    $('disconnect').hidden = !client.ready;
-    if (state === 'error' || state === 'disconnected') {
-      cancelWork();
-      endCycle('connection-' + state);
-      inputArmed = false;
-      lastRequest = '';
-      recentSuggestion = null;
-      clearSuggestion('connection-' + state);
-    }
-    rewriter?.update();
-    if (message) showNotice(message);
-    const dropped = wasReady && state !== 'ready' && !leaving;
-    wasReady = state === 'ready';
-    gate();
-    // The dialog covers the notice, so say there why it came back.
-    if (dropped) {
-      $('key-error').textContent = message || 'The connection closed. Connect again to keep going.';
-    }
-  },
-  { diagnose: (event, data) => trace(event, data) },
-);
+// scripts/bridge.mjs opens the page at #k=<token>. The token pairs this tab with
+// the bridge, which runs requests on the user's Claude or ChatGPT plan instead
+// of an API key. Keep it for this tab only and drop it from the address bar.
+const bridgeToken = (() => {
+  const match = /^#k=([A-Za-z0-9_-]{20,})$/.exec(location.hash);
+  let token = match?.[1] || '';
+  try {
+    if (token) sessionStorage.setItem('bridge-token', token);
+    else token = sessionStorage.getItem('bridge-token') || '';
+  } catch {}
+  if (match) history.replaceState(null, '', location.pathname + location.search);
+  return token;
+})();
+const onConnectionStatus = (state, message) => {
+  trace('connection-state', { state });
+  $('connect').textContent =
+    state === 'ready'
+      ? 'Connected'
+      : state === 'connecting'
+        ? 'Connecting…'
+        : bridgeToken
+          ? 'Connect your plan'
+          : 'Connect OpenAI';
+  $('connect').dataset.state = state;
+  $('disconnect').hidden = !client.ready;
+  if (state === 'error' || state === 'disconnected') {
+    cancelWork();
+    endCycle('connection-' + state);
+    inputArmed = false;
+    lastRequest = '';
+    recentSuggestion = null;
+    clearSuggestion('connection-' + state);
+  }
+  rewriter?.update();
+  if (message) showNotice(message);
+  const dropped = wasReady && state !== 'ready' && !leaving;
+  wasReady = state === 'ready';
+  gate();
+  // The dialog covers the notice, so say there why it came back.
+  if (dropped) {
+    $('key-error').textContent = message || 'The connection closed. Connect again to keep going.';
+  }
+  showPlan();
+};
+const client = bridgeToken
+  ? new BridgeCompose(onConnectionStatus, {
+      token: bridgeToken,
+      diagnose: (event, data) => trace(event, data),
+    })
+  : new RealtimeCompose(onConnectionStatus, { diagnose: (event, data) => trace(event, data) });
 function showNotice(message) {
   $('notice').textContent = message;
 }
@@ -800,7 +824,8 @@ function openSettings() {
   disarm('settings-open');
   $('key-error').textContent = '';
   $('disconnect').hidden = !client.ready;
-  showStoredKey();
+  if (bridgeToken) void refreshBridge();
+  else showStoredKey();
   dialog.showModal();
   rewriter?.update();
 }
@@ -844,10 +869,12 @@ async function connectKey(key, automatic = false) {
     let message =
       'Connected. Type for suggestions, select text and drag its handle, double-click it to rephrase, or drag it onto another sentence to combine them.';
     try {
-      saveKey(key);
+      if (bridgeToken) localStorage.setItem(CONSENT_KEY, '1');
+      else saveKey(key);
     } catch {
-      message =
-        'Connected for this session. Browser storage is unavailable, so your key could not be saved.';
+      message = bridgeToken
+        ? 'Connected for this session.'
+        : 'Connected for this session. Browser storage is unavailable, so your key could not be saved.';
     }
     setConnecting(false);
     (preferMulti ? multi : smart).checked = true;
@@ -871,9 +898,126 @@ async function connectKey(key, automatic = false) {
     }
   }
 }
+// Bridge mode: the bridge holds the plan sign-in, so the dialog asks for consent
+// instead of a key. Autocomplete sends a request whenever typing pauses, so that
+// consent comes before any request.
+const CONSENT_KEY = 'text-and-autocomplete.bridge-consent';
+let bridgePoll = null;
+function bridgeConsented() {
+  try {
+    return localStorage.getItem(CONSENT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function manageUsageLink() {
+  const link = document.createElement('a');
+  link.href = 'https://chatgpt.com/settings/usage';
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.textContent = 'Manage usage';
+  return link;
+}
+function describeSession(session) {
+  const model = session.model ? ` Model: ${session.model}.` : '';
+  const problem = session.problem ? ` ${session.problem}` : '';
+  if (session.provider === 'claude') {
+    return [
+      `Requests run on your Claude plan through your own Claude Code sign-in on this computer, and count toward its usage limits. Autocomplete sends a request each time you pause while typing. For personal use only.${model}${problem}`,
+    ];
+  }
+  if (session.ready) {
+    return [
+      `You're using your ChatGPT plan${session.email ? ` (${session.email})` : ''}. Requests in this editor, including autocomplete each time you pause while typing, use its usage.${model} `,
+      manageUsageLink(),
+    ];
+  }
+  if (session.signingIn) return ['Finish signing in on the ChatGPT tab, then come back here.'];
+  return [
+    `Use your ChatGPT plan: requests in this editor use the usage included in your ChatGPT Plus or Pro plan, or your credits.${problem}`,
+  ];
+}
+async function refreshBridge() {
+  let session;
+  try {
+    session = await client.describe();
+  } catch (error) {
+    $('bridge-status').textContent = error.message;
+    $('chatgpt-signin').hidden = true;
+    return null;
+  }
+  $('bridge-status').replaceChildren(...describeSession(session));
+  $('chatgpt-signin').hidden = session.provider !== 'chatgpt' || session.ready || session.signingIn;
+  return session;
+}
+function pollBridge() {
+  clearInterval(bridgePoll);
+  const started = Date.now();
+  bridgePoll = setInterval(async () => {
+    if (!dialog.open || Date.now() - started > 10 * 60 * 1000) {
+      clearInterval(bridgePoll);
+      return;
+    }
+    const session = await refreshBridge();
+    if (!session?.signingIn) clearInterval(bridgePoll);
+  }, 2000);
+}
+async function signInWithChatGPT() {
+  $('key-error').textContent = '';
+  // Open the tab during the click so it is not blocked, then send it to ChatGPT.
+  const tab = window.open('', '_blank');
+  try {
+    const { url } = await client.login();
+    if (tab) {
+      tab.opener = null;
+      tab.location.href = url;
+    } else {
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = 'Open ChatGPT sign-in';
+      $('bridge-status').replaceChildren(link);
+    }
+  } catch (error) {
+    tab?.close();
+    $('key-error').textContent = error.message;
+    return;
+  }
+  await refreshBridge();
+  pollBridge();
+}
+function showPlan() {
+  const indicator = $('plan-indicator');
+  const session = client.session;
+  indicator.hidden = !bridgeToken || !client.ready || !session;
+  if (indicator.hidden) return;
+  if (session.provider === 'chatgpt')
+    indicator.replaceChildren('Using ChatGPT plan · ', manageUsageLink());
+  else indicator.replaceChildren('Using Claude plan');
+}
+function setupBridge() {
+  for (const element of [
+    $('key-terms'),
+    $('key-privacy'),
+    $('get-key'),
+    document.querySelector('.key-label-row'),
+    keyInput.closest('.key-field'),
+  ]) {
+    element.hidden = true;
+  }
+  keyInput.required = false;
+  $('bridge-panel').hidden = false;
+  $('connect').textContent = 'Connect your plan';
+  $('chatgpt-signin').onclick = () => void signInWithChatGPT();
+}
 $('key-form').onsubmit = event => {
   event.preventDefault();
   if ($('key-submit').disabled) return;
+  if (bridgeToken) {
+    void connectKey('');
+    return;
+  }
   const key = keyInput.value.trim();
   if (!key.startsWith('sk-') || key.length < 20) {
     $('key-error').textContent = 'Enter a valid OpenAI API key.';
@@ -1035,9 +1179,14 @@ editor.focus();
 window.getSelection().removeAllRanges();
 window.getSelection().addRange(initialRange);
 savedRange = initialRange;
+if (bridgeToken) setupBridge();
 gate();
-const savedKey = readSavedKey();
-if (savedKey) void connectKey(savedKey, true);
+if (bridgeToken) {
+  if (bridgeConsented()) void connectKey('', true);
+} else {
+  const savedKey = readSavedKey();
+  if (savedKey) void connectKey(savedKey, true);
+}
 if (document.modelContext?.registerTool) {
   const lifecycle = new AbortController();
   try {

@@ -434,6 +434,34 @@ kbd {
   border-color: #3d5548;
   color: #bddbc9;
 }
+/* Bridge mode: which plan pays for requests, as Sign in with ChatGPT asks. */
+.plan-indicator {
+  margin-right: 12px;
+  color: #9fb4d4;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.plan-indicator a,
+#bridge-status a {
+  color: #a8c7fa;
+}
+.bridge-panel {
+  margin-bottom: 18px;
+}
+#bridge-status {
+  margin: 0 0 14px;
+  color: #c9ced8;
+  line-height: 1.5;
+}
+.chatgpt-signin {
+  padding: 10px 17px;
+  border: 0;
+  border-radius: 6px;
+  background: #0d0d0d;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+}
 .word-limit {
   margin-left: auto;
   color: #9299a6;

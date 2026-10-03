@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Pancakes for Dinner — Text and Autocomplete</title>
     <meta name="description" content="A quiet document editor with inline writing suggestions.">
-    <link rel="stylesheet" href="style.css?v=ec08f8bb4142">
+    <link rel="stylesheet" href="style.css?v=b75413dfdd21">
   </head>
   <body>
     <header class="app-header">
       <div class="document-icon" aria-hidden="true"><svg viewBox="0 0 28 34"><path d="M5 1h12l7 7v24H5Z"/><path d="M17 1v8h7M9 15h11M9 20h11M9 25h8"/></svg></div>
       <div class="document-info"><input id="title" aria-label="Document title" value="Pancakes for Dinner" spellcheck="false"></div>
+      <span id="plan-indicator" class="plan-indicator" hidden></span>
       <button id="connect" class="connect-button">Connect OpenAI</button>
       <div class="avatar" aria-label="Charlie">C</div>
     </header>
@@ -113,6 +114,10 @@
           <p>It runs on your own OpenAI API key, and it only works once a key is connected. Create a new key just for this, <a href="https://platform.openai.com/settings/organization/limits" target="_blank" rel="noopener noreferrer">set a low spending limit</a> first, and revoke the key when you are done. The prototype sends requests as you type, select, and drag, so what a session costs is unknown.</p>
           <p>You use this at your own risk. I hold no responsibility for charges to your account or anything else that comes from using it.</p>
         </div>
+        <div id="bridge-panel" class="bridge-panel" hidden>
+          <p id="bridge-status"></p>
+          <button id="chatgpt-signin" class="chatgpt-signin" type="button" hidden>Continue with ChatGPT</button>
+        </div>
         <form id="key-form">
           <div class="key-label-row">
             <label for="api-key">OpenAI API key</label>
@@ -126,13 +131,13 @@
           <p id="key-error" class="key-error" role="alert"></p>
           <div class="dialog-actions">
             <button id="disconnect" type="button" hidden>Disconnect</button>
-            <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">Get an API key ↗</a>
+            <a id="get-key" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">Get an API key ↗</a>
             <button id="key-submit" type="submit">I understand, let’s try</button>
           </div>
         </form>
       </section>
     </dialog>
 
-    <script type="module" src="app.js?v=9f6d4c0d191b"></script>
+    <script type="module" src="app.js?v=15a418712c93"></script>
   </body>
 </html>
