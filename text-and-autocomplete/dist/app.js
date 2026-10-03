@@ -1,4 +1,4 @@
-import { createDiagnostics } from './diagnostics.js?v=0ef30d68e0b0';
+import { createDiagnostics } from './diagnostics.js?v=908de0f7ce29';
 import {
   MAX_WORDS,
   MAX_CHARS,

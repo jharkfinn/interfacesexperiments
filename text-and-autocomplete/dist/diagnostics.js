@@ -8,7 +8,8 @@ const MAX_TEXT = 800;
 export function createDiagnostics({ storage, now = () => new Date().toISOString() } = {}) {
   const redact = value =>
     String(value)
-      .replace(/\b(?:sk|ek)-[A-Za-z0-9_-]+/gu, '[redacted-key]')
+      // OpenAI API keys start with sk-; Realtime client secrets start with ek_.
+      .replace(/\b(?:sk|ek)[-_][A-Za-z0-9_-]+/gu, '[redacted-key]')
       .slice(0, MAX_TEXT);
   const fields = data =>
     Object.fromEntries(
