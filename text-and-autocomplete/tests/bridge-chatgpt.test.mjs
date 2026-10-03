@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { generateKeyPairSync, sign, createHash } from 'node:crypto';
-import { mkdtempSync, statSync, readFileSync } from 'node:fs';
+import { mkdtempSync, statSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ChatGPTBackend, APP_NAME } from '../scripts/bridge/chatgpt.mjs';
@@ -91,7 +91,7 @@ async function fakeOpenAI() {
       }
     } else if (url.pathname === '/revoke') {
       state.revoked.push(Object.fromEntries(new URLSearchParams(body)));
-      res.writeHead(200);
+      res.writeHead(state.overrides.revokeStatuses?.shift() ?? 200);
       res.end();
     } else if (url.pathname === '/v1/models') {
       json(200, {
@@ -105,6 +105,7 @@ async function fakeOpenAI() {
       const request = JSON.parse(body);
       state.responses.push({ request, authorization: req.headers.authorization });
       if (state.overrides.responseError) {
+        res.setHeader('x-request-id', 'req_test123');
         json(state.overrides.responseError.status, { error: state.overrides.responseError });
         if (state.overrides.responseErrorOnce) delete state.overrides.responseError;
         return;
@@ -300,7 +301,7 @@ test('inference streams from the Responses API with the documented body', async 
     ];
     await assert.rejects(
       backend.run({ instructions: 'x', input: '{}', maxChars: 100 }),
-      error => error.code === 'usage_limit' && /chatgpt\.com\/settings\/usage/.test(error.message),
+      error => error.code === 'usage_limit' && /usage limit/.test(error.message),
     );
     const sent = fake.state.responses.length;
     await assert.rejects(
@@ -354,7 +355,7 @@ test('signing out revokes the refresh token and keeps the client and host IDs', 
   const fake = await fakeOpenAI();
   try {
     const { backend, configDir, params } = await signedIn(fake);
-    assert.deepEqual(await backend.logout(), { revoked: true });
+    assert.deepEqual(await backend.logout(), { revoked: true, signedIn: true });
     assert.deepEqual(fake.state.revoked[0], {
       token: 'refresh-1',
       token_type_hint: 'refresh_token',
@@ -370,3 +371,177 @@ test('signing out revokes the refresh token and keeps the client and host IDs', 
     fake.server.close();
   }
 });
+
+test('a declined plan grant asks for consent again, and the issued client is kept', async () => {
+  const fake = await fakeOpenAI();
+  try {
+    fake.state.overrides = { scope: 'openid profile email offline_access' };
+    const { backend } = await signedIn(fake);
+    const again = new URL((await backend.login()).url).searchParams;
+    assert.equal(again.get('client_id'), 'oaiapp_test');
+    assert.equal(again.get('prompt'), 'consent', 'a returning sign-in would skip consent');
+    backend.close();
+    fake.state.overrides = {};
+    const { backend: granted } = await signedIn(fake);
+    const routine = new URL((await granted.login()).url).searchParams;
+    assert.equal(routine.get('prompt'), null, 'ordinary sign-ins do not force consent');
+    granted.close();
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('an issued client ID survives a failed code exchange', async () => {
+  const fake = await fakeOpenAI();
+  try {
+    const configDir = mkdtempSync(join(tmpdir(), 'siwc-'));
+    const backend = new ChatGPTBackend({
+      configDir,
+      authBase: fake.base,
+      apiBase: `${fake.base}/v1`,
+      issuer: fake.base,
+      callbackPort: 0,
+    });
+    await backend.start();
+    const params = new URL((await backend.login()).url).searchParams;
+    const callback = new URL(params.get('redirect_uri'));
+    callback.searchParams.set('code', 'expired-code');
+    callback.searchParams.set('state', params.get('state'));
+    callback.searchParams.set('client_id', 'oaiapp_first');
+    assert.equal((await fetch(callback)).status, 400);
+    const retry = new URL((await backend.login()).url).searchParams;
+    assert.equal(retry.get('client_id'), 'oaiapp_first', 'no second registration');
+    assert.equal(retry.get('agent_name_hint'), null);
+    backend.close();
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('a rejected token is refreshed once, then dropped so sign-in can start again', async () => {
+  const fake = await fakeOpenAI();
+  try {
+    const { backend } = await signedIn(fake);
+    fake.state.overrides.responseError = { status: 401, code: 'subscription_sharing_invalid_user' };
+    fake.state.overrides.responseErrorOnce = true;
+    assert.equal(
+      await backend.run({ instructions: 'x', input: '{}', maxChars: 100 }),
+      'Hello world',
+    );
+    assert.equal(fake.state.refreshes, 1, 'one forced refresh');
+    assert.equal(fake.state.responses.at(-1).authorization, 'Bearer refreshed-1');
+    fake.state.overrides.responseError = { status: 401, code: 'subscription_sharing_invalid_user' };
+    delete fake.state.overrides.responseErrorOnce;
+    await assert.rejects(
+      backend.run({ instructions: 'x', input: '{}', maxChars: 100 }),
+      error => error.code === 'signin_required' && /req_test123/.test(error.message),
+    );
+    const session = await backend.describe();
+    assert.equal(session.signedIn, false, 'the page can offer Continue with ChatGPT again');
+    backend.close();
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('an ineligible account stops sending requests', async () => {
+  const fake = await fakeOpenAI();
+  try {
+    const { backend } = await signedIn(fake);
+    fake.state.overrides.responseError = {
+      status: 403,
+      code: 'subscription_sharing_user_not_eligible',
+    };
+    await assert.rejects(
+      backend.run({ instructions: 'x', input: '{}', maxChars: 100 }),
+      error => error.code === 'not_eligible' && /Plus or Pro/.test(error.message),
+    );
+    const sent = fake.state.responses.length;
+    await assert.rejects(
+      backend.run({ instructions: 'x', input: '{}', maxChars: 100 }),
+      /Plus or Pro/,
+    );
+    assert.equal(fake.state.responses.length, sent);
+    const session = await backend.describe();
+    assert.equal(session.ready, false);
+    assert.match(session.problem, /Plus or Pro/);
+    backend.close();
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('another account can be signed in without losing this host ID', async () => {
+  const fake = await fakeOpenAI();
+  try {
+    const { backend, configDir, params } = await signedIn(fake);
+    const fresh = new URL((await backend.login({ newAccount: true })).url).searchParams;
+    assert.equal(fresh.get('client_id'), 'dynamic_agent_client');
+    assert.equal(fresh.get('agent_name_hint'), APP_NAME);
+    assert.equal(fresh.get('ext_agent_host_id'), params.get('ext_agent_host_id'));
+    fake.state.challenge = fresh.get('code_challenge');
+    fake.state.nonce = fresh.get('nonce');
+    fake.state.overrides.claims = { sub: 'user-456', email: 'other@example.com' };
+    const callback = new URL(fresh.get('redirect_uri'));
+    callback.searchParams.set('code', 'good-code');
+    callback.searchParams.set('state', fresh.get('state'));
+    callback.searchParams.set('client_id', 'oaiapp_second');
+    assert.match(await (await fetch(callback)).text(), /Signed in/);
+    const saved = JSON.parse(readFileSync(join(configDir, 'chatgpt.json'), 'utf8'));
+    assert.equal(saved.client_id, 'oaiapp_second');
+    assert.equal(saved.subject, 'user-456');
+    assert.equal(saved.ext_agent_host_id, params.get('ext_agent_host_id'));
+    backend.close();
+  } finally {
+    fake.server.close();
+  }
+});
+
+test('two bridges share one sign-in: refreshes do not race, and sign-out stops both', async () => {
+  const fake = await fakeOpenAI();
+  try {
+    let clock = Date.now();
+    const { backend, configDir } = await signedIn(fake, { now: () => clock });
+    const other = new ChatGPTBackend({
+      configDir,
+      authBase: fake.base,
+      apiBase: `${fake.base}/v1`,
+      issuer: fake.base,
+      now: () => clock,
+    });
+    await other.start();
+    clock += 3600 * 1000;
+    await Promise.all([
+      backend.run({ instructions: 'x', input: '{}', maxChars: 100 }),
+      other.run({ instructions: 'x', input: '{}', maxChars: 100 }),
+    ]);
+    assert.equal(fake.state.refreshes, 1, 'the second process adopted the first refresh');
+    fake.state.overrides.revokeStatuses = [503, 200];
+    assert.deepEqual(await other.logout(), { revoked: true, signedIn: true });
+    assert.equal(fake.state.revoked.length, 2, 'a server error is retried');
+    await assert.rejects(
+      backend.run({ instructions: 'x', input: '{}', maxChars: 100 }),
+      error => error.code === 'signin_required',
+    );
+    backend.close();
+  } finally {
+    fake.server.close();
+  }
+});
+
+test(
+  'a credential file readable by others is made private on start',
+  { skip: process.platform === 'win32' },
+  async () => {
+    const configDir = mkdtempSync(join(tmpdir(), 'siwc-'));
+    const file = join(configDir, 'chatgpt.json');
+    writeFileSync(file, JSON.stringify({ ext_agent_host_id: 'urn:uuid:x', refresh_token: 'r' }), {
+      mode: 0o644,
+    });
+    chmodSync(file, 0o644);
+    const backend = new ChatGPTBackend({ configDir });
+    await backend.start();
+    assert.equal(statSync(file).mode & 0o777, 0o600);
+    assert.match(backend.notice, /readable only by you/);
+  },
+);

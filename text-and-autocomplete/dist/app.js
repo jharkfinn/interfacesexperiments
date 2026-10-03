@@ -13,7 +13,7 @@ import {
   ALTERNATIVE_COUNT,
   plainSpaces,
 } from './compose-core.js?v=576be38817a3';
-import { BridgeCompose } from './bridge-client.js?v=22369988f7ea';
+import { BridgeCompose } from './bridge-client.js?v=ae40474645ea';
 import { RealtimeCompose } from './realtime.js?v=f6a116bc6cb8';
 import { readSavedKey, saveKey, forgetKey } from './key-storage.js?v=d7465de288af';
 import { SelectionRewrite } from './selection-rewrite.js?v=65913731007c';
@@ -111,6 +111,17 @@ const bridgeToken = (() => {
   if (match) history.replaceState(null, '', location.pathname + location.search);
   return token;
 })();
+// Opening the bridge's new link in this tab changes only the fragment, so pair
+// again with the new token.
+window.addEventListener('hashchange', () => {
+  const match = /^#k=([A-Za-z0-9_-]{20,})$/.exec(location.hash);
+  if (!match) return;
+  try {
+    sessionStorage.setItem('bridge-token', match[1]);
+    history.replaceState(null, '', location.pathname + location.search);
+  } catch {}
+  location.reload();
+});
 const onConnectionStatus = (state, message) => {
   trace('connection-state', { state });
   $('connect').textContent =
@@ -149,7 +160,10 @@ const client = bridgeToken
     })
   : new RealtimeCompose(onConnectionStatus, { diagnose: (event, data) => trace(event, data) });
 function showNotice(message) {
-  $('notice').textContent = message;
+  // Sign in with ChatGPT asks for a Manage usage link when a usage limit is reached.
+  if (bridgeToken && client.session?.provider === 'chatgpt' && /usage limit/i.test(message)) {
+    $('notice').replaceChildren(`${message} `, manageUsageLink());
+  } else $('notice').textContent = message;
 }
 function selectionRange() {
   const selection = window.getSelection();
@@ -869,7 +883,7 @@ async function connectKey(key, automatic = false) {
     let message =
       'Connected. Type for suggestions, select text and drag its handle, double-click it to rephrase, or drag it onto another sentence to combine them.';
     try {
-      if (bridgeToken) localStorage.setItem(CONSENT_KEY, '1');
+      if (bridgeToken) localStorage.setItem(`${CONSENT_KEY}.${client.session?.provider}`, '1');
       else saveKey(key);
     } catch {
       message = bridgeToken
@@ -899,13 +913,13 @@ async function connectKey(key, automatic = false) {
   }
 }
 // Bridge mode: the bridge holds the plan sign-in, so the dialog asks for consent
-// instead of a key. Autocomplete sends a request whenever typing pauses, so that
-// consent comes before any request.
+// instead of a key. Autocomplete sends a request whenever typing pauses, so each
+// plan's consent comes before any request on it.
 const CONSENT_KEY = 'text-and-autocomplete.bridge-consent';
 let bridgePoll = null;
-function bridgeConsented() {
+function bridgeConsented(provider) {
   try {
-    return localStorage.getItem(CONSENT_KEY) === '1';
+    return localStorage.getItem(`${CONSENT_KEY}.${provider}`) === '1';
   } catch {
     return false;
   }
@@ -918,23 +932,38 @@ function manageUsageLink() {
   link.textContent = 'Manage usage';
   return link;
 }
+// A #k= link opened on a plain static server: this tab returns to API-key mode.
+function leaveBridgeMode() {
+  try {
+    sessionStorage.removeItem('bridge-token');
+  } catch {}
+  location.reload();
+}
 function describeSession(session) {
   const model = session.model ? ` Model: ${session.model}.` : '';
   const problem = session.problem ? ` ${session.problem}` : '';
   if (session.provider === 'claude') {
+    const payer =
+      session.billing === 'api_key'
+        ? 'Requests are billed to the Anthropic API key that Claude Code uses on this computer.'
+        : 'Requests run on your Claude plan through your own Claude Code sign-in on this computer, and count toward its usage limits.';
+    const plan = session.plan ? ` Plan reported by Claude Code: ${session.plan}.` : '';
     return [
-      `Requests run on your Claude plan through your own Claude Code sign-in on this computer, and count toward its usage limits. Autocomplete sends a request each time you pause while typing. For personal use only.${model}${problem}`,
+      `${payer} The text around your cursor or selection is sent to Anthropic with each request, and autocomplete sends one each time you pause while typing. For personal use only.${model}${plan}${problem}`,
     ];
   }
+  const sent = 'The text around your cursor or selection is sent to OpenAI with each request.';
   if (session.ready) {
     return [
-      `You're using your ChatGPT plan${session.email ? ` (${session.email})` : ''}. Requests in this editor, including autocomplete each time you pause while typing, use its usage.${model} `,
+      `You're using your ChatGPT plan${session.email ? ` (${session.email})` : ''}. Requests in this editor, including autocomplete each time you pause while typing, use its usage, then your credits if you let apps use them. ${sent}${model} `,
       manageUsageLink(),
     ];
   }
-  if (session.signingIn) return ['Finish signing in on the ChatGPT tab, then come back here.'];
+  if (session.signingIn) {
+    return [`Finish signing in on the ChatGPT tab, then come back here.${problem}`];
+  }
   return [
-    `Use your ChatGPT plan: requests in this editor use the usage included in your ChatGPT Plus or Pro plan, or your credits.${problem}`,
+    `Use your ChatGPT plan: requests in this editor use the usage included in your ChatGPT Plus or Pro plan, or your credits. ${sent}${problem}`,
   ];
 }
 async function refreshBridge() {
@@ -942,12 +971,23 @@ async function refreshBridge() {
   try {
     session = await client.describe();
   } catch (error) {
+    if (error.code === 'not_bridge') leaveBridgeMode();
     $('bridge-status').textContent = error.message;
     $('chatgpt-signin').hidden = true;
+    $('chatgpt-switch').hidden = true;
     return null;
   }
-  $('bridge-status').replaceChildren(...describeSession(session));
-  $('chatgpt-signin').hidden = session.provider !== 'chatgpt' || session.ready || session.signingIn;
+  // A link shown because the sign-in tab was blocked stays until sign-in ends.
+  if (!(session.signingIn && $('bridge-status').querySelector('.signin-link'))) {
+    $('bridge-status').replaceChildren(...describeSession(session));
+  }
+  const chatgpt = session.provider === 'chatgpt';
+  // While a sign-in is pending, the button starts a new one, which replaces it.
+  $('chatgpt-signin').hidden = !chatgpt || session.ready;
+  $('chatgpt-signin').textContent = session.signingIn
+    ? 'Start sign-in again'
+    : 'Continue with ChatGPT';
+  $('chatgpt-switch').hidden = !chatgpt || !session.signedIn || session.signingIn;
   return session;
 }
 function pollBridge() {
@@ -962,22 +1002,23 @@ function pollBridge() {
     if (!session?.signingIn) clearInterval(bridgePoll);
   }, 2000);
 }
-async function signInWithChatGPT() {
+async function signInWithChatGPT({ newAccount = false } = {}) {
   $('key-error').textContent = '';
   // Open the tab during the click so it is not blocked, then send it to ChatGPT.
   const tab = window.open('', '_blank');
   try {
-    const { url } = await client.login();
+    const { url } = await client.login({ newAccount });
     if (tab) {
       tab.opener = null;
       tab.location.href = url;
     } else {
       const link = document.createElement('a');
+      link.className = 'signin-link';
       link.href = url;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
       link.textContent = 'Open ChatGPT sign-in';
-      $('bridge-status').replaceChildren(link);
+      $('bridge-status').replaceChildren('Your browser blocked the sign-in tab. ', link);
     }
   } catch (error) {
     tab?.close();
@@ -992,9 +1033,13 @@ function showPlan() {
   const session = client.session;
   indicator.hidden = !bridgeToken || !client.ready || !session;
   if (indicator.hidden) return;
-  if (session.provider === 'chatgpt')
+  if (session.provider === 'chatgpt') {
     indicator.replaceChildren('Using ChatGPT plan · ', manageUsageLink());
-  else indicator.replaceChildren('Using Claude plan');
+  } else {
+    indicator.replaceChildren(
+      session.billing === 'api_key' ? 'Using Anthropic API key' : 'Using Claude plan',
+    );
+  }
 }
 function setupBridge() {
   for (const element of [
@@ -1010,6 +1055,7 @@ function setupBridge() {
   $('bridge-panel').hidden = false;
   $('connect').textContent = 'Connect your plan';
   $('chatgpt-signin').onclick = () => void signInWithChatGPT();
+  $('chatgpt-switch').onclick = () => void signInWithChatGPT({ newAccount: true });
 }
 $('key-form').onsubmit = event => {
   event.preventDefault();
@@ -1182,7 +1228,10 @@ savedRange = initialRange;
 if (bridgeToken) setupBridge();
 gate();
 if (bridgeToken) {
-  if (bridgeConsented()) void connectKey('', true);
+  // Consent is per plan, so ask the bridge which plan it runs before connecting.
+  void refreshBridge().then(session => {
+    if (session?.ready && bridgeConsented(session.provider)) void connectKey('', true);
+  });
 } else {
   const savedKey = readSavedKey();
   if (savedKey) void connectKey(savedKey, true);

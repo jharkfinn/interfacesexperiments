@@ -21,8 +21,8 @@ Open `http://localhost:4174/` for Text and Autocomplete or `http://localhost:417
 To run Text and Autocomplete on your Claude plan or ChatGPT plan instead of an API key, start its local bridge and open the link it prints:
 
 ```sh
-node text-and-autocomplete/scripts/bridge.mjs --provider claude
-node text-and-autocomplete/scripts/bridge.mjs --provider chatgpt
+node text-and-autocomplete/scripts/bridge.mjs                      # Claude plan
+node text-and-autocomplete/scripts/bridge.mjs --provider chatgpt   # ChatGPT plan
 ```
 
 ## Publish

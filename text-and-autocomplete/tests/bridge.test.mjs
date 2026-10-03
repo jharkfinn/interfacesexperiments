@@ -379,3 +379,58 @@ test('the browser client reports bridge errors and drops the connection when unp
   });
   await assert.rejects(waiting.connect(), /Continue with ChatGPT/);
 });
+
+test('cancelled runs are not reported as errors and do not count toward the rate limit', async () => {
+  const backend = new FakeBackend();
+  backend.hang = true;
+  backend.login = async options => ({ url: 'https://auth.example/', options });
+  const b = await bridge(backend);
+  try {
+    const login = await b.api('/api/login', { newAccount: true });
+    assert.deepEqual(JSON.parse(login.body).options, { newAccount: true });
+    // Typing cancels a request on every key; 70 of them must not trip the limit.
+    const first = b.api('/api/run', { op: 'complete', before: 'a', after: '' });
+    await new Promise(resolve => setTimeout(resolve, 30));
+    for (let index = 0; index < 70; index++) {
+      const next = b.api('/api/run', { op: 'complete', before: `a${index}`, after: '' });
+      await new Promise(resolve => setTimeout(resolve, 5));
+      next.catch(() => {});
+    }
+    const replaced = await first;
+    assert.equal(replaced.status, 200);
+    assert.equal(replaced.body, '', 'a replaced run ends quietly, with no error line');
+    backend.hang = false;
+    const answered = await b.api('/api/run', { op: 'complete', before: 'b', after: '' });
+    assert.equal(answered.status, 200);
+    assert.match(answered.body, /"type":"done"/);
+  } finally {
+    b.close();
+  }
+});
+
+test('the client falls back when the page is not served by the bridge, and connect times out', async () => {
+  const notBridge = new BridgeCompose(() => {}, {
+    token: TOKEN,
+    fetchImpl: async () => new Response('Not found', { status: 404 }),
+  });
+  await assert.rejects(notBridge.connect(), error => error.code === 'not_bridge');
+  const statuses = [];
+  const stalled = new BridgeCompose((state, message) => statuses.push([state, message]), {
+    token: TOKEN,
+    fetchImpl: (path, init) =>
+      new Promise((resolve, reject) =>
+        init.signal.addEventListener('abort', () =>
+          reject(new DOMException('Aborted', 'AbortError')),
+        ),
+      ),
+  });
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (callback, ms, ...rest) =>
+    realSetTimeout(callback, Math.min(ms, 20), ...rest);
+  try {
+    await assert.rejects(stalled.connect(), /timed out/);
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+  assert.deepEqual(statuses.at(-1), ['error', 'Connection timed out. Try again.']);
+});

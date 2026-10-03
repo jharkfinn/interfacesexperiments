@@ -11,7 +11,8 @@ import { buildRequest } from './prompts.mjs';
 // A rephrase sends the document plus up to 12 earlier wordings of the selection.
 const MAX_BODY = 512 * 1024;
 const RATE_WINDOW_MS = 10000;
-const RATE_LIMIT = 40;
+// Requests cancelled before they answered do not count: typing cancels one per key.
+const RATE_LIMIT = 60;
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -110,13 +111,16 @@ export function createBridgeHandler({ files, backend, token, port, log = () => {
 
   async function run(req, res, body) {
     const now = Date.now();
-    while (recent.length && now - recent[0] > RATE_WINDOW_MS) recent.shift();
+    while (recent.length && now - recent[0].time > RATE_WINDOW_MS) recent.shift();
     if (recent.length >= RATE_LIMIT) {
       sendJSON(res, 429, { error: 'Too many requests. Pause for a moment.' });
       return;
     }
-    recent.push(now);
     const request = buildRequest(body);
+    const stamp = { time: now };
+    recent.push(stamp);
+    let answered = false;
+    let timedOut = false;
     // The editor sends one request at a time, so a new one replaces the old one.
     active?.abort();
     const controller = new AbortController();
@@ -127,7 +131,10 @@ export function createBridgeHandler({ files, backend, token, port, log = () => {
       if (!res.writableEnded && !res.destroyed) res.write(JSON.stringify(value) + '\n');
     };
     res.on('close', () => controller.abort());
-    const timer = setTimeout(() => controller.abort(), request.timeoutMs + 5000);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, request.timeoutMs + 5000);
     log('run', { operation: request.operation });
     try {
       const text = await backend.run({
@@ -135,16 +142,27 @@ export function createBridgeHandler({ files, backend, token, port, log = () => {
         input: request.input,
         maxChars: request.maxChars,
         signal: controller.signal,
-        onDelta: delta => write({ type: 'delta', delta }),
+        onDelta: delta => {
+          answered = true;
+          write({ type: 'delta', delta });
+        },
       });
+      answered = true;
       write({ type: 'done', text });
     } catch (error) {
-      if (!controller.signal.aborted || error.code) {
-        write({ type: 'error', message: error.message || 'The request failed.', code: error.code });
+      // A cancellation is not an error to report: the page or a newer request did it.
+      // DOMException carries a numeric legacy code, so only string codes count.
+      const code = typeof error.code === 'string' ? error.code : undefined;
+      if (timedOut)
+        write({ type: 'error', message: 'The request took too long.', code: 'timeout' });
+      else if (!controller.signal.aborted || code) {
+        write({ type: 'error', message: error.message || 'The request failed.', code });
       }
     } finally {
       clearTimeout(timer);
       if (active === controller) active = null;
+      if (!answered && controller.signal.aborted && !timedOut)
+        recent.splice(recent.indexOf(stamp), 1);
       res.end();
     }
   }
@@ -178,8 +196,9 @@ export function createBridgeHandler({ files, backend, token, port, log = () => {
     const body = await readBody(req);
     if (path === '/api/session') sendJSON(res, 200, await backend.describe());
     else if (path === '/api/run') await run(req, res, body);
-    else if (path === '/api/login' && backend.login) sendJSON(res, 200, await backend.login());
-    else send(res, 404);
+    else if (path === '/api/login' && backend.login) {
+      sendJSON(res, 200, await backend.login({ newAccount: body.newAccount === true }));
+    } else send(res, 404);
   }
 
   return async (req, res) => {

@@ -36,6 +36,12 @@ export class BridgeCompose {
         code: 'bridge_offline',
       });
     }
+    // A static server answers these for any path: this page was not opened by the bridge.
+    if ([404, 405, 501].includes(response.status) && path === 'api/session') {
+      throw Object.assign(new Error('This page is not served by the bridge.'), {
+        code: 'not_bridge',
+      });
+    }
     if (response.status === 401) {
       throw Object.assign(
         new Error('This tab is not paired with the running bridge. Open the link it printed.'),
@@ -51,18 +57,23 @@ export class BridgeCompose {
     }
     return response;
   }
-  async describe() {
-    this.session = await (await this.post('api/session')).json();
+  async describe(signal = undefined) {
+    this.session = await (await this.post('api/session', {}, signal)).json();
     return this.session;
   }
-  async login() {
-    return (await this.post('api/login')).json();
+  async login({ newAccount = false } = {}) {
+    return (await this.post('api/login', { newAccount })).json();
   }
   async connect() {
     this.cancel();
     this.onStatus('connecting');
+    // Same limit as RealtimeCompose: a stalled sign-in check must not hang the dialog.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
     try {
-      const session = await this.describe();
+      const session = await this.describe(controller.signal).catch(error => {
+        throw error.name === 'AbortError' ? new Error('Connection timed out. Try again.') : error;
+      });
       if (!session.ready) {
         throw new Error(
           session.problem ||
@@ -77,6 +88,8 @@ export class BridgeCompose {
       this.ready = false;
       this.onStatus('error', error.message);
       throw error;
+    } finally {
+      clearTimeout(timer);
     }
   }
   request(context, onProgress = () => {}, attempt = null, options = {}) {
@@ -173,7 +186,11 @@ export class BridgeCompose {
         if (pending.timedOut) throw new Error('Writing request timed out. Try again.');
         this.diagnose('transport-failed', { attempt, code: error.code || null });
         // Lost pairing or sign-in ends the connection, so the dialog comes back.
-        if (['bridge_offline', 'bridge_unpaired', 'signin_required'].includes(error.code)) {
+        if (
+          ['bridge_offline', 'bridge_unpaired', 'signin_required', 'not_eligible'].includes(
+            error.code,
+          )
+        ) {
           this.ready = false;
           this.onStatus('error', error.message);
         }

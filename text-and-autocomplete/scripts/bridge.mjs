@@ -4,8 +4,9 @@
 //   node scripts/bridge.mjs --provider claude
 //   node scripts/bridge.mjs --provider chatgpt
 //
-// It serves dist/ on 127.0.0.1 and prints a link with a one-time token. For
-// personal use on your own computer: never expose it to other people.
+// It serves dist/ on 127.0.0.1 and prints a link with a token for this run. For
+// personal use on your own computer: keep the link private and never expose the
+// bridge to other people.
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -14,15 +15,16 @@ import { listFiles, createBridgeHandler } from './bridge/server.mjs';
 import { ClaudeBackend, DEFAULT_MODEL } from './bridge/claude.mjs';
 import { ChatGPTBackend, MANAGE_USAGE_URL } from './bridge/chatgpt.mjs';
 
-const HELP = `Usage: node scripts/bridge.mjs --provider claude|chatgpt [options]
+const HELP = `Usage: node scripts/bridge.mjs [--provider claude|chatgpt] [options]
 
-  --provider <name>   claude: your Claude plan through your Claude Code sign-in
+  --provider <name>   claude (default): your Claude plan through your Claude Code sign-in
                       chatgpt: your ChatGPT Plus or Pro plan through Sign in with ChatGPT
   --port <number>     Port on 127.0.0.1 (default 4175)
   --model <id>        Model to use (claude default ${DEFAULT_MODEL};
-                      chatgpt default: the smallest model your account lists)
+                      chatgpt default: a Luna, mini, or nano model your account lists)
   --claude <path>     Path to the claude executable (default: claude on PATH)
-  --allow-api-key     Let Claude Code bill an API key instead of a Claude plan
+  --allow-api-key     Let Claude Code bill the API key it is signed in with
+                      (claude auth login --console) instead of a Claude plan
   --reasoning <level> ChatGPT reasoning effort (default low; "none" omits it)
   --sign-out          ChatGPT: end the saved sign-in and exit
   --verbose           Log each request's operation (never its text)
@@ -68,30 +70,56 @@ if (values.provider === 'claude') {
   process.exit(2);
 }
 
+if (values['sign-out'] && values.provider !== 'chatgpt') {
+  console.error('--sign-out applies to --provider chatgpt.');
+  process.exit(2);
+}
+
+const token = randomBytes(32).toString('base64url');
+const root = fileURLToPath(new URL('../dist/', import.meta.url));
+const server = createServer();
+server.requestTimeout = 60000;
+server.headersTimeout = 10000;
+// Take the port first, so a busy port fails before any request reaches the plan.
+// Loopback only, always: other machines on the network must never reach this.
+if (!values['sign-out']) {
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(port, '127.0.0.1', resolve);
+    });
+  } catch (error) {
+    console.error(
+      error.code === 'EADDRINUSE'
+        ? `Port ${port} is busy. Pass another with --port.`
+        : `Could not start: ${error.message}`,
+    );
+    process.exit(1);
+  }
+}
+
 try {
   console.log(values.provider === 'claude' ? 'Checking Claude Code…' : 'Loading ChatGPT sign-in…');
   await backend.start();
 } catch (error) {
   console.error(error.message);
+  backend.close();
   process.exit(1);
 }
+if (backend.notice) console.log(backend.notice);
 
 if (values['sign-out']) {
-  if (!backend.logout) {
-    console.error('--sign-out applies to --provider chatgpt.');
-    process.exit(2);
-  }
-  const { revoked } = await backend.logout();
+  const { revoked, signedIn } = await backend.logout();
   console.log(
-    revoked
-      ? 'Signed out of ChatGPT.'
-      : 'Signed out here, but ChatGPT did not confirm it. You can disconnect the app in ChatGPT Settings.',
+    !signedIn
+      ? 'Not signed in to ChatGPT.'
+      : revoked
+        ? 'Signed out of ChatGPT.'
+        : 'Signed out here, but ChatGPT did not confirm it. You can disconnect the app in ChatGPT Settings.',
   );
   process.exit(0);
 }
 
-const token = randomBytes(32).toString('base64url');
-const root = fileURLToPath(new URL('../dist/', import.meta.url));
 const handler = createBridgeHandler({
   files: await listFiles(root),
   backend,
@@ -99,32 +127,22 @@ const handler = createBridgeHandler({
   port,
   log: values.verbose ? (event, data) => console.log(event, JSON.stringify(data)) : () => {},
 });
-const server = createServer(handler);
-server.requestTimeout = 60000;
-server.headersTimeout = 10000;
-server.on('error', error => {
-  console.error(
-    error.code === 'EADDRINUSE'
-      ? `Port ${port} is busy. Pass another with --port.`
-      : `Could not start: ${error.message}`,
-  );
-  process.exit(1);
-});
-// Loopback only, always: other machines on the network must never reach this.
-server.listen(port, '127.0.0.1', () => {
-  console.log(`
+server.on('request', handler);
+const billing = await backend.describe();
+console.log(`
 Open this link in your browser (it only works while this runs):
 
   http://127.0.0.1:${port}/#k=${token}
 
 ${
-  values.provider === 'claude'
-    ? 'Requests use your Claude plan through your own Claude Code sign-in and count toward its usage limits.'
-    : `Requests use your ChatGPT plan and count toward its limits. Manage usage: ${MANAGE_USAGE_URL}`
+  values.provider === 'chatgpt'
+    ? `Requests use your ChatGPT plan and count toward its limits. Manage usage: ${MANAGE_USAGE_URL}`
+    : billing.billing === 'api_key'
+      ? 'Requests are billed to the Anthropic API key Claude Code uses (--allow-api-key).'
+      : 'Requests use your Claude plan through your own Claude Code sign-in and count toward its usage limits.'
 }
 For personal use on this computer only. Press Ctrl+C to stop.
 `);
-});
 
 const stop = () => {
   backend.close();

@@ -462,6 +462,15 @@ kbd {
   font-size: 14px;
   font-weight: 600;
 }
+.chatgpt-switch {
+  margin-left: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #a8c7fa;
+  font-size: 13px;
+  text-decoration: underline;
+}
 .word-limit {
   margin-left: auto;
   color: #9299a6;
