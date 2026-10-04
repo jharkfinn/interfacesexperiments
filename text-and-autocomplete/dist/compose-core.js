@@ -1,5 +1,5 @@
 import { cutAtCitation, guardDraft, guardInsertion } from './citation-guard.js';
-import { isAbbreviation } from './legal-text.js';
+import { ALWAYS_JOIN, PREFIX_UNLESS_AFTER_NAME, isAbbreviation, isReporter } from './legal-text.js';
 
 export const MODEL = 'gpt-realtime-2.1-mini';
 // Room for a full legal memo, which runs to about 1,250 words.
@@ -28,12 +28,32 @@ export function fitInsertion(before, insertion, after) {
   if (/[\ud800-\udbff]/u.test(insertion[low - 1] || '')) low--;
   return insertion.slice(0, low);
 }
-// "Lakeside, 455 F." or "Columbus Country Club v." ends in a period but not a sentence,
-// so a token the legal splitter knows as an abbreviation keeps the sentence open.
+// Abbreviations that keep a sentence open: "v.", a title ("Dr.", "Gen."), a court ("Cir."),
+// an initial ("F.", "J."), a reporter after its volume ("455 F.", "550 U.S.", "42 U.S.C."),
+// and "St." before a name. Any other ("the U.S.", "7 a.m.", "Jr.", "etc.", "Ph.D.") may end
+// a sentence, so a caret after it and a space starts a new one.
+const KEEPS_OPEN = new Set([
+  ...ALWAYS_JOIN,
+  'Cir.',
+  'Dist.',
+  'Ct.',
+  'App.',
+  'Super.',
+  'Sup.',
+  'Bankr.',
+]);
+const BEFORE_NAME = new Set(PREFIX_UNLESS_AFTER_NAME);
 export function isSentenceBoundary(before) {
   if (!/[.!?。！？][”’"')\]]*[^\S\r\n]*$/u.test(before)) return false;
-  const token = before.trimEnd().split(/\s/u).at(-1);
-  return /[?!]$/u.test(token) || !isAbbreviation(token);
+  const words = before.trimEnd().split(/\s+/u);
+  const token = words.at(-1);
+  const previous = words.at(-2) ?? '';
+  if (/[?!]$/u.test(token) || !isAbbreviation(token)) return true;
+  if (KEEPS_OPEN.has(token) || /^[A-Z]\.$/u.test(token)) return false;
+  if (BEFORE_NAME.has(token)) return /^[A-Z]/u.test(previous);
+  // A volume and its reporter or code: "550 U.S.", "455 F. Supp.", "29 C.F.R."
+  if (/^\d/u.test(previous) && /^[A-Z]/u.test(token)) return false;
+  return !isReporter(`${previous} ${token}`);
 }
 function lengthRejection(text, before, after, maxChars, maxWords) {
   if (text.length > maxChars) return 'suggestion-character-limit';
@@ -89,7 +109,7 @@ export function inspectCompletion(text, before, after, finished = true) {
           /\b(?:see|cf\.|accord|citing|quoting|compare|contra)(?:,?\s+(?:also|generally|e\.g\.,?))?[\s,]*$/iu,
           '',
         );
-  const candidate = cutAtCitation(lastParagraph(before), shown);
+  const candidate = cutAtCitation(lastParagraph(before), shown, before + after);
   const reason =
     raw.trim() && !candidate.trim()
       ? shown.trim()
