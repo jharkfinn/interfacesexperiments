@@ -2,6 +2,7 @@ import { responseEvent } from './compose-core.js?v=576be38817a3';
 import { rewriteEvent } from './rewrite-core.js?v=3b9f63316aa6';
 import { combineEvent } from './combine-core.js?v=1c8f69eb2a6d';
 import { segmentEvent, levelsEvent } from './segment-core.js?v=bc5c5daaadea';
+import { legalEvent } from './legal-core.js';
 
 // Runs requests through Claude on the viewer's own claude.ai account, when the
 // editor is published as a claude.ai page with the `sample` capability. It has
@@ -34,7 +35,7 @@ export class SampleCompose {
     onStatus,
     {
       claude = globalThis.claude,
-      tiers = () => ({ compose: 'quick', rewrite: 'quick' }),
+      tiers = () => ({ compose: 'quick', rewrite: 'quick', views: 'quick' }),
       diagnose = () => {},
     } = {},
   ) {
@@ -101,12 +102,14 @@ export class SampleCompose {
       'rewrite',
     );
   }
-  // Divides the document into pieces for a view: {purpose, paragraphs}.
+  // Divides the document into pieces for a view: {purpose, paragraphs}. The
+  // views' requests have their own tier, so reading the document for the views
+  // can run on a quicker model than rewriting it.
   segment(context) {
     return this.send(
       () => segmentEvent('page', context),
       () => {},
-      'rewrite',
+      'views',
     );
   }
   // Maps the document's goals as a tree: {paragraphs}.
@@ -114,7 +117,15 @@ export class SampleCompose {
     return this.send(
       () => levelsEvent('page', context),
       () => {},
-      'rewrite',
+      'views',
+    );
+  }
+  // Labels each sentence's job in a legal analysis: {paragraphs, prior}.
+  legal(context) {
+    return this.send(
+      () => legalEvent('page', context),
+      () => {},
+      'views',
     );
   }
   send(build, onProgress, kind, attempt = null) {

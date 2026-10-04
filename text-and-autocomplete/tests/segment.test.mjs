@@ -13,6 +13,9 @@ import {
   remapLevels,
   cleanLabel,
 } from '../dist/segment-core.js';
+import { MAX_WORDS } from '../dist/compose-core.js';
+import { LEGAL_INSTRUCTIONS } from '../dist/legal-core.js';
+import { LEGAL, LEVELS, divisionKey } from '../dist/segments.js';
 import { buildRequest } from '../scripts/bridge/prompts.mjs';
 
 // Three paragraphs: a heading, two sentences, three sentences (6 sentences in all).
@@ -49,8 +52,20 @@ test('a segment request refuses a bad purpose or document', () => {
   assert.throws(() => segmentEvent('id', { ...ok, paragraphs: [{ kind: 'p', sentences: [] }] }));
   assert.throws(() => segmentEvent('id', { ...ok, paragraphs: [{ kind: 'p', sentences: [3] }] }));
   assert.throws(() =>
-    segmentEvent('id', { ...ok, paragraphs: [{ kind: 'p', sentences: ['word '.repeat(501)] }] }),
+    segmentEvent('id', {
+      ...ok,
+      paragraphs: [{ kind: 'p', sentences: ['word '.repeat(MAX_WORDS + 1)] }],
+    }),
   );
+});
+
+test('a block quotation is a paragraph Claude can see', () => {
+  const event = segmentEvent('id', {
+    purpose: 'Ideas',
+    paragraphs: [{ kind: 'blockquote', sentences: ['“A dwelling.” Id. at 2.'] }],
+  });
+  const input = JSON.parse(event.response.input[0].content[0].text);
+  assert.equal(input.paragraphs[0].kind, 'blockquote');
 });
 
 test('a valid reply becomes pieces as given', () => {
@@ -180,6 +195,8 @@ test('a levels request numbers sentences through the document and has no purpose
   const input = JSON.parse(event.response.input[0].content[0].text);
   assert.deepEqual(Object.keys(input), ['paragraphs']);
   assert.deepEqual(input.paragraphs[1].sentences[1], { n: 3, text: 'They take ten minutes.' });
+  // Room for a tree of a document at the word limit; Realtime caps it lower.
+  assert.equal(event.response.max_output_tokens, 8192);
   assert.throws(() => levelsEvent('id', { paragraphs: [{ kind: 'p', sentences: [] }] }));
   assert.throws(() => levelsEvent('id', {}));
 });
@@ -380,4 +397,63 @@ test('the bridge builds a levels request and refuses a bad one', () => {
   assert.equal(request.instructions, LEVELS_INSTRUCTIONS);
   assert.equal(request.timeoutMs, 45000);
   assert.throws(() => buildRequest({ op: 'levels', paragraphs: 'all of it' }));
+});
+
+test('the bridge builds a legal request with prior labels and refuses bad ones', () => {
+  const request = buildRequest({ op: 'legal', paragraphs: PARAGRAPHS });
+  assert.equal(request.operation, 'legal');
+  assert.equal(request.instructions, LEGAL_INSTRUCTIONS);
+  assert.equal(request.timeoutMs, 45000);
+  assert.equal(request.maxChars, 4096 * 8);
+  const prior = [['heading', 'framing'], null, null, ['rule', 'law'], null, null];
+  const input = JSON.parse(buildRequest({ op: 'legal', paragraphs: PARAGRAPHS, prior }).input);
+  assert.deepEqual(input.paragraphs[0].sentences[0].prior, ['heading', 'framing']);
+  assert.deepEqual(input.paragraphs[2].sentences[0].prior, ['rule', 'law']);
+  assert.equal('prior' in input.paragraphs[1].sentences[0], false);
+  for (const bad of [[['rules', 'law']], 'x', [['rule', 'law', 'extra']], [{ role: 'rule' }]]) {
+    assert.throws(
+      () => buildRequest({ op: 'legal', paragraphs: PARAGRAPHS, prior: bad }),
+      error =>
+        error.status === 400 &&
+        error.message === 'Expected prior as one [role, kind] pair or null per sentence.',
+    );
+  }
+  // Pairs from the lists, but not one per sentence.
+  assert.throws(
+    () => buildRequest({ op: 'legal', paragraphs: PARAGRAPHS, prior: [['rule', 'law']] }),
+    error => error.status === 400 && error.message === 'Expected one prior entry per sentence.',
+  );
+  assert.throws(
+    () => buildRequest({ op: 'legal', paragraphs: 'all of it' }),
+    error => error.status === 400,
+  );
+});
+
+test('the legal key ignores moves but not edits', () => {
+  const key = divisionKey(LEGAL, PARAGRAPHS);
+  const moved = [PARAGRAPHS[0], PARAGRAPHS[2], PARAGRAPHS[1]];
+  assert.equal(divisionKey(LEGAL, moved), key);
+  // A sentence moved inside its paragraph keeps the key too.
+  const reordered = [
+    PARAGRAPHS[0],
+    PARAGRAPHS[1],
+    { kind: 'p', sentences: ['Go savory.', 'Go sweet.', 'Both work.'] },
+  ];
+  assert.equal(divisionKey(LEGAL, reordered), key);
+  const edited = [
+    PARAGRAPHS[0],
+    { kind: 'p', sentences: ['Pancakes are fast.', 'They take ten minutes.'] },
+    PARAGRAPHS[2],
+  ];
+  assert.notEqual(divisionKey(LEGAL, edited), key);
+  // A sentence that becomes a heading is a different sentence.
+  assert.notEqual(
+    divisionKey(LEGAL, [
+      { kind: 'h2', sentences: ['Pancakes for Dinner'] },
+      ...PARAGRAPHS.slice(1),
+    ]),
+    key,
+  );
+  // Other topics still follow the order of the text.
+  assert.notEqual(divisionKey(LEVELS, moved), divisionKey(LEVELS, PARAGRAPHS));
 });

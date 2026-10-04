@@ -146,6 +146,14 @@ export class BridgeCompose {
   levels(context) {
     return this.send({ op: 'levels', paragraphs: context.paragraphs }, () => {}, 45000);
   }
+  // Labels each sentence's job in a legal analysis: {paragraphs, prior}.
+  legal(context) {
+    return this.send(
+      { op: 'legal', paragraphs: context.paragraphs, prior: context.prior ?? null },
+      () => {},
+      45000,
+    );
+  }
   send(body, onProgress, timeout, attempt = null) {
     this.cancel();
     if (!this.ready) return Promise.reject(new Error('Connect first.'));

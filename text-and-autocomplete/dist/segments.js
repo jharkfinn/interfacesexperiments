@@ -1,38 +1,84 @@
 import { parseSegments, parseLevels, remapLevels } from './segment-core.js?v=bc5c5daaadea';
+import { parseLegal, remapLegal } from './legal-core.js';
 
 // Claude's divisions of the document. A topic is what one division answers:
-// the purpose of a view ("purpose:" and its words), or the tree of goals that
-// every level view shares ("levels"). A division is kept as levels of pieces of
-// sentence text, one level for a purpose, so it follows its sentences through
-// moves and edits. When the text changes, Claude divides it again once typing
+// the purpose of a view ("purpose:" and its words), the tree of goals that
+// every level view shares ("levels"), or the legal labels of every sentence
+// that the IRAC and Sourcing views share ("legal"). A division is kept as
+// levels of pieces of sentence text, one level for a purpose, or as one tag per
+// sentence with the sentence's text, so it follows its sentences through moves
+// and edits. When the text changes, Claude divides it again once typing
 // has stopped for a while and the connection is free. Divisions are saved by
 // topic and document text, in memory and in this browser, so the same text is
 // never sent twice.
 
 export const LEVELS = 'levels';
+export const LEGAL = 'legal';
+// Whether a view's declaration needs Claude to read the document.
+export const usesClaude = spec =>
+  ['claude', 'level', 'role'].includes(spec.unit) || spec.show === 'sources';
 // The topic a view's declaration asks Claude about.
-export const topicFor = spec => (spec.unit === 'level' ? LEVELS : `purpose:${spec.purpose}`);
+export function topicFor(spec) {
+  if (spec.unit === 'level') return LEVELS;
+  if (spec.unit === 'role' || spec.show === 'sources') return LEGAL;
+  return `purpose:${spec.purpose}`;
+}
 
-// Asks Claude about a topic.
-function request(client, topic, paragraphs) {
+// Asks Claude about a topic. A legal request carries the labels Claude gave
+// before, for the sentences that kept them, so a small edit does not relabel
+// sentences nobody touched; a guessed label is not sent back as Claude's own.
+function request(client, topic, paragraphs, state) {
   if (topic === LEVELS) return client.levels({ paragraphs });
+  if (topic === LEGAL) {
+    const carried = remapLegal(state.division, paragraphs);
+    const prior = carried?.map(tag => (tag.guess ? null : [tag.role, tag.kind]));
+    return client.legal({ paragraphs, prior: prior?.some(Boolean) ? prior : null });
+  }
   return client.segment({ purpose: topic.slice('purpose:'.length), paragraphs });
 }
-// Claude's answer as levels of runs of sentences, or null.
+// Claude's answer as the division to store, or null: for legal labels, one tag
+// per sentence; otherwise levels of pieces of sentence text.
 function answer(topic, raw, paragraphs) {
-  if (topic === LEVELS) return parseLevels(raw, paragraphs);
-  const runs = parseSegments(raw, paragraphs);
-  return runs && [runs];
+  if (topic === LEGAL) return parseLegal(raw, paragraphs);
+  let levels;
+  if (topic === LEVELS) levels = parseLevels(raw, paragraphs);
+  else {
+    const runs = parseSegments(raw, paragraphs);
+    levels = runs && [runs];
+  }
+  if (!levels?.length) return null;
+  const sentences = paragraphs.flatMap(paragraph => paragraph.sentences);
+  return {
+    levels: levels.map(pieces =>
+      pieces.map(({ first, last, label, method }) => ({
+        label,
+        ...(method === undefined ? {} : { method }),
+        sentences: sentences.slice(first - 1, last),
+      })),
+    ),
+  };
 }
 
 const SAVED_KEY = 'text-and-autocomplete.segments';
 const SAVED_LIMIT = 30;
-const IDLE_MS = 2500;
 const RETRY_MS = 1500;
+// How long typing must stop before Claude is asked again. A legal request
+// sends the whole document, so it waits longer.
+export const idleFor = topic => (topic === LEGAL ? 5000 : 2500);
 
 // A short key for a topic and a document's text, for the saved divisions.
+// Legal labels belong to sentences, not to their order, so the legal key is
+// the same after a move and a move asks Claude nothing.
 export function divisionKey(topic, paragraphs) {
-  const text = [topic, ...paragraphs.map(p => `${p.kind}\u0001${p.sentences.join('\u0002')}`)];
+  const text =
+    topic === LEGAL
+      ? [
+          topic,
+          ...paragraphs
+            .flatMap(p => p.sentences.map(sentence => `${p.kind}\u0001${sentence}`))
+            .sort(),
+        ]
+      : [topic, ...paragraphs.map(p => `${p.kind}\u0001${p.sentences.join('\u0002')}`)];
   let hash = 0x811c9dc5;
   let second = 0;
   for (const char of text.join('\u0003')) {
@@ -150,8 +196,55 @@ export class Segments {
       message: state.message || '',
     };
   }
+  // The legal labels of the sentences now, one tag per sentence in document
+  // order or null, with the same status as view(), and `partial` when Claude
+  // left many sentences unlabelled. The same object comes back while nothing
+  // changed, so views can skip work when it is the one they last drew.
+  legal() {
+    const state = this.state(LEGAL);
+    const { version } = this.model.read();
+    const ready = this.ready();
+    const memo = state.memo;
+    if (
+      memo &&
+      memo.version === version &&
+      memo.key === state.key &&
+      memo.status === state.status &&
+      memo.division === state.division &&
+      memo.ready === ready
+    ) {
+      return memo.value;
+    }
+    const paragraphs = this.model.paragraphs();
+    const key = divisionKey(LEGAL, paragraphs);
+    const saved = this.saved.get(key);
+    if (saved && state.key !== key) {
+      state.division = saved;
+      state.key = key;
+      if (state.status !== 'failed') state.status = 'ready';
+    }
+    const tags = remapLegal(state.division, paragraphs);
+    let status = state.status;
+    if (!ready) status = tags ? (state.key === key ? 'ready' : 'updating') : 'offline';
+    else if (state.key !== key && tags && status === 'ready') status = 'updating';
+    const value = {
+      tags,
+      status,
+      message: state.message || '',
+      partial: Boolean(tags && state.division?.partial),
+    };
+    state.memo = {
+      version,
+      key: state.key,
+      status: state.status,
+      division: state.division,
+      ready,
+      value,
+    };
+    return value;
+  }
   // Schedules a division when the text differs from the last one.
-  check(topic, delay = IDLE_MS) {
+  check(topic, delay = idleFor(topic)) {
     if (!this.listeners.has(topic)) return;
     const state = this.state(topic);
     const key = divisionKey(topic, this.model.paragraphs());
@@ -173,7 +266,7 @@ export class Segments {
       return;
     }
     if (!paragraphs.length) {
-      state.division = { levels: [] };
+      state.division = topic === LEGAL ? { tags: [] } : { levels: [] };
       state.key = key;
       state.status = 'ready';
       this.notify(topic);
@@ -198,28 +291,31 @@ export class Segments {
         return;
       }
     }
+    // One topic asks at a time. A new request cancels the one before it on
+    // every client, so two topics asking at once would abort each other, try
+    // again, and abort each other again.
+    if ([...this.states.values()].some(other => other !== state && other.asking)) {
+      state.timer = setTimeout(() => this.ask(topic), RETRY_MS);
+      return;
+    }
     state.asking = key;
     if (state.status !== 'updating') state.status = state.division ? 'updating' : 'waiting';
     state.message = '';
     this.notify(topic);
     this.diagnose('segment-request', {
-      topic: topic === LEVELS ? 'levels' : 'purpose',
+      topic: topic === LEVELS || topic === LEGAL ? topic : 'purpose',
       paragraphs: paragraphs.length,
     });
     try {
-      const raw = await request(this.client, topic, paragraphs);
-      const levels = answer(topic, raw, paragraphs);
-      if (!levels?.length) throw new Error('Claude gave no pieces this view can use.');
-      const sentences = paragraphs.flatMap(paragraph => paragraph.sentences);
-      const division = {
-        levels: levels.map(pieces =>
-          pieces.map(({ first, last, label, method }) => ({
-            label,
-            ...(method === undefined ? {} : { method }),
-            sentences: sentences.slice(first - 1, last),
-          })),
-        ),
-      };
+      const raw = await request(this.client, topic, paragraphs, state);
+      const division = answer(topic, raw, paragraphs);
+      if (!division) {
+        throw new Error(
+          topic === LEGAL
+            ? 'Claude gave no labels this view can use.'
+            : 'Claude gave no pieces this view can use.',
+        );
+      }
       this.remember(key, division);
       state.division = division;
       state.key = key;

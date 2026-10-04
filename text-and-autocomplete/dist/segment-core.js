@@ -93,9 +93,10 @@ export function segmentEvent(id, { purpose, paragraphs }) {
 export function levelsEvent(id, { paragraphs }) {
   return textResponse(id, {
     operation: 'levels',
-    // The same cap as every other request; a tree for a 500-word document
-    // needs about half of it.
-    maxOutputTokens: 4096,
+    // A tree for a 500-word document needs about 2,000 tokens, so a document
+    // at the 2,000-word limit needs more than the 4,096 other requests get.
+    // The Realtime API takes at most 4,096, and its transport caps it there.
+    maxOutputTokens: 8192,
     instructions: LEVELS_INSTRUCTIONS,
     input: { paragraphs: numbered(paragraphs) },
   });

@@ -31,8 +31,12 @@ import {
   checkSpec,
   specFromPurpose,
   specFromLevel,
+  specFromRoles,
+  specFromSources,
   idFor,
 } from './view-specs.js?v=4999f1b0e751';
+import { LegalIndex } from './legal-index.js';
+import { citationContext } from './citation-guard.js';
 import { Segments } from './segments.js?v=b2f577a60210';
 
 const $ = id => document.getElementById(id);
@@ -47,18 +51,19 @@ const resize = $('resize');
 const rephrase = $('rephrase');
 const intelligence = $('intelligence');
 const documentHolder = $('document-holder');
-// Links that open the page with a set of panes: #levels, #document, #split,
-// #sentences. A first visit opens #levels: the text's main goals, the steps
-// toward each goal, and the text itself.
+// Links that open the page with a set of panes: #legal, #levels, #document,
+// #split, #sentences. A first visit opens #legal: the IRAC structure, the
+// memo itself, and its sourcing.
 const PRESETS = {
+  legal: ['irac', 'document', 'sourcing'],
   levels: ['goals', 'how', 'document'],
   document: ['document'],
   split: ['document', 'sentences'],
   sentences: ['sentences'],
 };
-// Arrangements saved before the level views came keep to the old key, so each
-// reader starts once with the levels.
-const PANES_KEY = 'text-and-autocomplete.panes.2';
+// Arrangements saved before legal work became the default keep to their old
+// keys, so each reader starts once with the legal panes.
+const PANES_KEY = 'text-and-autocomplete.panes.3';
 const dialog = $('key-dialog');
 const keyInput = $('api-key');
 let completion = '';
@@ -191,7 +196,11 @@ const onConnectionStatus = (state, message) => {
 };
 // Model tiers for the claude.ai page, chosen in the Intelligence menu.
 const TIERS_KEY = 'text-and-autocomplete.tiers';
-const tiers = () => ({ compose: $('tier-compose').value, rewrite: $('tier-rewrite').value });
+const tiers = () => ({
+  compose: $('tier-compose').value,
+  rewrite: $('tier-rewrite').value,
+  views: $('tier-views').value,
+});
 const client = bridgeToken
   ? new BridgeCompose(onConnectionStatus, {
       token: bridgeToken,
@@ -268,6 +277,10 @@ function ineligibleReason(ctx) {
   tail.setStart(ctx.range.startContainer, ctx.range.startOffset);
   if (tail.toString().trim()) return 'text-after-caret-in-paragraph';
   if (kindOf(ctx) === 'paragraph') return paragraph.checked ? null : 'suggested-paragraph-off';
+  // Never suggest inside a citation, after a signal, or inside a quotation:
+  // those words are the author's evidence.
+  const inside = citationContext(ctx.before.slice(ctx.before.lastIndexOf('\n') + 1));
+  if (inside) return inside;
   if (!smart.checked && !multi.checked) return 'smart-compose-off';
   return /\S/.test(ctx.before.split('\n').at(-1) || '') ? null : 'empty-paragraph';
 }
@@ -931,7 +944,7 @@ async function connectKey(key, automatic = false) {
     await client.connect(key);
     if (attempt !== connectionAttempt) return;
     let message =
-      'Connected. Type for suggestions, select text and drag its handle, or double-click it to rephrase. Drag a goal or a step in its pane to move its text.';
+      'Connected. Type for suggestions, select text and drag its handle, or double-click it to rephrase. Hover over a piece in IRAC or Sourcing to find its text in the memo.';
     try {
       if (planMode) localStorage.setItem(`${CONSENT_KEY}.${client.session?.provider}`, '1');
       else saveKey(key);
@@ -1118,11 +1131,12 @@ function setupBridge() {
       for (const [id, value] of [
         ['tier-compose', saved.compose],
         ['tier-rewrite', saved.rewrite],
+        ['tier-views', saved.views],
       ]) {
         if ([...$(id).options].some(option => option.value === value)) $(id).value = value;
       }
     } catch {}
-    for (const id of ['tier-compose', 'tier-rewrite']) {
+    for (const id of ['tier-compose', 'tier-rewrite', 'tier-views']) {
       $(id).onchange = () => {
         trace('tier-changed', { id, value: $(id).value });
         try {
@@ -1386,13 +1400,25 @@ const documentView = new DocumentView({
   ops,
   flash: range => rewriter.flash(range),
 });
+// The legal reading the IRAC and Sourcing views share.
+const legal = new LegalIndex({
+  model,
+  segments,
+  storage: (() => {
+    try {
+      return localStorage;
+    } catch {
+      return null;
+    }
+  })(),
+});
 const workspace = new Workspace({
   root: $('panes'),
   specs: () => allSpecs().map(fullSpec),
   create: (spec, id) =>
     spec.kind === 'document'
       ? documentView
-      : new PieceView({ id, spec, model, ops, links, segments }),
+      : new PieceView({ id, spec, model, ops, links, segments, legal }),
   storageKey: PANES_KEY,
   onChange: panesChanged,
   editable: spec => customViews.some(view => view.id === spec.id),
@@ -1461,9 +1487,14 @@ function showViewProblems() {
   $('view-save').disabled = Boolean(problems.length);
 }
 // The purpose field is for views Claude divides for a purpose; a level view
-// shares the map of goals and needs none.
+// shares the map of goals, and IRAC and Sourcing share the legal labels, so
+// they need none. IRAC and Sourcing are always lists.
 function showSourceFields() {
-  $('view-purpose-field').hidden = $('view-source').value !== 'purpose';
+  const source = $('view-source').value;
+  $('view-purpose-field').hidden = source !== 'purpose';
+  const legalView = source === 'roles' || source === 'sources';
+  if (legalView) $('view-layout').value = 'list';
+  $('view-layout').disabled = legalView;
 }
 // The form fields write into the declaration, keeping any field set as data.
 function formToDraft() {
@@ -1478,14 +1509,21 @@ function formToDraft() {
   const form =
     source === 'purpose'
       ? specFromPurpose({ ...fields, purpose: $('view-purpose').value })
-      : specFromLevel({ ...fields, level: Number(source) });
+      : source === 'roles'
+        ? specFromRoles(fields)
+        : source === 'sources'
+          ? specFromSources(fields)
+          : specFromLevel({ ...fields, level: Number(source) });
   delete form.id;
   const on = { ...(draft.on || {}) };
   for (const gesture of ['drop-between', 'double-click']) delete on[gesture];
   Object.assign(on, form.on);
   const next = { ...draft, ...form, on };
-  if (source === 'purpose') delete next.level;
-  else delete next.purpose;
+  // Fields that belong to another kind of view go.
+  if (source !== 'purpose') delete next.purpose;
+  if (!/^\d$/.test(source)) delete next.level;
+  if (source !== 'roles' && source !== 'sources') delete next.header;
+  if (source !== 'roles') delete next.checks;
   $('view-json').value = JSON.stringify(next, null, 2);
   showSourceFields();
   showViewProblems();
@@ -1499,7 +1537,11 @@ function draftToForm() {
     $('view-source').value =
       draft.unit === 'level' && [1, 2, 3, 4].includes(draft.level)
         ? String(draft.level)
-        : 'purpose';
+        : draft.unit === 'role'
+          ? 'roles'
+          : draft.show === 'sources'
+            ? 'sources'
+            : 'purpose';
     if (['list', 'cards', 'bars'].includes(draft.layout)) $('view-layout').value = draft.layout;
     $('view-move').checked = draft.on?.['drop-between'] === 'move';
     $('view-open').checked = draft.on?.['double-click'] === 'open';
@@ -1616,6 +1658,9 @@ document.addEventListener(
 // On claude.ai, a republish of this page keeps the document being written.
 function restoreDocument(data) {
   if (typeof data?.html !== 'string' || !data.html) return;
+  // A page open before the memo became the sample keeps the old sample; the
+  // memo replaces it.
+  if (data.html.startsWith('<h1>Pancakes for Dinner</h1>')) return;
   editor.innerHTML = data.html;
   validHTML = editor.innerHTML;
   ops.forget();
@@ -1640,7 +1685,7 @@ try {
   workspace.set(
     preset
       ? arrangementOf(preset)
-      : restorePanes(workspace.saved(), known) || arrangementOf(PRESETS.levels),
+      : restorePanes(workspace.saved(), known) || arrangementOf(PRESETS.legal),
   );
 }
 updateCount();

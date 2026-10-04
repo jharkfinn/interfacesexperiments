@@ -4,6 +4,7 @@ import { responseEvent } from '../../dist/compose-core.js';
 import { rewriteEvent } from '../../dist/rewrite-core.js';
 import { combineEvent } from '../../dist/combine-core.js';
 import { segmentEvent, levelsEvent } from '../../dist/segment-core.js';
+import { legalEvent, ROLES, KINDS } from '../../dist/legal-core.js';
 
 const MAX_AVOID = 12;
 const isText = value => typeof value === 'string';
@@ -29,6 +30,21 @@ function rephraseOf(value) {
     fail(`Expected rephrase.avoid as at most ${MAX_AVOID} texts.`);
   }
   return { avoid };
+}
+
+// Labels from an earlier reading: null, or one [role, kind] pair or null per
+// sentence, with words from the fixed lists only. legalEvent checks the count.
+function priorOf(value) {
+  if (value === null || value === undefined) return null;
+  const pair = entry =>
+    Array.isArray(entry) &&
+    entry.length === 2 &&
+    ROLES.includes(entry[0]) &&
+    KINDS.includes(entry[1]);
+  if (!Array.isArray(value) || !value.every(entry => entry === null || pair(entry))) {
+    fail('Expected prior as one [role, kind] pair or null per sentence.');
+  }
+  return value;
 }
 
 // Returns the instructions, the user message, a cap on reply length, and the
@@ -64,6 +80,12 @@ export function buildRequest(body) {
       timeoutMs = 30000;
     } else if (body.op === 'levels') {
       event = levelsEvent('bridge', { paragraphs: body.paragraphs });
+      timeoutMs = 45000;
+    } else if (body.op === 'legal') {
+      event = legalEvent('bridge', {
+        paragraphs: body.paragraphs,
+        prior: priorOf(body.prior),
+      });
       timeoutMs = 45000;
     } else {
       fail('Unknown operation.');

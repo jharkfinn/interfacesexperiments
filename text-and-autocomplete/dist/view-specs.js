@@ -1,9 +1,12 @@
+import { STRUCTURE_CHECKS } from './legal-core.js';
 import { MAX_PURPOSE_CHARS, MAX_LEVELS } from './segment-core.js?v=bc5c5daaadea';
 
 // A view is declared as data. The Document view is the editor itself; every
 // other view shows pieces of the document and says what gestures do to them.
 //
-//   unit     what one piece is          sentence | paragraph | claude | level
+//   unit     what one piece is          sentence | paragraph | claude | level |
+//                                       role (a run of sentences that do one
+//                                       job in a legal analysis: IRAC)
 //   purpose  what the view is for       words; with unit "claude", Claude
 //                                       divides the document to suit them
 //   level    which level of goals       1 (the main goals) to 4; with unit
@@ -11,10 +14,17 @@ import { MAX_PURPOSE_CHARS, MAX_LEVELS } from './segment-core.js?v=bc5c5daaadea'
 //                                       Claude's tree of what the text tries
 //                                       to do, which all level views share
 //   group    how pieces form rows       paragraph | parent (the goal above,
-//                                       on levels 2 and down) | none
+//                                       on levels 2 and down) | section (the
+//                                       document's headings, for unit role) | none
 //   show     what a piece displays      text | start (first words) | label
 //                                       (Claude's name for the piece) | method
-//                                       (the goal and how the piece reaches it)
+//                                       (the goal and how the piece reaches it) |
+//                                       role (the piece's IRAC job) | sources
+//                                       (what a sentence asserts, its support,
+//                                       citations, and flags)
+//   header   a panel above the pieces   none | checks (IRAC structure checks) |
+//                                       authorities (a table of authorities)
+//   checks   which structure checks     a list of names from STRUCTURE_CHECKS
 //   layout   how pieces are arranged    flow | list | cards | bars (one bar
 //                                       per piece, as long as its word count)
 //   on       gesture → operation        drop-on, drop-between, double-click, delete
@@ -24,10 +34,11 @@ import { MAX_PURPOSE_CHARS, MAX_LEVELS } from './segment-core.js?v=bc5c5daaadea'
 
 export const VOCABULARY = {
   kind: ['document', 'pieces'],
-  unit: ['sentence', 'paragraph', 'claude', 'level'],
-  group: ['paragraph', 'parent', 'none'],
-  show: ['text', 'start', 'label', 'method'],
+  unit: ['sentence', 'paragraph', 'claude', 'level', 'role'],
+  group: ['paragraph', 'parent', 'section', 'none'],
+  show: ['text', 'start', 'label', 'method', 'role', 'sources'],
   layout: ['flow', 'list', 'cards', 'bars'],
+  header: ['none', 'checks', 'authorities'],
 };
 // Each gesture, and the operations it may name.
 export const GESTURES = {
@@ -42,6 +53,28 @@ const MAX_TITLE_CHARS = 40;
 
 export const BUILT_IN = [
   { id: 'document', title: 'Document', kind: 'document' },
+  {
+    id: 'irac',
+    title: 'IRAC',
+    kind: 'pieces',
+    unit: 'role',
+    group: 'section',
+    show: 'role',
+    layout: 'list',
+    header: 'checks',
+    on: { 'drop-between': 'move', 'double-click': 'open' },
+  },
+  {
+    id: 'sourcing',
+    title: 'Sourcing',
+    kind: 'pieces',
+    unit: 'sentence',
+    group: 'paragraph',
+    show: 'sources',
+    layout: 'list',
+    header: 'authorities',
+    on: { 'drop-between': 'move', 'double-click': 'open' },
+  },
   {
     id: 'goals',
     title: 'Goals',
@@ -137,7 +170,15 @@ export function checkSpec(spec) {
       problems.push(`"${field}" must be one of: ${allowed.join(', ')}.`);
     }
   }
-  const known = new Set(['id', 'title', 'on', 'purpose', 'level', ...Object.keys(VOCABULARY)]);
+  const known = new Set([
+    'id',
+    'title',
+    'on',
+    'purpose',
+    'level',
+    'checks',
+    ...Object.keys(VOCABULARY),
+  ]);
   for (const field of Object.keys(spec)) {
     if (!known.has(field)) problems.push(`"${field}" is not a field a view can have.`);
   }
@@ -166,7 +207,42 @@ export function checkSpec(spec) {
     problems.push('"level" is used only with "unit": "level".');
   }
   if (unit !== 'sentence' && spec.group === 'paragraph') {
-    problems.push(`With "unit": "${unit}", "group" must be "none".`);
+    problems.push(
+      unit === 'role'
+        ? 'With "unit": "role", "group" must be "section" or "none".'
+        : `With "unit": "${unit}", "group" must be "none".`,
+    );
+  }
+  if (spec.group === 'section' && unit !== 'role') {
+    problems.push('"group": "section" needs "unit": "role".');
+  }
+  if (spec.show === 'role' && unit !== 'role') {
+    problems.push('"show": "role" needs "unit": "role".');
+  }
+  if (spec.show === 'sources' && unit !== 'sentence') {
+    problems.push(
+      '"show": "sources" needs "unit": "sentence", because support is read sentence by sentence.',
+    );
+  }
+  if ((spec.show === 'role' || spec.show === 'sources') && (spec.layout ?? 'list') !== 'list') {
+    problems.push(`"show": "${spec.show}" works only with "layout": "list".`);
+  }
+  if (spec.header === 'checks' && unit !== 'role') {
+    problems.push('"header": "checks" needs "unit": "role".');
+  }
+  if (spec.checks !== undefined) {
+    const names = spec.checks;
+    if (
+      !Array.isArray(names) ||
+      names.some(name => !STRUCTURE_CHECKS.includes(name)) ||
+      new Set(names).size !== names.length
+    ) {
+      problems.push(
+        `"checks" must be a list of different checks from: ${STRUCTURE_CHECKS.join(', ')}.`,
+      );
+    }
+    const header = spec.header ?? (unit === 'role' ? 'checks' : 'none');
+    if (header !== 'checks') problems.push('"checks" needs "header": "checks".');
   }
   if (spec.group === 'parent' && !(unit === 'level' && spec.level > 1)) {
     problems.push('"group": "parent" needs "unit": "level" and "level" 2 or more.');
@@ -197,19 +273,26 @@ export function checkSpec(spec) {
   return problems;
 }
 
-// A declaration with every field filled in.
+// A declaration with every field filled in. A panel above the pieces, and the
+// checks it runs, appear only when the view has one.
 export function fullSpec(spec) {
   if (spec.kind === 'document') return { ...spec };
   const unit = spec.unit || 'sentence';
-  return {
+  const role = unit === 'role';
+  const sources = spec.show === 'sources';
+  const full = {
     kind: 'pieces',
     unit,
-    group: unit === 'sentence' ? 'paragraph' : 'none',
-    show: unit === 'claude' || unit === 'level' ? 'label' : 'text',
-    layout: unit === 'sentence' ? 'flow' : 'list',
+    group: role ? 'section' : unit === 'sentence' ? 'paragraph' : 'none',
+    show: role ? 'role' : unit === 'claude' || unit === 'level' ? 'label' : 'text',
+    layout: unit === 'sentence' && !sources ? 'flow' : 'list',
+    ...(role ? { header: 'checks' } : sources ? { header: 'authorities' } : {}),
     ...spec,
     on: { ...spec.on },
   };
+  if (full.header === 'checks' && full.checks === undefined) full.checks = [...STRUCTURE_CHECKS];
+  if (full.header === 'none') delete full.header;
+  return full;
 }
 
 // A new view from a title and what it is for: Claude divides the document to
@@ -246,6 +329,44 @@ export function specFromLevel({ id, title, level, layout = 'list', move = true, 
     group: level > 1 ? 'parent' : 'none',
     show: level > 1 ? 'method' : 'label',
     layout,
+    on,
+  };
+}
+
+// A new IRAC view: Claude labels each sentence's job, and the app groups the
+// labels by the document's headings and checks the structure.
+export function specFromRoles({ id, title, move = true, open = true }) {
+  const on = {};
+  if (move) on['drop-between'] = 'move';
+  if (open) on['double-click'] = 'open';
+  return {
+    id,
+    title: title.trim(),
+    kind: 'pieces',
+    unit: 'role',
+    group: 'section',
+    show: 'role',
+    layout: 'list',
+    header: 'checks',
+    on,
+  };
+}
+
+// A new Sourcing view: each sentence with what it asserts and its support, under
+// a table of authorities.
+export function specFromSources({ id, title, move = true, open = true }) {
+  const on = {};
+  if (move) on['drop-between'] = 'move';
+  if (open) on['double-click'] = 'open';
+  return {
+    id,
+    title: title.trim(),
+    kind: 'pieces',
+    unit: 'sentence',
+    group: 'paragraph',
+    show: 'sources',
+    layout: 'list',
+    header: 'authorities',
     on,
   };
 }

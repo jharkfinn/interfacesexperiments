@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SampleCompose } from '../dist/sample-client.js';
-import { ALTERNATIVES_INSTRUCTIONS } from '../dist/compose-core.js';
+import { ALTERNATIVES_INSTRUCTIONS, MAX_WORDS } from '../dist/compose-core.js';
+import { SEGMENT_INSTRUCTIONS, LEVELS_INSTRUCTIONS } from '../dist/segment-core.js';
+import { LEGAL_INSTRUCTIONS } from '../dist/legal-core.js';
 
 // A stand-in for the claude.ai page runtime's sample function.
 function fakeClaude(behaviour = {}) {
@@ -101,7 +103,35 @@ test('a newer request cancels the older one, and lost permission ends the connec
   const absent = new SampleCompose(() => {}, { claude: fakeClaude({ absent: true }).claude });
   await assert.rejects(absent.connect(), /not available/);
   await assert.rejects(
-    client.request({ before: 'word '.repeat(501), after: '' }),
+    client.request({ before: 'word '.repeat(MAX_WORDS + 1), after: '' }),
     /over the limit/,
   );
+});
+
+test('the views ask Claude on their own tier, quick unless chosen', async () => {
+  const paragraphs = [{ kind: 'p', sentences: ['A dwelling is a home.', 'Ours is one.'] }];
+  const fake = fakeClaude({ text: '{}' });
+  const client = new SampleCompose(() => {}, {
+    claude: fake.claude,
+    tiers: () => ({ compose: 'quick', rewrite: 'complex', views: 'default' }),
+  });
+  await client.connect();
+  await client.segment({ purpose: 'Ideas', paragraphs });
+  await client.levels({ paragraphs });
+  await client.legal({ paragraphs, prior: [['rule', 'law'], null] });
+  assert.deepEqual(
+    fake.calls.map(call => call.options.modelTier),
+    ['default', 'default', 'default'],
+  );
+  assert.ok(fake.calls[0].input.startsWith(SEGMENT_INSTRUCTIONS));
+  assert.ok(fake.calls[1].input.startsWith(LEVELS_INSTRUCTIONS));
+  assert.ok(fake.calls[2].input.startsWith(LEGAL_INSTRUCTIONS));
+  assert.match(fake.calls[2].input, /"prior":\["rule","law"\]/);
+  assert.equal(client.applied.views, 'default');
+
+  const plain = fakeClaude({ text: '{}' });
+  const defaults = new SampleCompose(() => {}, { claude: plain.claude });
+  await defaults.connect();
+  await defaults.legal({ paragraphs });
+  assert.equal(plain.calls[0].options.modelTier, 'quick');
 });

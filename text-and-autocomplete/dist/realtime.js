@@ -7,6 +7,18 @@ import {
 import { rewriteEvent } from './rewrite-core.js?v=3b9f63316aa6';
 import { combineEvent } from './combine-core.js?v=1c8f69eb2a6d';
 import { segmentEvent, levelsEvent } from './segment-core.js?v=bc5c5daaadea';
+import { legalEvent } from './legal-core.js';
+
+// The Realtime API refuses a response asked to be longer than this. Requests
+// built for the bridge and claude.ai may ask for more, so they are capped here.
+export const REALTIME_MAX_OUTPUT_TOKENS = 4096;
+const capped = event => {
+  const tokens = event.response?.max_output_tokens;
+  if (typeof tokens === 'number' && tokens > REALTIME_MAX_OUTPUT_TOKENS) {
+    event.response.max_output_tokens = REALTIME_MAX_OUTPUT_TOKENS;
+  }
+  return event;
+};
 
 export class RealtimeCompose {
   constructor(
@@ -183,6 +195,14 @@ export class RealtimeCompose {
       45000,
     );
   }
+  // Labels each sentence's job in a legal analysis: {paragraphs, prior}.
+  legal(context) {
+    return this.sendRequest(
+      id => legalEvent(id, context),
+      () => {},
+      45000,
+    );
+  }
   sendRequest(event, onProgress, timeout, attempt = null) {
     this.cancel();
     if (!this.ready) return Promise.reject(new Error('Connect OpenAI first.'));
@@ -197,7 +217,7 @@ export class RealtimeCompose {
       }, timeout);
       this.pending = pending;
       try {
-        this.socket.send(JSON.stringify(event(id)));
+        this.socket.send(JSON.stringify(capped(event(id))));
       } catch {
         this.finishError('Unable to send a writing request.');
       }
