@@ -13,6 +13,7 @@ import {
   ALTERNATIVE_COUNT,
   plainSpaces,
 } from './compose-core.js?v=576be38817a3';
+import { SampleCompose } from './sample-client.js?v=4274ac2acadf';
 import { BridgeCompose } from './bridge-client.js?v=ae40474645ea';
 import { RealtimeCompose } from './realtime.js?v=f6a116bc6cb8';
 import { readSavedKey, saveKey, forgetKey } from './key-storage.js?v=d7465de288af';
@@ -111,6 +112,10 @@ const bridgeToken = (() => {
   if (match) history.replaceState(null, '', location.pathname + location.search);
   return token;
 })();
+// Published as a claude.ai page, the editor asks Claude on the viewer's own account.
+const claudePage = !bridgeToken && typeof window.claude?.use === 'function';
+// The plan modes take no API key: the bridge or claude.ai holds the sign-in.
+const planMode = Boolean(bridgeToken) || claudePage;
 // Opening the bridge's new link in this tab changes only the fragment, so pair
 // again with the new token.
 window.addEventListener('hashchange', () => {
@@ -129,9 +134,11 @@ const onConnectionStatus = (state, message) => {
       ? 'Connected'
       : state === 'connecting'
         ? 'Connecting…'
-        : bridgeToken
-          ? 'Connect your plan'
-          : 'Connect OpenAI';
+        : claudePage
+          ? 'Connect Claude'
+          : bridgeToken
+            ? 'Connect your plan'
+            : 'Connect OpenAI';
   $('connect').dataset.state = state;
   $('disconnect').hidden = !client.ready;
   if (state === 'error' || state === 'disconnected') {
@@ -153,12 +160,20 @@ const onConnectionStatus = (state, message) => {
   }
   showPlan();
 };
+// Model tiers for the claude.ai page, chosen in the Intelligence menu.
+const TIERS_KEY = 'text-and-autocomplete.tiers';
+const tiers = () => ({ compose: $('tier-compose').value, rewrite: $('tier-rewrite').value });
 const client = bridgeToken
   ? new BridgeCompose(onConnectionStatus, {
       token: bridgeToken,
       diagnose: (event, data) => trace(event, data),
     })
-  : new RealtimeCompose(onConnectionStatus, { diagnose: (event, data) => trace(event, data) });
+  : claudePage
+    ? new SampleCompose(onConnectionStatus, {
+        tiers,
+        diagnose: (event, data) => trace(event, data),
+      })
+    : new RealtimeCompose(onConnectionStatus, { diagnose: (event, data) => trace(event, data) });
 function showNotice(message) {
   // Sign in with ChatGPT asks for a Manage usage link when a usage limit is reached.
   if (bridgeToken && client.session?.provider === 'chatgpt' && /usage limit/i.test(message)) {
@@ -838,7 +853,7 @@ function openSettings() {
   disarm('settings-open');
   $('key-error').textContent = '';
   $('disconnect').hidden = !client.ready;
-  if (bridgeToken) void refreshBridge();
+  if (planMode) void refreshBridge();
   else showStoredKey();
   dialog.showModal();
   rewriter?.update();
@@ -883,10 +898,10 @@ async function connectKey(key, automatic = false) {
     let message =
       'Connected. Type for suggestions, select text and drag its handle, double-click it to rephrase, or drag it onto another sentence to combine them.';
     try {
-      if (bridgeToken) localStorage.setItem(`${CONSENT_KEY}.${client.session?.provider}`, '1');
+      if (planMode) localStorage.setItem(`${CONSENT_KEY}.${client.session?.provider}`, '1');
       else saveKey(key);
     } catch {
-      message = bridgeToken
+      message = planMode
         ? 'Connected for this session.'
         : 'Connected for this session. Browser storage is unavailable, so your key could not be saved.';
     }
@@ -942,6 +957,11 @@ function leaveBridgeMode() {
 function describeSession(session) {
   const model = session.model ? ` Model: ${session.model}.` : '';
   const problem = session.problem ? ` ${session.problem}` : '';
+  if (session.provider === 'claude-page') {
+    return [
+      `Requests use Claude on your own claude.ai account and count toward your plan's usage. The text around your cursor or selection is sent to Claude with each request, and autocomplete sends one each time you pause while typing. Claude asks once per visit before this page can use it. Choose the model tiers in the Intelligence menu.${problem}`,
+    ];
+  }
   if (session.provider === 'claude') {
     const payer =
       session.billing === 'api_key'
@@ -1031,10 +1051,12 @@ async function signInWithChatGPT({ newAccount = false } = {}) {
 function showPlan() {
   const indicator = $('plan-indicator');
   const session = client.session;
-  indicator.hidden = !bridgeToken || !client.ready || !session;
+  indicator.hidden = !planMode || !client.ready || !session;
   if (indicator.hidden) return;
   if (session.provider === 'chatgpt') {
     indicator.replaceChildren('Using ChatGPT plan · ', manageUsageLink());
+  } else if (session.provider === 'claude-page') {
+    indicator.replaceChildren('Using your Claude account');
   } else {
     indicator.replaceChildren(
       session.billing === 'api_key' ? 'Using Anthropic API key' : 'Using Claude plan',
@@ -1053,14 +1075,34 @@ function setupBridge() {
   }
   keyInput.required = false;
   $('bridge-panel').hidden = false;
-  $('connect').textContent = 'Connect your plan';
+  $('connect').textContent = claudePage ? 'Connect Claude' : 'Connect your plan';
+  if (claudePage) {
+    for (const row of document.querySelectorAll('.tier-row')) row.hidden = false;
+    try {
+      const saved = JSON.parse(localStorage.getItem(TIERS_KEY) || '{}');
+      for (const [id, value] of [
+        ['tier-compose', saved.compose],
+        ['tier-rewrite', saved.rewrite],
+      ]) {
+        if ([...$(id).options].some(option => option.value === value)) $(id).value = value;
+      }
+    } catch {}
+    for (const id of ['tier-compose', 'tier-rewrite']) {
+      $(id).onchange = () => {
+        trace('tier-changed', { id, value: $(id).value });
+        try {
+          localStorage.setItem(TIERS_KEY, JSON.stringify(tiers()));
+        } catch {}
+      };
+    }
+  }
   $('chatgpt-signin').onclick = () => void signInWithChatGPT();
   $('chatgpt-switch').onclick = () => void signInWithChatGPT({ newAccount: true });
 }
 $('key-form').onsubmit = event => {
   event.preventDefault();
   if ($('key-submit').disabled) return;
-  if (bridgeToken) {
+  if (planMode) {
     void connectKey('');
     return;
   }
@@ -1217,6 +1259,23 @@ combiner = new SelectionCombine({
   hideHandle: () => rewriter.hideControls(),
   idle: () => rewriter.update(),
 });
+// On claude.ai, a republish of this page keeps the document being written.
+function restoreDocument(data) {
+  if (typeof data?.html !== 'string' || !data.html) return;
+  editor.innerHTML = data.html;
+  validHTML = editor.innerHTML;
+  if (typeof data.title === 'string') {
+    title.value = data.title;
+    title.dispatchEvent(new Event('input'));
+  }
+  updateCount();
+}
+try {
+  const hot = window.claude?.hot;
+  hot?.snapshot?.(() => ({ html: snapshot().html, title: title.value }));
+  if (hot?.ready) hot.ready(restoreDocument);
+  else restoreDocument(hot?.data);
+} catch {}
 updateCount();
 const initialRange = document.createRange();
 initialRange.selectNodeContents(editor.lastElementChild || editor);
@@ -1225,9 +1284,9 @@ editor.focus();
 window.getSelection().removeAllRanges();
 window.getSelection().addRange(initialRange);
 savedRange = initialRange;
-if (bridgeToken) setupBridge();
+if (planMode) setupBridge();
 gate();
-if (bridgeToken) {
+if (planMode) {
   // Consent is per plan, so ask the bridge which plan it runs before connecting.
   void refreshBridge().then(session => {
     if (session?.ready && bridgeConsented(session.provider)) void connectKey('', true);

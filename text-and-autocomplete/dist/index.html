@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Pancakes for Dinner — Text and Autocomplete</title>
     <meta name="description" content="A quiet document editor with inline writing suggestions.">
-    <link rel="stylesheet" href="style.css?v=2f27182fc990">
+    <link rel="stylesheet" href="style.css?v=6f2716ca811f">
   </head>
   <body>
     <header class="app-header">
@@ -68,6 +68,8 @@
           <label><input type="checkbox" id="smart"> Tab autocomplete</label>
           <label><input type="checkbox" id="multi" checked> Multiple tab autocomplete</label>
           <label><input type="checkbox" id="paragraph" checked> Suggested paragraph</label>
+          <label class="tier-row" hidden>Autocomplete model <select id="tier-compose"><option value="quick" selected>Quick</option><option value="default">Default</option></select></label>
+          <label class="tier-row" hidden>Resize, rephrase, combine <select id="tier-rewrite"><option value="quick" selected>Quick</option><option value="default">Default</option><option value="complex">Complex</option></select></label>
         </div>
       </details>
     </nav>
@@ -139,6 +141,6 @@
       </section>
     </dialog>
 
-    <script type="module" src="app.js?v=a7a3c28a8cf9"></script>
+    <script type="module" src="app.js?v=01ff09f4c8ed"></script>
   </body>
 </html>

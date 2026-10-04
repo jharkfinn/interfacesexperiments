@@ -13,11 +13,13 @@ for (const [file, dependencies] of [
   ['rewrite-core.js', ['compose-core.js']],
   ['selection-rewrite.js', ['rewrite-core.js', 'rewrite-preview.js']],
   ['realtime.js', ['compose-core.js', 'rewrite-core.js', 'combine-core.js']],
+  ['sample-client.js', ['compose-core.js', 'rewrite-core.js', 'combine-core.js']],
   [
     'app.js',
     [
       'compose-core.js',
       'bridge-client.js',
+      'sample-client.js',
       'realtime.js',
       'key-storage.js',
       'selection-rewrite.js',

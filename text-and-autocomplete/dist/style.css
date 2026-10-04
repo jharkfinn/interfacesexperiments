@@ -230,6 +230,21 @@ summary:focus-visible {
 .intelligence-menu label:hover {
   background: #383b43;
 }
+/* Model tiers, shown only on the claude.ai page. */
+.intelligence-menu .tier-row {
+  justify-content: space-between;
+  border-top: 1px solid #45474d;
+  border-radius: 0;
+  margin-top: 4px;
+  padding-top: 10px;
+}
+.tier-row select {
+  padding: 3px 6px;
+  border: 1px solid #45474d;
+  border-radius: 5px;
+  background: #1f2024;
+  color: #dfe1e5;
+}
 .intelligence-menu input {
   width: 13px;
   height: 13px;
