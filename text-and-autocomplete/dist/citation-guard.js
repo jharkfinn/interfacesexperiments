@@ -3,17 +3,19 @@
 // rewrite and merge passes through these checks before the editor shows it.
 import {
   NOT_NAME,
+  REPORTERS,
   citationKey,
   findCitations,
   findReferences,
   isAbbreviation,
+  isReporter,
   quoteSpans,
   referenceNames,
 } from './legal-text.js';
 
 // Contenteditable keeps typed spaces as nonbreaking ones; compare them as plain spaces.
 // Each replaced character is one character, so offsets stay the same.
-const plain = t => t.replace(/[  ]/gu, ' ');
+const plain = t => t.replace(/[\u00a0\u202f]/gu, ' ');
 
 // Every pattern here keeps its repeated parts unambiguous and bounded: a name word runs
 // from a capital to the next space, and a reporter word is one capital and lowercase
@@ -29,10 +31,30 @@ const NAME_WORD = String.raw`(?<![\w.'’&-])[A-Z][\w.'’&-]*`;
 const MATCHUP = String.raw`[A-Z][\w'’&-]*(?:\s+[A-Z][\w'’&-]*){0,3}\s+(?:[a-z]+\s+)?(?:games?|match(?:es|up)?|opener|series|rivalry|playoffs?|finals?|bout|fight|race|tournament|showdown|derby|clash|contest)\b`;
 // "the Cardinals v.": a "v." after an article and one word is a matchup being written.
 const NOT_AFTER_ARTICLE = String.raw`(?<!\b(?:[Tt]he|[Aa]n?)\s+[A-Z][\w'’&-]*\s+)`;
-// Words before "No." that make the number a court's docket number (as the parser reads it).
-const DOCKET_WORDS = String.raw`Case|Civ\.|Civil|Action|Dkt\.|Docket|Index|Appeal|Cause|Adv\.|Proc\.|Misc\.|Bankr\.|Crim\.|Petition|Claim|ECF`;
-// California's record volumes: "2 CT 362", "RT 9:14".
+// Words before "No." that make the number a court's docket number: "Case No. 5", "Civ. No.
+// 18-123", "Index No. 1234". A number after other words ("wore No. 5", "Order Form No.
+// 2023-014") is prose.
+const DOCKET_WORDS = String.raw`Case|Civ\.|Civil\s+Action|Dkt\.|Docket|Index|Appeal|Adv\.|Proc\.|Misc\.|Bankr\.|Crim\.|ECF`;
+// California's record volumes: "2 CT 362", "RT 9:14", "1 AA 12".
 const RECORD_BOOKS = 'CT|RT|AA|RA|JA|ER|SER|CR|AR';
+
+const squeeze = text => text.replace(/\s+/g, '').replace(/’/g, "'");
+// Each reporter or code that follows a volume, and the abbreviations it starts with ("F." of
+// "F.3d", "L. Ed." of "L. Ed. 2d", and the "F" a streamed reply may stop at), so a citation
+// being written ("455 F.", "29 C.") is told from a measure ("2 Tbsp.").
+const REPORTER_STARTS = new Set(
+  [...REPORTERS, 'U.S.C.', 'C.F.R.', 'Fed. Reg.', 'Stat.'].flatMap(reporter => {
+    const word = squeeze(reporter);
+    return [word, word[0], ...[...word.matchAll(/\./g)].map(m => word.slice(0, m.index + 1))];
+  }),
+);
+// Whether `words` after a volume are a reporter, or the start of one.
+const reporterStart = words => REPORTER_STARTS.has(squeeze(words)) || isReporter(words);
+// Whether `words` between a volume and a page read as a reporter: a known one, one with a
+// series ("Ohio St. 3d"), or several abbreviated words ("Mass. App. Ct."). One unknown word
+// is not: "1 Cor. 13" is a Bible verse, "2 Tbsp. 3" a measure.
+const reporterLike = words =>
+  reporterStart(words) || /\d/.test(words) || words.trim().split(/\s+/).length > 1;
 
 // Open items the author left for later: Claude must not fill them in or drop them.
 export const PLACEHOLDER = /\[cite\]|\bTK\b|\((?:need|needs) to [^)]*\)|\bconfirm with client\b/gi;
@@ -42,12 +64,13 @@ export const PLACEHOLDER = /\[cite\]|\bTK\b|\((?:need|needs) to [^)]*\)|\bconfir
 // ("See Lakeside", "See id."), so "See you then" is ordinary prose, and "at 3" counts only
 // as a pin after a reporter ("455 F.3d, at 159") or a star page, so "meet at 3" is too.
 // "No. 5" is a docket number only in a docket's shape ("No. 18-cv-7702") or after a
-// docket word ("Case No. 5"), so a jersey number is prose.
+// docket word ("Case No. 5"), so a jersey number is prose. cutAtCitation checks the named
+// groups further: a reporter must read as one, and a signal must come before a citation.
 export const CITATION_START = new RegExp(
   [
     String.raw`(?<name>${NAME_WORD}(?:,?\s+(?:[A-Z][\w.'’&-]*|of|the|for|and|&|ex rel\.)){0,12}\s+v\.?\s(?!${MATCHUP}))`,
     String.raw`\bIn re\s`,
-    String.raw`\b\d{1,4}\s+${REPORTER_WORDS}(?:\d[a-z]{1,2}\s?)?(?:at\s+)?\*?\d{1,5}\b`,
+    String.raw`\b\d{1,4}\s+(?<reporter>${REPORTER_WORDS}(?:\d[a-z]{1,2}\s?)?)(?:at\s+)?\*?\d{1,5}\b`,
     '§',
     '¶',
     String.raw`\b[Ii]d\.`,
@@ -56,20 +79,21 @@ export const CITATION_START = new RegExp(
     String.raw`\d[a-z]{0,2}\.?,\s*at\s+\*?\d`,
     String.raw`\bat\s+\*\d`,
     String.raw`\bNos?\.\s+(?:\d+:\d\d-[A-Za-z]{2,4}-|\d{1,5}[-–](?:cv|cr|mc|bk|md|ap|civ|crim|misc)[-–])`,
-    String.raw`(?<=\b(?:${DOCKET_WORDS})\s{0,3})Nos?\.\s*\d`,
+    String.raw`\b(?:${DOCKET_WORDS})\s{0,3}Nos?\.\s*\d`,
     String.raw`\bNos?\.\s+[\w:–-]{1,20}(?=,\s*\d{4}\s+(?:WL|U\.S\.\s?Dist\.\s?LEXIS)|\s*\([A-Z]{2,5}\))`,
     String.raw`\b\d{4}\s+(?:WL|U\.S\.\s?Dist\.\s?LEXIS)\s`,
     // The record: "(Compl. ¶ 9)", "Hollis Dep. 22:15", "Ex. B", "ECF No. 12", "(2 CT 362)".
     String.raw`(?:${NAME_WORD}\s+){0,2}(?:(?:Am\.\s+)?Compl|Decl|Aff|Depo?|Exh?|Exs|Tr)\.(?=[\s,]|$)`,
     String.raw`\bECF\s+No\.`,
     String.raw`\bDkt\.\s+(?:No\.\s+)?\d`,
-    String.raw`(?:\(\s*|\b\d{1,2}\s+)(?:Supp\.\s*)?(?:${RECORD_BOOKS})\s+\d`,
+    String.raw`[(;]\s*(?:\d{1,2}\s+)?(?:Supp\.\s*)?(?:${RECORD_BOOKS})\s+\d`,
+    String.raw`\b\d{1,2}\s+(?:Supp\.\s*)?(?:CT|RT)\s+\d`,
     String.raw`\b(?:CT|RT)\s+\d+:\d`,
     String.raw`\bR\.\s+at\s+\d`,
     String.raw`\bJ\.A\.\s+\d`,
     // Codes, rules and legislative history: "(Evid. Code, § 352)", "Code Civ. Proc.",
     // "Fed. R. Civ. P.", "U.S. Const.", "42 U.S.C.", "Pub. L. No.", "H.R. Rep.".
-    String.raw`\(\s*(?:[A-Z][a-z]+\.\s?){1,3}Code,`,
+    String.raw`\(\s*(?:[A-Z][a-z]+\.\s?(?:&\s?)?){1,3}Code,`,
     String.raw`\bCode\s+Civ\.\s+Proc\.`,
     String.raw`\bFed\.\s?R\.\s`,
     String.raw`\b(?:U\.\s?S\.|[A-Z][a-z]+\.)\s?Const\.`,
@@ -87,15 +111,18 @@ export const CITATION_START = new RegExp(
   ].join('|'),
   'g',
 );
-// A paragraph that ends in a signal.
+// A paragraph that ends in a signal. Signals are short, so only the end of a text is read.
 const SIGNAL_TAIL =
-  /(?:^|[\s(])(?:See(?:,? e\.g\.,| also| generally)?|Cf\.|But see|But cf\.|Accord|Contra|Compare|E\.g\.,?)\s*$/;
+  /(?:^|[\s(])(?:See(?:,? e\.g\.,| also| generally)?|Cf\.|But see|But cf\.|Accord|Contra|Compare|E\.g\.,?)\s*$/g;
 // A text that stops partway into a citation: "Smith v.", "Lakeside, 455 F.3d at", "(Ortega,
 // supra, 26 Cal.4th at p.", "(Aguilar v. Atlantic Richfield Co. (2001)", "No. 18-cv-7702
 // (JPO),", "Kessler v. Northgate Cold Storage, LLC,", "(Compl.", "(RT 12:", "Fed. R. Civ.
 // P.", "EEOC, Enforcement Guidance". A volume counts only after a comma, a parenthesis, a
-// signal or the start, so "She has visited 48 U.S." is prose; "No." only after a docket word
-// or a comma, so "who wore No." is too.
+// sentence's end, a signal, a word that leads into a citation ("under 42 U.S.", "is 42
+// U.S.") or the start, and only before what reads as a reporter (partialCitation checks the
+// `volume` group): a known one, or after a comma or a parenthesis any abbreviation
+// ("Functions, 100 Harv."). So "She has visited 48 U.S." and a list item's "2 Tbsp." are
+// prose; "No." only after a docket word or a case name, so "who wore No." is too.
 const CITATION_TAIL = new RegExp(
   String.raw`(?:${[
     String.raw`${NOT_AFTER_ARTICLE}\b(?:v|vs)\.`,
@@ -103,7 +130,7 @@ const CITATION_TAIL = new RegExp(
     '§§?',
     '¶¶?',
     String.raw`(?:\b(?:${DOCKET_WORDS})\s*|\bv\.?\s[^()\n]{1,100},\s*)Nos?\.`,
-    String.raw`(?:^|[,;(\[]|\)\s|\b(?:[Ss]ee|[Cc]f\.|also|[Aa]ccord|[Cc]ontra|[Cc]ompare))\s*\d{1,4}\s+${REPORTER_WORDS}(?:\d[a-z]{1,2})?\s*(?:at)?`,
+    String.raw`(?:^|(?<mark>[,;(\[]["”’]?|\)\s)|[.!?]["”’)]?\s|\b(?:[Ss]ee|[Cc]f\.|also|[Aa]ccord|[Cc]ontra|[Cc]ompare|under|in|is|of|per|and|or)\s)\s*\d{1,4}\s+(?<volume>${REPORTER_WORDS}(?:\d[a-z]{1,2})?|[A-Z](?=\s*$))\s*(?:at)?`,
     String.raw`\b\d{4}\s+(?:WL|U\.S\.\s?Dist\.\s?LEXIS)`,
     String.raw`\bat\s+pp?\.`,
     String.raw`\bsupra,?(?:\s+note(?:\s+\d+)?,?)?(?:\s+at)?`,
@@ -114,10 +141,12 @@ const CITATION_TAIL = new RegExp(
     String.raw`(?:\b(?:Am\.\s+)?Compl|\bDecl|\bAff|\bDepo?|\bExh?|\bExs|\bTr)\.`,
     String.raw`\bECF(?:\s+No\.)?`,
     String.raw`\bDkt\.(?:\s+No\.)?`,
-    String.raw`(?:\(|\b\d{1,2}\s)\s*(?:Supp\.\s*)?(?:${RECORD_BOOKS})(?:\s+\d+(?::\d*)?)?`,
+    String.raw`[(;]\s*(?:\d{1,2}\s+)?(?:Supp\.\s*)?(?:${RECORD_BOOKS})(?:\s+\d+(?::\d*)?)?`,
     String.raw`\bFed\.\s?R\.(?:\s?(?:Civ|Crim|Evid|App|Bankr)\.)?(?:\s?P\.)?`,
-    String.raw`\b[A-Z]{2,8},\s+(?:[A-Z][\w'’-]*:?\s+){0,8}(?:Enforcement|Guidance|Manual|Bulletin|Notice|Opinion|Letter|Ruling|Interpretation|Compliance)\b[^()\n]{0,120}`,
+    // Agency guidance: "EEOC, Enforcement Guidance: Reasonable Accommodation, Question 34".
+    String.raw`\b[A-Z]{2,8},\s+(?:[A-Z][\w'’-]*:?\s+){0,8}(?:Enforcement|Guidance|Manual|Bulletin|Notice|Opinion|Letter|Ruling|Interpretation|Compliance)\b(?:[:,]?\s+(?:[A-Z][\w'’-]*|\d+|and|or|of|the|to|for|with|on|in|under|by|an?)){0,24}[:,]?`,
   ].join('|')})\s*$`,
+  'g',
 );
 // Words only the name of a code, rule or report uses ("Code", "Proc.", "Rep.", "amend.").
 const CODE_WORD =
@@ -147,10 +176,14 @@ const QUOTE_MARKS = /[„“”‘]|(?<!\d)"|"(?=\w)/g;
 // whether a straight quotation is open before it.
 const inchMark = (text, i, open) =>
   !open && /\d/.test(text[i - 1]) && !/\w/.test(text[i + 1] ?? '');
-// The date of a citation the parser may not read, so a rewrite keeps it: "(Oct. 17, 2002)",
-// "(5th ed. 2012)", "(S.D.N.Y. Mar. 5, 2019)", "(West 2024)". A bare "(2015)" is prose.
+// The date of a citation the parser may not read, so a rewrite keeps it, and so keeps the
+// citation: "(S.D.N.Y. Mar. 5, 2019)", "(5th ed. 2012)", "(West 2024)", "(Oct. 17, 2002)"
+// after a number or a bracket ("Question 34 (Oct. 17, 2002)"), and a dated parenthetical
+// that ends a citation sentence ("Policy Statement on Deception (Oct. 14, 1983).", "(Am. Bar
+// Ass’n 2020);"). A bare "(2015)", or a date in parentheses within a sentence ("the call
+// (Mar. 3, 2023) went well"), is prose.
 const CITATION_DATE = new RegExp(
-  String.raw`\((?:(?:[A-Z][\w.'’&]*\.|[A-Z]{2,}|\d+(?:st|nd|rd|th|d)|ed\.|West|McKinney|Lexis|Deering|Vernon|en\s+banc)\s+){1,6}(?:${MONTH}\.?\s+\d{1,2},\s+)?(?:1[6-9]|20)\d\d\)|\(${MONTH}\.?\s+\d{1,2},\s+(?:1[6-9]|20)\d\d\)`,
+  String.raw`\((?:(?:[A-Z][\w.'’&]*\.|[A-Z]{2,}|\d+(?:st|nd|rd|th|d)|ed\.|West|McKinney|Lexis|Deering|Vernon|en\s+banc)\s+){1,6}(?:${MONTH}\.?\s+\d{1,2},\s+)?(?:1[6-9]|20)\d\d\)|(?<=[\d\]]\s?)\(${MONTH}\.?\s+\d{1,2},\s+(?:1[6-9]|20)\d\d\)|\([A-Z][^()\n]{0,80}?\b(?:1[6-9]|20)\d\d\)(?=[.;])`,
   'g',
 );
 // Number words, so "sixty (60)" may become "60" and "forty miles" "40 miles".
@@ -168,12 +201,28 @@ const count = (text, re) => (text.match(re) || []).length;
 const collapse = text => text.toLowerCase().replace(/\s+/g, ' ');
 const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// The earliest match of `re` (a global pattern anchored at the end) that `accept` takes,
+// starting in the last `window` characters of `text`, so a long text is not read from
+// every position. Lookbehinds and "^" still see the whole text, so the window's start is
+// not taken for the paragraph's.
+function tailMatch(re, text, window, accept = () => true) {
+  re.lastIndex = Math.max(0, text.length - window);
+  for (let m; (m = re.exec(text)); re.lastIndex = m.index + 1) if (accept(m)) return m;
+  return null;
+}
+const signalTail = text => tailMatch(SIGNAL_TAIL, text, 40);
+
 // Guards run once per version Claude returns, with the same document each time, so the
-// document's citations are parsed once.
-let parsed = { text: null, cites: [] };
+// document's citations, and the names its cases go by, are found once.
+let parsed = { text: null, cites: [], names: null };
 function citationsOf(text) {
-  if (parsed.text !== text) parsed = { text, cites: findCitations(text) };
+  if (parsed.text !== text) parsed = { text, cites: findCitations(text), names: null };
   return parsed.cites;
+}
+function namesOf(text) {
+  const cites = citationsOf(text);
+  parsed.names ??= referenceNames(cites);
+  return parsed.names;
 }
 
 // The signal written right before `at` in `text`, lowercased and without spaces ("see",
@@ -181,36 +230,51 @@ function citationsOf(text) {
 function signalAt(text, at) {
   const from = Math.max(0, at - 24);
   const m = text.slice(from, at).match(SIGNAL_BEFORE);
-  if (!m || (m.index === 0 && from > 0 && /\w/.test(text[from - 1]))) return '';
+  if (!m || (from > 0 && !/^[\s;,(\[]/.test(m[0]) && /\w/.test(text[from - 1]))) return '';
   return m[1].toLowerCase().replace(/\s+/g, '');
 }
 // Where the signal before a citation at `at` starts, or `at` when it has none.
 function signalStart(text, at) {
-  const from = Math.max(0, at - 24);
-  const m = text.slice(from, at).match(SIGNAL_BEFORE);
-  if (!m || (m.index === 0 && from > 0 && /\w/.test(text[from - 1]))) return at;
-  return from + m.index + m[0].indexOf(m[1]);
+  const signal = signalAt(text, at);
+  if (!signal) return at;
+  const m = text.slice(Math.max(0, at - 24), at).match(SIGNAL_BEFORE);
+  return at - m[0].length + m[0].indexOf(m[1]);
 }
 
 // What a rewrite must keep word for word and in order, as sorted {start, text, signal}:
 // each citation with the signal written before it, and the date of any citation the parser
 // could not read.
 function evidenceOf(text, cites = findCitations(text)) {
-  const top = cites.filter(c => !c.nested);
-  const parts = top.map(c => ({ start: c.start, text: c.text, signal: signalAt(text, c.start) }));
+  const parts = cites
+    .filter(c => !c.nested)
+    .map(c => ({ start: c.start, text: c.text, signal: signalAt(text, c.start) }));
   for (const m of text.matchAll(CITATION_DATE))
     if (!cites.some(c => c.start <= m.index && m.index < c.end))
       parts.push({ start: m.index, text: m[0], signal: null });
   return parts.sort((a, b) => a.start - b.start);
 }
 
-// Citations in `cites` that the document `doc` does not cite at all.
+// Citations in `cites` that the document `doc` does not cite at all. A reference to a part
+// of the document itself ("this Section 4.3") counts as cited when the document has its
+// words, even where the parser read them as prose ("the Section 4.3 notice").
 function unseen(doc, cites) {
   const known = new Set(citationsOf(doc).map(citationKey).filter(Boolean));
   return cites.filter(c => {
     const key = citationKey(c);
-    return key && !known.has(key);
+    return key && !known.has(key) && !(c.type === 'internal' && hasWords(doc, c.text));
   });
+}
+// Whether `text` has `words` as whole words.
+const hasWords = (text, words) =>
+  new RegExp(String.raw`(?<![\w.])${escape(words)}(?![\w])`).test(text);
+
+// Whether the document `doc` has the citation `c` of `text` with the same signal before it:
+// "But see Kwan, 737 F.3d at 845" is not what "See Kwan, 737 F.3d at 845" says.
+function citedAlike(doc, text, c) {
+  const signal = signalAt(text, c.start);
+  for (let at = doc.indexOf(c.text); at >= 0; at = doc.indexOf(c.text, at + 1))
+    if (signalAt(doc, at) === signal) return true;
+  return false;
 }
 
 // Whether `doc` uses `name` as a name of its own, not as the end of a longer one: "Smith v.
@@ -228,13 +292,18 @@ function namedIn(doc, name) {
 // a name ("Whether Smith v. Jones", "During the Cardinals v. Cubs"), so the name counts as
 // used when the document has it after any of them.
 function newCaseName(doc, text) {
-  for (const [name] of text.matchAll(CASE_NAME)) {
+  const used = new Map();
+  const named = name => {
+    if (!used.has(name)) used.set(name, namedIn(doc, name));
+    return used.get(name);
+  };
+  for (const name of new Set([...text.matchAll(CASE_NAME)].map(m => m[0]))) {
     const v = name.search(/\s+v\.\s/);
     const starts = [
       0,
       ...[...name.slice(0, v).matchAll(/\s+(?=\S)/g)].map(m => m.index + m[0].length),
     ];
-    if (!starts.some(at => namedIn(doc, name.slice(at)))) return true;
+    if (!starts.some(at => named(name.slice(at)))) return true;
   }
   return false;
 }
@@ -255,7 +324,7 @@ function holdingClaim(doc, text, { inserted = false, original = null } = {}) {
       const clause = inserted ? rest.slice(verb[0].length).match(/^[^.;!?]{0,80}/)[0] : '';
       return [collapse(m[0] + verb[0] + clause).trim()];
     });
-  const subjects = [...referenceNames(citationsOf(doc)).keys()].map(
+  const subjects = [...namesOf(doc).keys()].map(
     name => new RegExp(String.raw`(?<![\w])${escape(name)}(?![\w])`, 'g'),
   );
   return [...subjects, COURT].some(
@@ -272,16 +341,16 @@ function nameSpans(text, cites, names) {
   return findReferences(text, cites, names).map(r => {
     let end = r.end;
     for (let k = 0; k < 3; k++) {
-      const m = text.slice(end).match(/^ ([A-Z][a-z][\w'’&-]*)/);
+      const m = text.slice(end, end + 40).match(/^ ([A-Z][a-z][\w'’&-]*)/);
       if (!m || NOT_NAME.has(m[1]) || cites.some(c => c.start === end + 1)) break;
       end += m[0].length;
     }
     return [r.start, end];
   });
 }
-// The case names in `text`, sorted, for comparing two texts.
-const namesIn = (text, names) =>
-  nameSpans(text, findCitations(text), names)
+// The case names in `text`, sorted, for comparing two texts. `cites` are its citations.
+const namesIn = (text, cites, names) =>
+  nameSpans(text, cites, names)
     .map(([s, e]) => text.slice(s, e))
     .sort()
     .join('\n');
@@ -303,7 +372,8 @@ function numbersIn(text, least) {
   return values;
 }
 // Whether `text` has a number or date `original` does not: each number it writes, as
-// digits or as a word from "two" up, must be one `original` has, as many times.
+// digits or as a word from "two" up, must be one `original` has, as many times. A rewrite
+// may drop one ("(1) … (2) …" becoming a sentence), but not change or add one.
 function newNumber(original, text) {
   const left = new Map();
   for (const value of numbersIn(original, 0)) left.set(value, (left.get(value) || 0) + 1);
@@ -388,7 +458,9 @@ function quotations(text) {
 // `text` give them.
 export function protectedSpans(text, names) {
   text = plain(text);
-  const cites = findCitations(text);
+  return spansOf(text, findCitations(text), names);
+}
+function spansOf(text, cites, names) {
   return merge([
     ...evidenceOf(text, cites).map(p => [
       p.signal ? signalStart(text, p.start) : p.start,
@@ -401,21 +473,25 @@ export function protectedSpans(text, names) {
   ]);
 }
 
-// The ( still open at the end of `text`, or -1.
-function openParenthesis(text) {
-  const open = [];
+// For each position i of `text`, the ( still open just before it, or -1: one pass, so a
+// cut that steps back through a long text reads it in constant time.
+function openParentheses(text) {
+  const opens = new Int32Array(text.length + 1);
+  const stack = [];
   for (let i = 0; i < text.length; i++) {
-    if (text[i] === '(') open.push(i);
-    else if (text[i] === ')') open.pop();
-    else if (text[i] === '\n') open.length = 0;
+    opens[i] = stack.length ? stack.at(-1) : -1;
+    if (text[i] === '(') stack.push(i);
+    else if (text[i] === ')') stack.pop();
+    else if (text[i] === '\n') stack.length = 0;
   }
-  return open.length ? open.at(-1) : -1;
+  opens[text.length] = stack.length ? stack.at(-1) : -1;
+  return opens;
 }
 
 // Where a run of code, rule or report words ends `text` ("Cal. Gov’t Code", "Code Civ.
-// Proc.,", "H.R. Rep.", "U.S. Const. amend.", "29 C.F.R. pt. 1630, app."), or -1. A run
-// needs two words, one of them a word only such names use, so "the Penal Code" and "Acme
-// Inc." are prose.
+// Proc.,", "Bus. & Prof. Code", "H.R. Rep.", "U.S. Const. amend.", "29 C.F.R. pt. 1630,
+// app."), or -1. A run needs two words, one of them a word only such names use, so "the
+// Penal Code" and "Acme Inc." are prose.
 function codeRun(text) {
   const from = Math.max(0, text.length - 160);
   const words = [...text.slice(from).matchAll(/\S+/g)];
@@ -423,7 +499,7 @@ function codeRun(text) {
   let code = false;
   for (; k > 0; k--) {
     const word = words[k - 1][0].replace(/[,;]$/, '');
-    if (!/^\d{1,5}$|^Code$|^Gov['’]t$/.test(word) && !isAbbreviation(word)) break;
+    if (!/^\d{1,5}$|^Code$|^Gov['’]t$|^&$/.test(word) && !isAbbreviation(word)) break;
     code ||= CODE_WORD.test(word);
   }
   return code && words.length - k >= 2 ? from + words[k].index : -1;
@@ -433,18 +509,26 @@ function codeRun(text) {
 // run of code words, a citation that ends where the text does or at a page before a final
 // comma ("550 U.S. 544, 570,"), and an explanatory parenthetical still open after a
 // citation ("(2d Cir. 2004) (applying Rule 9(b) to"). `cites` are the citations of `text`,
-// or of a longer text that begins with it.
-function partialCitation(text, cites) {
-  const from = Math.max(0, text.length - 240);
-  const tail = text.slice(from).match(CITATION_TAIL);
-  if (tail) return from + tail.index;
-  const run = codeRun(text.trimEnd());
+// or of a longer text that begins with it, and `opens` its open parentheses.
+function partialCitation(text, cites, opens = openParentheses(text)) {
+  const tail = tailMatch(
+    CITATION_TAIL,
+    text,
+    240,
+    m =>
+      m.groups.volume === undefined ||
+      reporterLike(m.groups.volume) ||
+      (m.groups.mark !== undefined && /\./.test(m.groups.volume)),
+  );
+  if (tail) return tail.index;
+  const trimmed = text.trimEnd();
+  const run = codeRun(trimmed);
   if (run >= 0) return run;
-  const end = text.trimEnd().length;
-  const page = text.trimEnd().match(/[\d*]\s*,$/) ? text.trimEnd().length - 1 : -1;
+  const end = trimmed.length;
+  const page = /[\d*]\s*,$/.test(trimmed) ? end - 1 : -1;
   const ended = cites.find(c => !c.nested && (c.end === end || c.end === page));
   if (ended) return ended.start;
-  const paren = openParenthesis(text);
+  const paren = opens[text.length];
   const before =
     paren < 0
       ? null
@@ -458,8 +542,7 @@ function partialCitation(text, cites) {
 export function citationContext(paragraphBefore) {
   const text = plain(paragraphBefore);
   if (curlyQuotes(text).open.length || openQuote(text)) return 'inside-quotation';
-  if (SIGNAL_TAIL.test(text) || partialCitation(text, findCitations(text)) >= 0)
-    return 'inside-citation';
+  if (signalTail(text) || partialCitation(text, findCitations(text)) >= 0) return 'inside-citation';
   return null;
 }
 
@@ -476,14 +559,28 @@ function openQuote(text) {
   return straight || single > 0;
 }
 
-// "See Halvorsen on Saturdays", "Compare Achterberg's sourdough": a signal before
-// capitalized words that ordinary prose goes on from is not a citation. One before a case
-// the document names (`names`), a case name, a pin or "supra" is.
+// Whether the words after a signal (`rest`) are ordinary prose, not a citation: "See
+// Halvorsen on Saturdays", "See Halvorsen, who bakes", "Compare Achterberg's sourdough".
+// They are a citation when they begin with a case the document names (`names`), or when
+// the capitalized words run on to "v." ("See Henry Schein, Inc. v."), a number ("See
+// Lakeside, 455"), "supra", "et al.", a pin ("at 5"), id., or a mark no name has ("(HK)",
+// "§", "¶"). Words that stop where the text does may still become one.
 function proseAfterSignal(rest, names) {
+  rest = rest.slice(0, 200).replace(/^(?:also|generally|e\.g\.,?)\s+/, '');
   for (const name of names.keys())
     if (rest.startsWith(name) && !/[\w'’]/.test(rest[name.length] ?? '')) return false;
-  const m = rest.match(/^[A-Z][\w'’&-]*(?:\s+[A-Z][\w'’&-]*){0,4}\s+([a-z][\w'’-]*)/);
-  return Boolean(m) && !/^(?:v|vs|supra|at|et|id|ibid|ex|re|in)$/.test(m[1]);
+  const words = rest.split(/\s+/).filter(Boolean);
+  for (let k = 0; k < words.length; k++) {
+    const word = words[k];
+    if (/^(?:vs?\.?|supra,?|et|[Ii]d\.,?|[Ii]bid\.,?)$/.test(word)) return false;
+    if (word === 'at') return k + 1 < words.length && !/^(?:\*?\d|pp?\.)/.test(words[k + 1]);
+    if (/^(?:of|the|for|and|&|de|ex|rel\.)$/.test(word)) continue;
+    if (/^[a-z]/.test(word)) return true;
+    if (!/^[A-Z][\w.'’&-]*[,:!?]?$/.test(word)) return false;
+    // "See Halvorsen." ends a sentence; "See Henry Schein, Inc." goes on.
+    if (/[.!?]$/.test(word) && !isAbbreviation(word)) return true;
+  }
+  return false;
 }
 // Where a case name the pattern matched really starts: after the last sentence end inside
 // it, so "JAMS. See Henry Schein, Inc. v." starts at "See". "Inc." and "U.S." end none.
@@ -503,11 +600,12 @@ function nameStart(name) {
 export function cutAtCitation(paragraphBefore, insertion, doc = '') {
   const offset = paragraphBefore.length;
   const text = plain(paragraphBefore + insertion);
-  const names = doc ? referenceNames(citationsOf(plain(doc))) : new Map();
+  const names = doc ? namesOf(plain(doc)) : new Map();
   let cut = text.length;
   for (const m of text.matchAll(CITATION_START)) {
     if (m.index + m[0].length <= offset) continue;
     if (m.groups.signal && proseAfterSignal(text.slice(m.index + m[0].length), names)) continue;
+    if (m.groups.reporter && !reporterLike(m.groups.reporter)) continue;
     cut = m.index + (m.groups.name ? nameStart(m[0]) : 0);
     break;
   }
@@ -517,13 +615,18 @@ export function cutAtCitation(paragraphBefore, insertion, doc = '') {
   const cite = cites.find(c => c.end > offset);
   if (cite) cut = Math.min(cut, cite.start);
   // What is left may still stop partway into a citation ("42 U.S. Code" before a cut "§",
-  // or a reply that ends at "Lakeside, 455 F.3d at"), or end in the signal before one.
-  for (let last; last !== cut; ) {
+  // or a reply that ends at "Lakeside, 455 F.3d at"), or end in the signal before one. Each
+  // step moves the cut back; a text that keeps stopping partway into citations is cut whole.
+  const opens = openParentheses(text);
+  for (let last, steps = 0; last !== cut && cut > offset; steps++) {
     last = cut;
-    const head = text.slice(0, cut);
-    const signal = head.match(SIGNAL_TAIL);
-    const start = signal ? signal.index : partialCitation(head, cites);
-    if (start >= 0 && head.length > offset) cut = start;
+    if (steps === 100) cut = offset;
+    else {
+      const head = text.slice(0, cut);
+      const signal = signalTail(head);
+      const start = signal ? signal.index : partialCitation(head, cites, opens);
+      if (start >= 0) cut = start;
+    }
   }
   if (cut === text.length) return insertion;
   let kept = insertion.slice(0, Math.max(0, cut - offset));
@@ -542,15 +645,19 @@ export function cutAtCitation(paragraphBefore, insertion, doc = '') {
 // Why new text may not be inserted into the document `doc`, or null. Inserted text may
 // not cite, quote, or name a case the document does not already name, nor say what a
 // court held in words the document does not use, and a citation it copies must be in the
-// document word for word, pin cite and all.
+// document word for word, with the same signal and pin cite.
 export function guardInsertion(doc, text) {
   doc = plain(doc);
   text = plain(text);
   const cites = findCitations(text);
   if (cites.length) {
     if (unseen(doc, cites).length) return 'new-citation';
-    if (cites.some(c => !c.nested && !doc.includes(c.text))) return 'new-citation';
+    if (cites.some(c => !c.nested && !citedAlike(doc, text, c))) return 'new-citation';
   }
+  // The date of a citation the parser does not read ("Policy Statement on Deception (Oct.
+  // 14, 1983).") stands for that citation.
+  if (evidenceOf(text, cites).some(p => p.signal === null && !doc.includes(p.text)))
+    return 'new-citation';
   if (count(text, QUOTE_MARKS)) return 'new-quotation';
   if (newCaseName(doc, text)) return 'new-case-name';
   if (holdingClaim(doc, text, { inserted: true })) return 'holding-claim';
@@ -575,20 +682,26 @@ export function guardReplacement(doc, original, replacement) {
   doc = plain(doc);
   original = plain(original);
   const text = plain(replacement);
-  const added = findCitations(text).filter(c => !c.nested);
+  const replaced = findCitations(text);
+  const added = replaced.filter(c => !c.nested);
   if (unseen(doc, added).length) return 'new-citation';
   // Each citation is kept, in order and with the same signal ("See" may not become "But
   // see"), and nothing is added to one or copied in from elsewhere ("at 159" becoming
-  // "at 159, 881").
+  // "at 159, 881"). A reference to the document's own sections may be named again ("this
+  // Section 4.3" for "Section 4.3").
+  const cites = findCitations(original);
   let from = 0;
-  for (const part of evidenceOf(original)) {
+  for (const part of evidenceOf(original, cites)) {
     const at = text.indexOf(part.text, from);
     if (at < 0 || (part.signal !== null && signalAt(text, at) !== part.signal))
       return 'citation-changed';
     from = at + part.text.length;
   }
-  const cites = findCitations(original).filter(c => !c.nested);
-  if (added.length > cites.length || added.some(c => !original.includes(c.text)))
+  const counted = added.filter(c => c.type !== 'internal' || !hasWords(original, c.text));
+  if (
+    counted.length > cites.filter(c => !c.nested).length ||
+    added.some(c => !original.includes(c.text))
+  )
     return 'citation-changed';
   const quotes = quotations(original).map(([s, e]) => original.slice(s, e));
   if (!keptInOrder(quotes, text)) return 'quotation-changed';
@@ -597,8 +710,9 @@ export function guardReplacement(doc, original, replacement) {
   if (newCaseName(doc, text)) return 'new-case-name';
   if (holdingClaim(doc, text, { original })) return 'holding-claim';
   // The cases the passage relies on stay the same ones, as many times.
-  const names = referenceNames(citationsOf(doc));
-  if (names.size && namesIn(original, names) !== namesIn(text, names)) return 'citation-changed';
+  const names = namesOf(doc);
+  if (names.size && namesIn(original, cites, names) !== namesIn(text, replaced, names))
+    return 'citation-changed';
   if (newNumber(original, text)) return 'new-number';
   return null;
 }
@@ -628,7 +742,7 @@ export function selectionRefusal(before, selected, after, rephrase, blockQuote =
   const end = before.length + selected.trimEnd().length;
   if (end <= start) return null;
   if (blockQuote) return KEEP_WORDS;
-  const spans = protectedSpans(text, referenceNames(citationsOf(plain(text))));
+  const spans = spansOf(plain(text), citationsOf(plain(text)), namesOf(plain(text)));
   const within = ([s, e]) => s <= start && end <= e;
   const evidence = spans.filter(([, , type]) => type === 'citation' || type === 'quotation');
   // One bound falls strictly inside the span and the other does not: the selection takes

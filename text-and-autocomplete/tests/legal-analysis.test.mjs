@@ -261,9 +261,10 @@ test('labels may come as the objects parseLegal returns, with also, guess and co
 });
 
 test('support for each sentence of the memo', () => {
+  // S7 and S12 state the issue, so they need no authority (AN-20).
   const expected = {
-    'n/a': [...range(1, 6), 15, 17, 20, 24, 25, 26, 30, 33, 35, 38, 39, ...range(40, 46)],
-    missing: [7, 12, 27, 28, 36],
+    'n/a': [...range(1, 7), 12, 15, 17, 20, 24, 25, 26, 30, 33, 35, 38, 39, ...range(40, 46)],
+    missing: [27, 28, 36],
     direct: [8, 9, 11, 14, 19, 21, 22, 23, 32, 37],
     below: [10, 13],
     incomplete: [16],
@@ -389,10 +390,14 @@ test('the lead is what a sentence says before its first own citation', () => {
 
 test('needs attention: weak support or a starred flag', () => {
   const attention = reading => reading.sentences.filter(item => item.attention).map(item => item.n);
-  assert.equal(MEMO.attentionCount, 11);
-  assert.deepEqual(attention(MEMO), [7, 12, 13, 16, 18, 27, 28, 29, 31, 34, 36]);
-  assert.equal(BARE.attentionCount, 6);
-  assert.deepEqual(attention(BARE), [13, 16, 27, 29, 31, 34]);
+  // S7 and S12, the issues, once counted as missing authority (AN-20).
+  assert.equal(MEMO.attentionCount, 9);
+  assert.deepEqual(attention(MEMO), [13, 16, 18, 27, 28, 29, 31, 34, 36]);
+  // Without labels S31's quotation may be a fact or a story's, so it is noted but not
+  // counted (AN-19).
+  assert.equal(BARE.attentionCount, 5);
+  assert.deepEqual(attention(BARE), [13, 16, 27, 29, 34]);
+  assert.deepEqual(flagIds(BARE.sentences[30]), ['quote', 'quote-unsourced']);
   // Without labels S29 is not known to describe a case, so its cite is direct.
   assert.equal(BARE.sentences[28].support, 'direct');
   assert.equal(BARE.sentences[6].support, 'unknown');
@@ -482,13 +487,15 @@ test('rails: I R A C for each sub-issue, P R M for the umbrella', () => {
       ['h3', 'B. Two'],
       ['p', 'It is so.'],
     ]),
+    // Sub-issues that explain a case but state no rule (one holding only facts is no
+    // sub-issue at all, so it gets no rail: see the AN-3 test).
     [
       ['heading', 'framing'],
       ['roadmap', 'framing'],
       ['heading', 'framing'],
-      ['facts', 'client-fact'],
+      ['explanation', 'precedent'],
       ['heading', 'framing'],
-      ['facts', 'client-fact'],
+      ['explanation', 'precedent'],
     ],
   );
   assert.deepEqual(
@@ -636,9 +643,10 @@ test('structure checks that the memo passes fire on documents that fail them', (
       ['conclusion', 'conclusion'],
     ],
   );
+  // A name is matched as a phrase, and by a word of it only where the document uses that
+  // word alone (AN-9).
   assert.deepEqual(clientNames(doc([['p', 'TO: X\nRE: Acme Widgets, Inc.; lease']])), [
-    'Acme',
-    'Widgets',
+    'Acme Widgets',
   ]);
   assert.deepEqual(
     reading.checks.map(check => check.message),
@@ -670,7 +678,7 @@ test('structure checks that the memo passes fire on documents that fail them', (
       ['h2', 'Discussion'],
       ['p', 'We take each part in turn.'],
       ['h3', 'A. One'],
-      ['p', 'It is unlikely.'],
+      ['p', 'It may not be met.'],
       ['h3', 'B. Two'],
       ['p', 'It is clearly met.'],
       ['h2', 'Conclusion'],
@@ -694,7 +702,7 @@ test('structure checks that the memo passes fire on documents that fail them', (
       .map(check => check.message),
     [
       'The umbrella gives no overall prediction and states no cited rule.',
-      'The conclusion says “likely”, but A says only “unlikely”. The conclusion also calls a part “unclear”. If every part must be met, the whole is no surer than its weakest part.',
+      'The conclusion says “likely”, but A says only “may not”. The conclusion also calls a part “unclear”. If every part must be met, the whole is no surer than its weakest part.',
     ],
   );
 });
@@ -787,10 +795,15 @@ test('the table of authorities', () => {
       ['reference', 'named', 'II'],
     ],
   );
+  // A short form for a case never cited in full is listed too (AN-28).
   assert.deepEqual(MEMO.unresolved, [
     {
       text: 'id. in I, inside a quotation: it refers to the quoted court’s own earlier citation.',
       span: { block: 10, start: 119, end: 122 },
+    },
+    {
+      text: 'Hovsons, 89 F.3d at 1102 in I: no full citation in this document has this volume and reporter.',
+      span: { block: 10, start: 189, end: 213 },
     },
   ]);
   // The table is worked out from the text alone.
@@ -836,6 +849,9 @@ test('short forms, id. and supra resolve through the document', () => {
     [
       'id. at 2 in Analysis: there is no earlier citation for it to refer to.',
       'Lee, supra, at 7 in Analysis: no full citation in this document has that name.',
+      // A case never cited in full, and the id. that repeats it (AN-28).
+      'Ray, 10 F.3d at 3 in Analysis: no full citation in this document has this volume and reporter.',
+      'Id. at 4 in Analysis: it repeats Ray, which has no full citation in this document.',
     ],
   );
 });
@@ -850,6 +866,7 @@ test('a block read once gives the same reading every time', () => {
   assert.deepEqual(analyzeLegal(memoBlocks(), MEMO_TAGS), MEMO);
   assert.deepEqual(analyzeLegal([], null), {
     labeled: false,
+    type: 'memo',
     sentences: [],
     sections: [],
     runs: [],
@@ -993,12 +1010,13 @@ test('numbered top headings still name their parts', () => {
 });
 
 test('court levels, dockets with no name, and short forms nothing resolves', () => {
-  // A reporter that starts like U.S. is not the Supreme Court's.
+  // A reporter that starts like U.S. is not the Supreme Court's: it is the D.C. Circuit's
+  // (it read as unknown before AN-26 gave reporters their courts).
   const levels = analyzeLegal(
     doc([['p', 'The rule. Doe v. Roe, 5 U.S. App. D.C. 10, 12 (1950).']]),
     null,
   );
-  assert.equal(levels.authorities[0].level, 'unknown');
+  assert.equal(levels.authorities[0].level, 'circuit');
   // An id. after a bare docket number means that docket, whose court is stated.
   const docket = analyzeLegal(
     doc([['p', 'A rule. No. 13-114-J (W.D. Pa. 2015). Another rule. Id. at 4.']]),
@@ -1030,8 +1048,7 @@ test('looking for the client line takes no longer as empty lines are added', () 
   assert.ok(performance.now() - started < 50);
   // The line must start with RE, not merely come after a blank line that does not.
   assert.deepEqual(clientNames(doc([['p', 'TO: Partner\n\nRE: Acme Widgets; lease']])), [
-    'Acme',
-    'Widgets',
+    'Acme Widgets',
   ]);
   assert.deepEqual(clientNames(doc([['p', 'TO: Partner\nAREA: Acme']])), []);
 });
@@ -1048,4 +1065,876 @@ test('generalization with no authority says so', () => {
     reading.checks.filter(check => check.id === 'generalization').map(check => check.message),
     ['“Most courts reject this…” speaks for courts in general but rests on no authority.'],
   );
+});
+
+// ---------------------------------------------------------------------------
+// Generality: briefs, letters, contracts, stories, and citation forms beyond the memo's.
+// The IDs are the generality report's.
+// ---------------------------------------------------------------------------
+
+// Labels from "role/kind" words: tags('rule/law application/application').
+const tags = text => text.split(/\s+/).map(pair => pair.split('/'));
+const shape = reading => reading.sections.map(({ part, tag }) => `${part} ${tag}`);
+const supports = reading => reading.sentences.map(item => item.support);
+const rows = reading =>
+  reading.authorities.map(row => `${row.group} | ${row.title} | ${row.level}`);
+
+test('brief and variant headings name their parts, which get no rails or IRAC checks (AN-1)', () => {
+  const partFor = heading =>
+    sectionsOf(
+      doc([
+        ['h1', 'Memo'],
+        ['h2', heading],
+        ['p', 'Text.'],
+        ['h2', 'Discussion'],
+        ['p', 'Rule.'],
+      ]),
+    )[1].part;
+  const expected = {
+    introduction: ['Introduction', 'Preliminary Statement', 'SUMMARY OF THE ARGUMENT'],
+    standard: ['Legal Standard', 'STANDARD OF REVIEW', 'Standards of Decision'],
+    facts: [
+      'Statement of the Case',
+      'Procedural History',
+      'Relevant Facts',
+      'Facts and Procedural History',
+      'Factual and Procedural Background',
+      'Factual Summary',
+      'Background Facts',
+      'BACKGROUND',
+    ],
+    question: ['Issue Presented', 'Issues', 'Statement of the Issues'],
+    conclusion: ['Conclusion and Recommendation', 'Recommendations'],
+    other: ['Statement of Jurisdiction', 'I. Jurisdiction', 'The Story'],
+  };
+  for (const [part, headings] of Object.entries(expected)) {
+    for (const heading of headings) assert.equal(partFor(heading), part, heading);
+  }
+  const brief = analyzeLegal(
+    doc([
+      ['h2', 'Introduction'],
+      ['p', 'The claim fails. The Court should dismiss it.'],
+      ['h2', 'Legal Standard'],
+      [
+        'p',
+        'A complaint must state a plausible claim. Smith v. Jones, 1 F.3d 2, 5 (2d Cir. 2001).',
+      ],
+      ['h2', 'Argument'],
+      [
+        'p',
+        'The claim fails. A claim needs a duty. Doe v. Roe, 2 F.3d 3, 4 (2d Cir. 2002). Here there was no duty. The claim therefore fails.',
+      ],
+      ['h2', 'Conclusion'],
+      ['p', 'The Court should dismiss.'],
+    ]),
+    tags(
+      'heading/framing conclusion/conclusion conclusion/conclusion heading/framing rule/law heading/framing conclusion/conclusion rule/law application/application conclusion/conclusion heading/framing conclusion/conclusion',
+    ),
+  );
+  assert.deepEqual(shape(brief), [
+    'introduction Introduction',
+    'standard Standard',
+    'sub-issue Part 1',
+    'conclusion Conclusion',
+  ]);
+  assert.deepEqual(
+    brief.sections.map(section => Boolean(section.rail)),
+    [false, false, true, false],
+  );
+  assert.deepEqual(brief.checks, []);
+});
+
+test('point headings nest: a heading with headings under it is their umbrella (AN-2)', () => {
+  const reading = analyzeLegal(
+    doc([
+      ['h2', 'Argument'],
+      ['h3', 'I. The claim fails'],
+      ['p', 'A claim needs a duty and a breach. Smith v. Jones, 1 F.3d 2, 5 (2d Cir. 2001).'],
+      ['h4', 'A. No duty'],
+      ['p', 'Here there was no duty. So the first element fails.'],
+      ['h4', 'B. No breach'],
+      ['p', 'Here there was no breach. So the second element fails.'],
+      ['h3', 'II. No damages'],
+      ['p', 'Damages need proof. Doe v. Roe, 2 F.3d 3, 4 (2d Cir. 2002). Here there is none.'],
+      ['p', 'So damages fail.'],
+    ]),
+    tags(
+      'heading/framing heading/conclusion rule/law heading/conclusion application/application conclusion/conclusion heading/conclusion application/application conclusion/conclusion heading/conclusion rule/law application/application conclusion/conclusion',
+    ),
+  );
+  assert.deepEqual(
+    reading.sections.map(({ part, tag, parent }) => `${part} ${tag} ${parent}`),
+    [
+      'umbrella Umbrella null',
+      'umbrella I 0',
+      'sub-issue I.A 1',
+      'sub-issue I.B 1',
+      'sub-issue II 0',
+    ],
+  );
+  // ARGUMENT is only its heading, so it has no rail and asks for nothing.
+  assert.equal(reading.sections[0].rail, null);
+  // I.A and I.B take their rule from I, the umbrella over them.
+  assert.deepEqual(rail(reading.sections[2]), { I: 'ok', R: 'ok', A: 'ok', C: 'ok' });
+  assert.equal(reading.sections[2].rail[1].title, 'Rule stated in the umbrella');
+  assert.deepEqual(
+    reading.checks.map(check => check.message),
+    ['The umbrella I does not say the order of discussion.'],
+  );
+});
+
+test('sections with no analysis get no rails or checks; without labels only Discussion is the discussion (AN-3, AN-4)', () => {
+  const contract = analyzeLegal(
+    doc([
+      ['h2', 'Email to Dana'],
+      [
+        'p',
+        'Can Kestrel end the contract early? Section 4.2 lets the customer terminate on notice. Here Kestrel can give notice. So it can end the contract.',
+      ],
+      ['h2', 'Excerpt: Services Agreement'],
+      ['h3', '4. Term and Termination'],
+      ['p', 'This Agreement lasts three years. Customer may terminate on sixty days’ notice.'],
+      ['h3', '12. Governing Law'],
+      ['p', 'This Agreement is governed by California law.'],
+    ]),
+    tags(
+      'heading/framing issue/framing rule/law application/application conclusion/conclusion heading/framing heading/framing facts/client-fact facts/client-fact heading/framing facts/client-fact',
+    ),
+  );
+  assert.deepEqual(shape(contract), [
+    'sub-issue Part 1',
+    'other Part 2',
+    'other Part 4',
+    'other Part 12',
+  ]);
+  assert.deepEqual(
+    contract.sections.map(section => Boolean(section.rail)),
+    [true, false, false, false],
+  );
+  assert.deepEqual(contract.checks, []);
+  // The clauses tell facts that need no source.
+  assert.deepEqual(supports(contract).slice(6), ['n/a', 'n/a', 'n/a', 'n/a', 'n/a']);
+  assert.equal(contract.attentionCount, 0);
+  // A story's sections, labeled as facts, are not a Statement of Facts or sub-issues.
+  const story = analyzeLegal(
+    doc([
+      ['h2', 'An Early Start'],
+      ['p', 'She starts baking at five. “People think it’s romantic,” she says.'],
+      ['h2', 'The Recipe'],
+      ['p', 'The dough rests overnight.'],
+    ]),
+    tags('heading/framing facts/client-fact facts/client-fact heading/framing facts/client-fact'),
+  );
+  assert.deepEqual(shape(story), ['other Part 1', 'other Part 2']);
+  assert.deepEqual(story.checks, []);
+  assert.equal(story.attentionCount, 0);
+  // Without labels an h2 is the discussion only if it says so; one before it is a part
+  // of its own and one after it a point heading under it, whose digits read "Part 4".
+  assert.deepEqual(
+    sectionsOf(
+      doc([
+        ['h2', 'The Story'],
+        ['p', 'Once.'],
+        ['h2', 'Analysis'],
+        ['p', 'The rule.'],
+        ['h2', '4. Fees'],
+        ['p', 'Here.'],
+        ['h2', '12. Venue'],
+        ['p', 'There.'],
+      ]),
+    ).map(({ part, tag, parent }) => `${part} ${tag} ${parent}`),
+    ['other Other null', 'umbrella Umbrella null', 'sub-issue Part 4 1', 'sub-issue Part 12 1'],
+  );
+});
+
+test('facts-section runs only on a memo or brief, on facts told in the analysis (AN-5)', () => {
+  const ids = reading => reading.checks.map(check => check.id);
+  // An email has no Statement of Facts to miss.
+  const email = analyzeLegal(
+    doc([
+      ['p', 'Can Kestrel leave the contract?'],
+      [
+        'p',
+        'Kestrel signed the contract in March. The rule allows termination. Smith v. Jones, 1 F.3d 2, 5 (2d Cir. 2001). Here Kestrel may leave. So it can.',
+      ],
+    ]),
+    tags('issue/framing facts/client-fact rule/law application/application conclusion/conclusion'),
+  );
+  assert.ok(!ids(email).includes('facts-section'));
+  // "Relevant Facts" is the memo's Statement of Facts.
+  const memo = analyzeLegal(
+    doc([
+      ['h2', 'Relevant Facts'],
+      ['p', 'Kestrel signed in March.'],
+      ['h2', 'Discussion'],
+      [
+        'p',
+        'Whether Kestrel may leave. The rule allows it. Smith v. Jones, 1 F.3d 2, 5 (2d Cir. 2001). Here Kestrel gave notice. So it may.',
+      ],
+    ]),
+    tags(
+      'heading/framing facts/client-fact heading/framing issue/framing rule/law application/client-fact conclusion/conclusion',
+    ),
+  );
+  assert.ok(!ids(memo).includes('facts-section'));
+  // A memo with none counts only the facts its analysis tells.
+  const missing = analyzeLegal(
+    doc([
+      ['h2', 'Question Presented'],
+      ['p', 'Whether Kestrel may leave.'],
+      ['h2', 'Discussion'],
+      [
+        'p',
+        'Whether Kestrel may leave. Kestrel signed in March. The rule allows it. Smith v. Jones, 1 F.3d 2, 5 (2d Cir. 2001). So it may.',
+      ],
+    ]),
+    tags(
+      'heading/framing issue/framing heading/framing issue/framing facts/client-fact rule/law conclusion/conclusion',
+    ),
+  );
+  assert.deepEqual(
+    missing.checks.filter(check => check.id === 'facts-section').map(check => check.message),
+    ['No Statement of Facts: 1 client fact appears only in the analysis.'],
+  );
+});
+
+test('a greeting and a sign-off are not where an analysis opens or closes (AN-6)', () => {
+  const reading = analyzeLegal(
+    doc([
+      ['p', 'Dana,'],
+      [
+        'p',
+        'Whether Kestrel may leave. It probably may. The rule allows termination. Smith v. Jones, 1 F.3d 2, 5 (2d Cir. 2001). Here Kestrel gave notice. So it may leave.',
+      ],
+      ['p', 'Best regards, Morgan'],
+    ]),
+    tags(
+      'other/framing issue/framing conclusion/conclusion rule/law application/application conclusion/conclusion other/framing',
+    ),
+  );
+  assert.deepEqual(rail(reading.sections[0]), { I: 'ok', R: 'ok', A: 'ok', C: 'ok' });
+  assert.deepEqual(reading.checks, []);
+});
+
+test('a counter-argument may bring in the other side’s case (AN-7)', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'A transfer is adverse if it would deter a reasonable worker. Smith v. Jones, 1 F.3d 2, 5 (2d Cir. 2001). Here the transfer added a long commute. The employer may argue that a lateral transfer is not adverse. See Galabya v. N.Y.C. Bd. of Educ., 202 F.3d 636, 640 (2d Cir. 2000). The transfer is therefore adverse.',
+      ],
+    ]),
+    tags('rule/law application/application counter/application conclusion/conclusion'),
+  );
+  assert.deepEqual(
+    reading.checks.filter(check => check.id === 'new-law-in-application'),
+    [],
+  );
+});
+
+test('a rule a statute states is no generalization about courts (AN-8)', () => {
+  const messages = text =>
+    analyzeLegal(doc([['p', text]]), tags('rule/law conclusion/conclusion'))
+      .checks.filter(check => check.id === 'generalization')
+      .map(check => check.message);
+  assert.deepEqual(
+    messages(
+      'Federal law requires courts to enforce arbitration agreements. 9 U.S.C. § 2. The clause stands.',
+    ),
+    [],
+  );
+  assert.deepEqual(
+    messages('Courts enforce arbitration clauses. 9 U.S.C. § 2. The clause stands.'),
+    [],
+  );
+  assert.deepEqual(
+    messages(
+      'Courts enforce arbitration clauses. Smith v. Jones, 1 F.3d 2, 5 (2d Cir. 2001). The clause stands.',
+    ),
+    [
+      '“Courts enforce arbitration…” speaks for courts in general but rests on one authority (Smith).',
+    ],
+  );
+});
+
+test('the client’s names come from every part of the RE or Subject line and a brief’s caption (AN-9)', () => {
+  const names = text => clientNames(doc([['p', text]]));
+  assert.deepEqual(
+    names('RE: Title VII retaliation claim of Marisol Alvarez against Brightwater Logistics, Inc.'),
+    ['Marisol Alvarez', 'Brightwater Logistics'],
+  );
+  assert.deepEqual(
+    names('RE: Accommodation Request of Dana Whitcombe; Harbor Point Logistics, Inc.'),
+    ['Dana Whitcombe', 'Harbor Point Logistics'],
+  );
+  assert.deepEqual(names('Subject: Smith v. Jones; Lease review'), ['Smith', 'Jones']);
+  assert.deepEqual(names('RE: Doe; Dwelling definition under FHA'), ['Doe']);
+  assert.deepEqual(
+    names(
+      'MARIA DELGADO, Plaintiff and Appellant,\nv.\nFRESHWAY MARKETS, INC., Defendant and Respondent.',
+    ),
+    ['Maria Delgado', 'Freshway Markets'],
+  );
+  assert.deepEqual(
+    names('THE PEOPLE, Plaintiff and Respondent,\nv.\nJOHN ROE, Defendant and Appellant.'),
+    ['John Roe'],
+  );
+  // The shorter name the document uses, and the rule that uses it.
+  const reading = analyzeLegal(
+    doc([
+      ['p', 'RE: Accommodation Request of Dana Whitcombe; Harbor Point Logistics, Inc.'],
+      ['h2', 'Discussion'],
+      [
+        'p',
+        'Whether Harbor Point must accommodate Whitcombe. Under Title VII an employer must accommodate. Harbor Point must engage in the interactive process. Smith v. Jones, 1 F.3d 2, 5 (2d Cir. 2001). So it must.',
+      ],
+    ]),
+    tags('other/framing heading/framing issue/framing rule/law rule/law conclusion/conclusion'),
+  );
+  assert.deepEqual(
+    clientNames(
+      doc([
+        ['p', 'RE: Harbor Point Logistics, Inc.'],
+        ['p', 'Harbor Point agreed.'],
+      ]),
+    ),
+    ['Harbor Point Logistics', 'Harbor Point'],
+  );
+  assert.deepEqual(
+    reading.checks.filter(check => check.id === 'law-mentions-client').map(check => check.message),
+    ['Part 1: a rule mentions Harbor Point; keep client facts in the application.'],
+  );
+});
+
+test('a brief argues: no confidence ranks, and its umbrella need not state the rule (AN-10)', () => {
+  const blocks = (caption, heading) =>
+    doc([
+      ['p', caption],
+      ['h2', heading],
+      ['p', 'The claims fail.'],
+      ['h3', 'I. The fraud claim should be dismissed'],
+      [
+        'p',
+        'Fraud needs particularity. Smith v. Jones, 1 F.3d 2, 5 (2d Cir. 2001). Here there is none. The claim should therefore be dismissed.',
+      ],
+      ['h3', 'II. The statutory claim should be dismissed'],
+      [
+        'p',
+        'The statute needs consumer conduct. Doe v. Roe, 2 F.3d 3, 4 (2d Cir. 2002). Here there is none. The claim should therefore be dismissed.',
+      ],
+    ]);
+  const labels = tags(
+    'other/framing other/framing other/framing heading/framing conclusion/conclusion heading/conclusion rule/law application/application conclusion/conclusion heading/conclusion rule/law application/application conclusion/conclusion',
+  );
+  const caption = 'CORVINA FOODS, LLC, Plaintiff,\nv.\nHALVORSEN LOGISTICS, INC., Defendant.';
+  const reading = analyzeLegal(blocks(caption, 'Discussion'), labels);
+  assert.equal(reading.type, 'brief');
+  assert.deepEqual(
+    reading.sections.map(section => section.rank),
+    [null, null, null, null],
+  );
+  assert.deepEqual(
+    reading.checks.map(check => check.message),
+    ['The umbrella does not say the order of discussion.'],
+  );
+  // An Argument heading makes a brief too.
+  assert.equal(analyzeLegal(blocks('TO: Partner', 'Argument'), null).type, 'brief');
+  // The same text as a memo ranks how sure it sounds and asks for the cited rule.
+  const memo = analyzeLegal(blocks('TO: Partner', 'Discussion'), labels.slice(2));
+  assert.equal(memo.type, 'memo');
+  assert.deepEqual(
+    memo.sections.map(section => section.rank),
+    [null, null, 2, 2],
+  );
+  assert.deepEqual(
+    memo.checks.map(check => check.message),
+    ['The umbrella does not say the order of discussion and states no cited rule.'],
+  );
+});
+
+test('a sentence’s second role counts on the sub-issue rail (AN-11)', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'Whether it is a disability. The ADA covers episodic impairments. 42 U.S.C. § 12102(4)(D). Her flares therefore limit digestion.',
+      ],
+    ]),
+    [
+      ['issue', 'framing'],
+      ['rule', 'law'],
+      ['conclusion', 'conclusion', 'application'],
+    ],
+  );
+  assert.deepEqual(rail(reading.sections[0]), { I: 'ok', R: 'ok', A: 'ok', C: 'ok' });
+});
+
+test('“unlikely” predicts as surely as “likely”, and a trailing concession is not the prediction (AN-12)', () => {
+  assert.deepEqual(confidenceRank('A court is unlikely to enforce the fee.'), {
+    rank: 2,
+    phrase: 'unlikely',
+  });
+  assert.deepEqual(confidenceRank('A court is highly unlikely to enforce it.'), {
+    rank: 3,
+    phrase: 'highly unlikely',
+  });
+  assert.deepEqual(
+    confidenceRank(
+      'Probably yes to the first, although a judge is unlikely to be the one who decides.',
+    ),
+    { rank: 2, phrase: 'Probably' },
+  );
+  assert.deepEqual(confidenceRank('It may not be met.'), { rank: 1, phrase: 'may not' });
+});
+
+test('a case goes by the name the writer calls it, from legal-text’s shortName (AN-13)', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'A claim must be plausible. Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009). Labels will not do. Iqbal, 556 U.S. at 679.',
+      ],
+      [
+        'p',
+        'Timing alone rarely suffices. Clark Cnty. Sch. Dist. v. Breeden, 532 U.S. 268, 273 (2001). An employer may proceed as planned. Breeden, 532 U.S. at 272.',
+      ],
+      [
+        'p',
+        'Telework may be required. EEOC v. Ford Motor Co., 782 F.3d 753, 762 (6th Cir. 2015). Arbitrability goes to the arbitrator. Henry Schein, Inc. v. Archer & White Sales, Inc., 139 S. Ct. 524, 529 (2019).',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(
+    reading.sentences.flatMap(item => item.cites.map(cite => cite.label)),
+    ['Iqbal 678', 'Iqbal 679', 'Breeden 273', 'Breeden 272', 'Ford Motor 762', 'Henry Schein 529'],
+  );
+});
+
+test('an id. after a citation nothing resolves is unresolved too (AN-14)', () => {
+  const reading = analyzeLegal(
+    doc([
+      ['p', 'Rule one. Hatfield v. Levy Bros., 18 Cal. 2d 798, 806 (1941).'],
+      ['p', 'Rule two. Aguilar, supra, at 856. Rule three. Id. at 850.'],
+    ]),
+    null,
+  );
+  assert.deepEqual(chips(3, reading), ['Id. · unresolved']);
+  assert.deepEqual(
+    reading.unresolved.map(item => item.text),
+    [
+      'Aguilar, supra, at 856 in Analysis: no full citation in this document has that name.',
+      'Id. at 850 in Analysis: the citation before it, Aguilar, supra, at 856, names no case cited in this document.',
+    ],
+  );
+});
+
+test('the record supports facts but is no authority, and an id. after it is the record (AN-15)', () => {
+  const reading = analyzeLegal(
+    doc([
+      ['p', 'Deceptive acts are unlawful. N.Y. Gen. Bus. Law § 349.'],
+      [
+        'p',
+        'Corvina ships seafood. Compl. ¶ 12. It sued in May. Id. ¶¶ 30–31. Hollis recommended the transfer. Ex. D at 2.',
+      ],
+    ]),
+    tags(
+      'rule/law rule/law facts/client-fact facts/client-fact facts/client-fact facts/client-fact facts/client-fact facts/client-fact',
+    ),
+  );
+  assert.deepEqual(
+    reading.sentences.map(item => [item.support, ...chips(item.n, reading)]),
+    [
+      ['direct', 'N.Y. Gen. Bus. Law § 349'],
+      ['record', 'Compl. ¶ 12'],
+      ['record', 'Id. → Compl. ¶ 12'],
+      ['record', 'Ex. D at 2'],
+    ],
+  );
+  assert.deepEqual(
+    reading.sentences.flatMap(item => item.cites.map(cite => cite.key)),
+    ['N.Y.Gen.Bus.Law§349', null, null, null],
+  );
+  assert.deepEqual(rows(reading), ['statutes | N.Y. Gen. Bus. Law § 349 | statute']);
+  assert.equal(reading.authorities[0].count, 1);
+  assert.deepEqual(reading.unresolved, []);
+  assert.equal(reading.attentionCount, 0);
+  // A quotation of the complaint, cited to it, has its source.
+  const quoted = analyzeLegal(
+    doc([
+      [
+        'p',
+        'The representative promised a “fully temperature-controlled fleet with continuous monitoring,” Compl. ¶ 9, and nothing more.',
+      ],
+    ]),
+    tags('facts/client-fact'),
+  );
+  assert.deepEqual(flagIds(quoted.sentences[0]), ['quote']);
+  assert.equal(quoted.sentences[0].support, 'record');
+});
+
+test('“Id. § X” after a code is another section of that code (AN-16)', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'FEHA bars failing to accommodate. Cal. Gov’t Code § 12940(m). It defines disability broadly. Id. § 12926(m).',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(chips(2, reading), ['Id. → Cal. Gov’t Code § 12926']);
+  assert.deepEqual(rows(reading), [
+    'statutes | Cal. Gov’t Code § 12926(m) | statute',
+    'statutes | Cal. Gov’t Code § 12940(m) | statute',
+  ]);
+});
+
+test('an id. takes the pin of the citation it repeats, and “Id. § X” is its own pin (AN-18)', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'Labels will not do. Smith v. Jones, 123 F.3d 456, 460 (2d Cir. 2001). The court will not credit “threadbare recitals of the elements.” Id.',
+      ],
+      ['p', 'Disability includes “the operation of a major bodily function.” Id. § 12102(2)(B).'],
+    ]),
+    tags('rule/law explanation/precedent rule/law'),
+  );
+  assert.deepEqual(reading.sentences.map(flagIds), [[], ['quote'], ['quote']]);
+});
+
+test('a quotation needs a source when it states law or a fact the analysis rests on (AN-19)', () => {
+  const dialogue = doc([
+    [
+      'p',
+      '“People think it’s romantic,” she says. “It is not romantic at all,” he says. “The rule is strict in every case.” Smith v. Jones, 1 F.3d 2, 5 (2d Cir. 2001). The court said “no exceptions apply to this rule” in that case.',
+    ],
+  ]);
+  const labeled = analyzeLegal(
+    dialogue,
+    tags('facts/client-fact facts/client-fact rule/law rule/law'),
+  );
+  assert.deepEqual(labeled.sentences.map(flagIds), [
+    ['quote'],
+    ['quote'],
+    ['quote'],
+    ['quote', 'quote-unsourced'],
+  ]);
+  // Without labels the flag is noted but not counted.
+  const bare = analyzeLegal(
+    doc([['p', 'The handbook has “no exceptions to the rule at all” in it.']]),
+    null,
+  );
+  assert.deepEqual(flagIds(bare.sentences[0]), ['quote', 'quote-unsourced']);
+  assert.equal(bare.sentences[0].attention, false);
+  // A contract section cited for its words is their source.
+  const contract = analyzeLegal(
+    doc([
+      ['p', 'Agreement § 4.2(b) lets Kestrel terminate “for convenience upon sixty days’ notice.”'],
+    ]),
+    tags('rule/law'),
+  );
+  assert.deepEqual(flagIds(contract.sentences[0]), ['quote']);
+});
+
+test('an issue, a roadmap and a heading need no authority (AN-20)', () => {
+  const reading = analyzeLegal(
+    doc([
+      ['h2', 'Question Presented'],
+      ['p', 'Under Title VII, can Alvarez establish retaliation after complaining?'],
+      ['h2', 'Discussion'],
+      [
+        'p',
+        'The question is whether the transfer was adverse. This memo first takes protected activity.',
+      ],
+    ]),
+    tags('heading/framing issue/law heading/framing issue/law roadmap/law'),
+  );
+  assert.deepEqual(supports(reading), ['n/a', 'n/a', 'n/a', 'n/a', 'n/a']);
+  assert.equal(reading.attentionCount, 0);
+});
+
+test('a case named near its full citation is not secondhand or uncited (AN-21)', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'A lateral transfer is not adverse in this Circuit. Galabya v. N.Y.C. Bd. of Educ., 202 F.3d 636, 640 (2d Cir. 2000).',
+      ],
+      [
+        'p',
+        'But Galabya applied the stricter standard for discrimination claims, which Burlington Northern rejected for retaliation. Burlington N. & Santa Fe Ry. Co. v. White, 548 U.S. 53, 64 (2006).',
+      ],
+      [
+        'p',
+        'Poe held so first. Doe v. Roe, 2 F.3d 3, 4 (2d Cir. 2002) (quoting Poe v. Moe, 9 F.3d 1, 2 (2d Cir. 1990)).',
+      ],
+    ]),
+    tags('explanation/precedent counter/precedent explanation/precedent'),
+  );
+  // Galabya is cited in full in the paragraph before; Poe only inside Doe's parenthetical.
+  assert.deepEqual(supports(reading), ['direct', 'direct', 'secondhand']);
+  assert.deepEqual(reading.sentences.map(flagIds), [[], [], []]);
+});
+
+test('a block quotation rests on the citation in the paragraph after it (AN-22)', () => {
+  const reading = analyzeLegal(
+    doc([
+      ['h2', 'Legal Standard'],
+      ['p', 'The Court explained the standard this way:'],
+      [
+        'blockquote',
+        'A claim has facial plausibility when the pleaded facts allow a reasonable inference of liability.',
+      ],
+      ['p', 'Smith v. Jones, 123 F.3d 456, 460 (2d Cir. 2001).'],
+    ]),
+    tags('heading/framing rule/law rule/law rule/law'),
+  );
+  assert.deepEqual(supports(reading), ['n/a', 'below', 'direct', 'direct']);
+  assert.deepEqual(flagIds(reading.sentences[2]), ['quote']);
+  assert.equal(reading.attentionCount, 0);
+});
+
+test('the caption’s citations are no authority and need no attention (AN-23, AN-29)', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'UNITED STATES DISTRICT COURT\nCORVINA FOODS, LLC, Plaintiff,\nv.\nHALVORSEN LOGISTICS, INC., Defendant.\nNo. 1:26-cv-03317 (LGS)',
+      ],
+      ['h2', 'Argument'],
+      ['p', 'The claim fails. Smith v. Jones, 1 F.3d 2, 5 (2d Cir. 2001).'],
+    ]),
+    null,
+  );
+  const caption = reading.sentences.filter(item => item.section === 0);
+  assert.ok(caption.every(item => item.support === 'n/a' && !item.attention));
+  assert.deepEqual(caption.map(flagIds).flat(), []);
+  assert.deepEqual(
+    caption.flatMap(item => item.cites.map(cite => [cite.text, cite.key])),
+    [['No. 1:26-cv-03317 (LGS)', null]],
+  );
+  assert.deepEqual(rows(reading), ['cases | Smith v. Jones, 1 F.3d 2 (2d Cir. 2001) | circuit']);
+  assert.equal(reading.attentionCount, 0);
+});
+
+test('signals in any case, carried through string citations (AN-25)', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'Prior remote work is relevant evidence, see Fed. R. Evid. 401, and courts consider it. Some courts disagree, but see Poe v. Moe, 101 F.3d 1, 5 (2d Cir. 1996). The rule is old. (See Reid v. Google, Inc. (2010) 50 Cal.4th 512, 535 [110 Cal.Rptr.3d 129].) Arbitrability goes to the arbitrator. See Henry Schein, Inc. v. Archer & White Sales, Inc., 139 S. Ct. 524, 529 (2019); Rent-A-Center, W., Inc. v. Jackson, 561 U.S. 63, 68 (2010). It is settled. Smith v. Jones, 1 F.3d 2, 5 (2d Cir. 2001); see also Brown v. Green, 300 F.3d 1, 5 (9th Cir. 2002).',
+      ],
+    ]),
+    tags('rule/law rule/law rule/law rule/law rule/law'),
+  );
+  assert.deepEqual(supports(reading), [
+    'inferential',
+    'contrary',
+    'inferential',
+    'inferential',
+    'direct',
+  ]);
+  assert.deepEqual(reading.sentences.map(flagIds), [[], [], [], [], ['needs-parenthetical']]);
+});
+
+test('state and foreign courts have their levels (AN-26)', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'One. Ortega v. Kmart Corp. (2001) 26 Cal.4th 1200, 1206. Two. Reid v. Smith (2019) 31 Cal.App.5th 100, 104. Three. Doe v. Roe, 85 N.Y.2d 20, 25 (1995). Four. Poe v. Moe, 22 N.E.3d 1, 4 (Ill. 2014). Five. Fox v. Hen, 5 P.3d 1, 2 (Cal. Ct. App. 2002). Six. Ash v. Oak, 9 A.D.3d 1, 3 (2004). Seven. Donoghue v Stevenson [1932] AC 562 (HL). Eight. Starbucks (HK) Ltd v British Sky Broadcasting Group plc [2015] UKSC 31 at [47]. Nine. R v Smith [2004] EWCA Crim 631 at [12]. Ten. R. v. Jordan, 2016 SCC 27, [2016] 1 S.C.R. 631, at para. 5. Eleven. R v Cole, 2012 ONCA 5 at para 9.',
+      ],
+    ]),
+    null,
+  );
+  const level = name => reading.authorities.find(row => row.title.startsWith(name)).level;
+  assert.deepEqual(
+    [
+      'Ortega',
+      'Reid',
+      'Doe',
+      'Poe',
+      'Fox',
+      'Ash',
+      'Donoghue',
+      'Starbucks',
+      'R v Smith',
+      'R. v. Jordan',
+      'R v Cole',
+    ].map(level),
+    [
+      'state-supreme',
+      'state-appellate',
+      'state-supreme',
+      'state-supreme',
+      'state-appellate',
+      'state-appellate',
+      'supreme',
+      'supreme',
+      'appellate',
+      'supreme',
+      'appellate',
+    ],
+  );
+  // Titles follow the document's form: California's year first, English and Canadian
+  // neutral citations with no court after them.
+  const title = name => reading.authorities.find(row => row.title.startsWith(name)).title;
+  assert.equal(title('Ortega'), 'Ortega v. Kmart Corp. (2001) 26 Cal.4th 1200');
+  assert.equal(title('Donoghue'), 'Donoghue v Stevenson [1932] AC 562 (HL)');
+  assert.equal(title('R. v. Jordan'), 'R. v. Jordan, 2016 SCC 27, [2016] 1 S.C.R. 631');
+});
+
+test('a short form with no full citation is listed as unresolved (AN-28)', () => {
+  const reading = analyzeLegal(doc([['p', 'Labels will not do. Twombly, 550 U.S. at 555.']]), null);
+  assert.deepEqual(
+    reading.unresolved.map(item => item.text),
+    [
+      'Twombly, 550 U.S. at 555 in Analysis: no full citation in this document has this volume and reporter.',
+    ],
+  );
+});
+
+test('a note after a statute is not a subsection out of form (AN-30)', () => {
+  const form = text => flagIds(analyzeLegal(doc([['p', text]]), null).sentences[0]);
+  assert.deepEqual(form('Corvina sues under N.Y. Gen. Bus. Law § 349 (Count III).'), []);
+  assert.deepEqual(form('It applies. 42 U.S.C. § 3602 (b).'), ['form statute']);
+});
+
+test('parallel citations are one case, found by a short form in any of its reporters', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'A claim must be plausible. Bell Atl. Corp. v. Twombly, 550 U.S. 544, 570, 127 S. Ct. 1955, 167 L. Ed. 2d 929 (2007).',
+      ],
+      [
+        'p',
+        'Labels will not do. Twombly, 550 U.S. at 555. Nor will conclusions. Twombly, 127 S. Ct. at 1965.',
+      ],
+      [
+        'p',
+        'A store must inspect. (Aguilar v. Atlantic Richfield Co. (2001) 25 Cal.4th 826, 860 [107 Cal.Rptr.2d 841, 24 P.3d 493] (Aguilar).) The court may not weigh evidence. (Aguilar, supra, 25 Cal.4th at p. 856.)',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(
+    reading.sentences.flatMap(item => item.cites.map(cite => cite.label + SUFFIX[cite.state])),
+    ['Twombly 570', 'Twombly 555', 'Twombly 1965', 'Aguilar 860', 'Aguilar, supra'],
+  );
+  assert.deepEqual(rows(reading), [
+    'cases | Aguilar v. Atlantic Richfield Co. (2001) 25 Cal.4th 826 [107 Cal.Rptr.2d 841, 24 P.3d 493] | state-supreme',
+    'cases | Bell Atl. Corp. v. Twombly, 550 U.S. 544, 127 S. Ct. 1955, 167 L. Ed. 2d 929 (2007) | supreme',
+  ]);
+  assert.deepEqual(
+    reading.authorities.map(row => row.key),
+    ['25 Cal.4th 826', '550 U.S. 544'],
+  );
+  assert.deepEqual(reading.unresolved, []);
+});
+
+test('unreported cases are named authorities with their dates', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'Vague claims fail. See Meridian Produce Co. v. Talbot Freight Sys., Inc., No. 18-cv-7702 (JPO), 2019 WL 1234567, at *3 (S.D.N.Y. Mar. 5, 2019) (dismissing fraud claim).',
+      ],
+      [
+        'p',
+        'A title alone is not enough. Meridian Produce, 2019 WL 1234567, at *4. Some courts disagree, but see Kessler v. Northgate Cold Storage, LLC, 2021 WL 4410382, at *6 (S.D.N.Y. Sept. 27, 2021).',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(
+    reading.sentences.flatMap(item => item.cites.map(cite => cite.label)),
+    ['Meridian Produce *3', 'Meridian Produce *4', 'Kessler *6'],
+  );
+  assert.deepEqual(supports(reading), ['inferential', 'direct', 'contrary']);
+  assert.deepEqual(rows(reading), [
+    'cases | Kessler v. Northgate Cold Storage, LLC, 2021 WL 4410382 (S.D.N.Y. Sept. 27, 2021) | district',
+    'cases | Meridian Produce Co. v. Talbot Freight Sys., Inc., No. 18-cv-7702, 2019 WL 1234567 (S.D.N.Y. Mar. 5, 2019) | district',
+  ]);
+  assert.ok(reading.authorities.every(row => !row.warnings.length));
+});
+
+test('articles, books, guidance and legislative history are other authorities', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'Commentators agree. Jane Roe, Rethinking Essential Functions, 100 Harv. L. Rev. 1, 15 (1987); 1 Barbara T. Lindemann et al., Employment Discrimination Law § 13.03 (5th ed. 2012). Congress meant it. H.R. Rep. No. 110-730, pt. 1, at 5 (2008). Later work agrees. Roe, supra note 4, at 22.',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(rows(reading), [
+    'other | Barbara T. Lindemann et al., Employment Discrimination Law (5th ed. 2012) | unknown',
+    'other | H.R. Rep. No. 110-730, pt. 1 (2008) | unknown',
+    'other | Jane Roe, Rethinking Essential Functions, 100 Harv. L. Rev. 1 (1987) | unknown',
+  ]);
+  const roe = reading.authorities.find(row => row.name === 'Roe');
+  assert.equal(roe.title.slice(...roe.italic), 'Rethinking Essential Functions');
+  assert.equal(roe.count, 2);
+  assert.deepEqual(chips(3, reading), ['Roe, supra']);
+});
+
+test('a contract’s sections are never statutes', () => {
+  const reading = analyzeLegal(
+    doc([
+      ['p', 'Federal law requires courts to enforce arbitration agreements. 9 U.S.C. § 2.'],
+      [
+        'p',
+        'Kestrel may terminate under Agreement § 4.2. Separately, § 4.3 allows termination for cause. The fees are payable as provided in § 2.',
+      ],
+    ]),
+    tags('rule/law rule/law rule/law facts/client-fact'),
+  );
+  assert.deepEqual(rows(reading), ['statutes | 9 U.S.C. § 2 | statute']);
+  assert.equal(reading.authorities[0].count, 1);
+  assert.deepEqual(supports(reading), ['direct', 'record', 'record', 'record']);
+  assert.ok(reading.sentences.every(item => !item.attention));
+  assert.equal(reading.sentences[2].lead, reading.sentences[2].text);
+  // With no contract cited by name, a section numbered as a contract's is still no statute,
+  // while a code's section is.
+  const bare = analyzeLegal(
+    doc([
+      ['p', 'Separately, § 4.3 allows termination for cause. Section 1983 claims differ. § 1983.'],
+    ]),
+    null,
+  );
+  assert.deepEqual(rows(bare), ['statutes | § 1983 | statute']);
+  assert.deepEqual(chips(1, bare), ['§ 4.3']);
+  assert.equal(bare.sentences[0].cites[0].key, null);
+});
+
+test('reproduced document text is its own source and no analysis (LC-1)', () => {
+  const reading = analyzeLegal(
+    doc([
+      ['p', 'RE: Kestrel Analytics; termination'],
+      ['h2', 'Discussion'],
+      [
+        'p',
+        'Whether Kestrel may terminate. Kestrel may terminate for convenience on notice. Kestrel gave notice in May. So it may terminate.',
+      ],
+      ['h2', 'Excerpt'],
+      [
+        'p',
+        'Kestrel may terminate this Agreement upon sixty (60) days’ notice. Fees are due monthly.',
+      ],
+    ]),
+    tags(
+      'other/framing heading/framing issue/framing rule/document-text application/application conclusion/conclusion heading/framing rule/document-text facts/document-text',
+    ),
+  );
+  assert.deepEqual(supports(reading).slice(3), ['n/a', 'n/a', 'n/a', 'n/a', 'n/a', 'n/a']);
+  // The clause the analysis relies on is its rule, but names the client as a contract does.
+  assert.equal(rail(reading.sections[1]).R, 'ok');
+  assert.ok(!reading.checks.some(check => check.id === 'law-mentions-client'));
+  // The excerpt is not analysis, and its text is no client fact.
+  assert.deepEqual(shape(reading), ['caption Caption', 'sub-issue Analysis', 'other Part 1']);
+  assert.ok(!reading.checks.some(check => check.id === 'facts-section'));
 });

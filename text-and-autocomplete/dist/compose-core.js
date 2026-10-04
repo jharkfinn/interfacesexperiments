@@ -1,5 +1,11 @@
 import { cutAtCitation, guardDraft, guardInsertion } from './citation-guard.js';
-import { ALWAYS_JOIN, PREFIX_UNLESS_AFTER_NAME, isAbbreviation, isReporter } from './legal-text.js';
+import {
+  ALWAYS_JOIN,
+  ENTITY_SUFFIXES,
+  PREFIX_UNLESS_AFTER_NAME,
+  isAbbreviation,
+  isReporter,
+} from './legal-text.js';
 
 export const MODEL = 'gpt-realtime-2.1-mini';
 // Room for a full legal memo, which runs to about 1,250 words.
@@ -29,9 +35,11 @@ export function fitInsertion(before, insertion, after) {
   return insertion.slice(0, low);
 }
 // Abbreviations that keep a sentence open: "v.", a title ("Dr.", "Gen."), a court ("Cir."),
-// an initial ("F.", "J."), a reporter after its volume ("455 F.", "550 U.S.", "42 U.S.C."),
-// and "St." before a name. Any other ("the U.S.", "7 a.m.", "Jr.", "etc.", "Ph.D.") may end
-// a sentence, so a caret after it and a space starts a new one.
+// a page or number ("p.", "No."), a record ("Ex.", "Dep."), a month before its day, an
+// initial ("F.", "J."), a reporter after its volume ("455 F.", "550 U.S.", "42 U.S.C."),
+// "St." before a name ("in St."), and a word inside a capitalized name ("Bell Atl.",
+// "Code Civ."). Any other may end a sentence ("the U.S.", "7 a.m.", "Jr.", "etc.",
+// "Ph.D.", "Acme Inc."), so a caret after it and a space starts a new one.
 const KEEPS_OPEN = new Set([
   ...ALWAYS_JOIN,
   'Cir.',
@@ -41,19 +49,39 @@ const KEEPS_OPEN = new Set([
   'Super.',
   'Sup.',
   'Bankr.',
+  'p.',
+  'pp.',
+  'No.',
+  'Nos.',
+  'Vol.',
+  'Ex.',
+  'Exh.',
+  'Dep.',
+  'Decl.',
+  'Aff.',
+  'Compl.',
 ]);
 const BEFORE_NAME = new Set(PREFIX_UNLESS_AFTER_NAME);
+const ENDS_NAME = new Set(ENTITY_SUFFIXES);
+const MONTH = /^(?:Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)\.$/u;
 export function isSentenceBoundary(before) {
   if (!/[.!?。！？][”’"')\]]*[^\S\r\n]*$/u.test(before)) return false;
-  const words = before.trimEnd().split(/\s+/u);
+  const words = before.trimEnd().slice(-80).split(/\s+/u);
   const token = words.at(-1);
   const previous = words.at(-2) ?? '';
   if (/[?!]$/u.test(token) || !isAbbreviation(token)) return true;
-  if (KEEPS_OPEN.has(token) || /^[A-Z]\.$/u.test(token)) return false;
+  if (KEEPS_OPEN.has(token) || MONTH.test(token) || /^[A-Z]\.$/u.test(token)) return false;
   if (BEFORE_NAME.has(token)) return /^[A-Z]/u.test(previous);
   // A volume and its reporter or code: "550 U.S.", "455 F. Supp.", "29 C.F.R."
   if (/^\d/u.test(previous) && /^[A-Z]/u.test(token)) return false;
-  return !isReporter(`${previous} ${token}`);
+  if (isReporter(`${previous} ${token}`)) return false;
+  // A word inside a capitalized name ("Bell Atl.", "Code Civ."), not one that ends a name
+  // ("Acme Inc.", "Halvorsen Jr.").
+  return !(
+    /^[A-Z][\w.'’&-]*$/u.test(previous) &&
+    /^[A-Z][a-z'’]+\.$/u.test(token) &&
+    !ENDS_NAME.has(token)
+  );
 }
 function lengthRejection(text, before, after, maxChars, maxWords) {
   if (text.length > maxChars) return 'suggestion-character-limit';
@@ -100,10 +128,12 @@ export function inspectCompletion(text, before, after, finished = true) {
   // words are the author's evidence. Nothing left means the model only offered authority.
   // A streamed number with capitalized words after it, or a signal word, waits for the
   // next word, which shows whether a citation begins there ("455 F.3d at", "see Lakeside")
-  // or not ("455 people", "see you"): a preview can be accepted before the reply ends.
+  // or not ("455 people", "see you"), and a parenthesis waits until it closes, since one
+  // a citation cuts goes whole: a preview can be accepted before the reply ends.
   const shown = finished
     ? raw
     : raw
+        .replace(/\s*\([^()]*$/u, '')
         .replace(/\d[\d.,:–-]*(?:\s+[A-Z][\p{L}.'’]*){0,3}\s*$/u, '')
         .replace(
           /\b(?:see|cf\.|accord|citing|quoting|compare|contra)(?:,?\s+(?:also|generally|e\.g\.,?))?[\s,]*$/iu,

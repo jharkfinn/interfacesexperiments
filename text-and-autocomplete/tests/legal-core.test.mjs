@@ -376,3 +376,42 @@ test('any reply gives one tag per sentence from the lists', () => {
     assert.equal(parsed.partial === true, guessed >= 0.3 * 46, `round ${round}`);
   }
 });
+
+test('reproduced document text has a kind of its own (LC-1)', () => {
+  // A contract's clauses or a statute set out in the document are their own source.
+  assert.ok(KINDS.includes('document-text'));
+  assert.equal(KIND_NAMES['document-text'], 'Document text');
+  for (const role of ['rule', 'facts', 'other', 'explanation']) {
+    assert.ok(ALLOWED[role].includes('document-text'), role);
+  }
+  for (const role of ['issue', 'conclusion', 'application', 'counter', 'roadmap', 'heading']) {
+    assert.ok(!ALLOWED[role].includes('document-text'), role);
+  }
+  assert.equal(DEFAULT_ROLE['document-text'], 'other');
+  assert.ok(LEGAL_INSTRUCTIONS.includes('- document-text: text of a contract, statute'));
+  // A provision invoked as the governing term is a rule, cited by its cross-reference.
+  assert.match(
+    LEGAL_INSTRUCTIONS,
+    /contract provision that the analysis invokes as the governing term is a rule/,
+  );
+  const parsed = parseLegal(
+    reply([
+      [1, 'facts', 'Contract Text'],
+      [2, 'rule', 'document_text'],
+      [3, null, 'clause'],
+      [4, 'explanation', 'provision'],
+    ]),
+    [{ kind: 'p', sentences: ['One.', 'Two.', 'Three.', 'Four.'] }],
+  );
+  assert.deepEqual(pairs(parsed.tags), [
+    ['facts', 'document-text'],
+    ['rule', 'document-text'],
+    ['other', 'document-text'],
+    ['explanation', 'document-text'],
+  ]);
+  // Stored labels with the new kind are kept.
+  const stored = { tags: [{ text: 'One.', role: 'other', kind: 'document-text' }] };
+  assert.deepEqual(pairs(remapLegal(stored, [{ kind: 'p', sentences: ['One.'] }])), [
+    ['other', 'document-text'],
+  ]);
+});

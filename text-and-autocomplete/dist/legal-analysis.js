@@ -4,6 +4,8 @@ import {
   referenceNames,
   findReferences,
   citationKey,
+  shortName,
+  isCitationSentence,
 } from './legal-text.js';
 import { ROLES, KINDS, ALLOWED, STRUCTURE_CHECKS } from './legal-core.js';
 
@@ -13,7 +15,10 @@ import { ROLES, KINDS, ALLOWED, STRUCTURE_CHECKS } from './legal-core.js';
 // a table of authorities. Claude only names each sentence's role and kind from
 // fixed lists; every name, citation and quotation here is read from the
 // document, so nothing Claude writes reaches the screen. No DOM, so the IRAC and
-// Sourcing views and the tests share one reading.
+// Sourcing views and the tests share one reading. It reads office memos, briefs,
+// letters and emails in Bluebook or California Style Manual form, and English and
+// Canadian citations; text with no legal analysis in it, such as a contract's
+// clauses or a story, gets no IRAC checks.
 //
 // analyzeLegal(blocks, labels) takes the model's blocks, [{index, kind, text,
 // sentences: [{start, end, text}]}], and Claude's labels, one per sentence
@@ -21,23 +26,45 @@ import { ROLES, KINDS, ALLOWED, STRUCTURE_CHECKS } from './legal-core.js';
 // null. It returns:
 // {
 //   labeled,            // whether there were labels to read
+//   type,               // brief (a caption with parties, an Argument, a brief's title) or memo
+//                       // (anything else: memos, letters, emails, other writing)
 //   sentences: [{       // one per sentence; n counts from 1 through the document
 //     n, block, index, start, end, text,  // block number, place in it, offsets in its text
 //     section,          // index into sections
-//     role, kind, also, guess, conflict,  // labels after the app's overrides; null without labels
+//     role, kind, also, guess, conflict,  // labels after the app's overrides; null without labels;
+//                       // kind may be document-text (a contract's or statute's own words)
 //     support,          // direct, inferential, indirect, background, contrary, secondhand,
-//                       // incomplete, below, missing, unsourced, record, n/a or unknown
+//                       // incomplete, below, missing, unsourced, record, n/a or unknown.
+//                       // record: it rests on the record (Compl. ¶ 9, Ex. A at 1, 2 CT 362)
+//                       // or on a section of the document or contract it discusses;
+//                       // n/a: it needs no source (a heading, the caption, an issue, a
+//                       // roadmap, a conclusion, reproduced document text, or a fact
+//                       // told in a section with no legal analysis, or in a letter,
+//                       // email or story that cites no record)
 //     flags: [{id, text, attention, title?, items?}],  // items [{id, text}] on the one 'form' flag
 //     cites: [{label, state, start, end, key, text}],  // state: own, quoted, nested or unresolved;
-//                       // label has no state suffix; key is the authority's, or null
-//     lead,             // the text before its first own citation
+//                       // label has no state suffix; key is the authority's, or null (a
+//                       // record citation, a section of the document, the caption's)
+//     lead,             // the text before its first own citation, other than a reference
+//                       // to a section of the document ("Separately, § 4.3 allows …")
 //     attention,        // weak support or a flag that counts toward "needs attention"
 //   }],
-//   sections: [{index, part, tag, label, heading, blocks, first, last, rank, phrase, rail}],
-//                       // part: caption, question, answer, facts, umbrella, sub-issue or conclusion;
-//                       // heading: the heading's block number or null; first, last: sentence numbers;
-//                       // rank 1-3 and phrase: how sure it sounds, or null;
-//                       // rail: null, or [{letter, roles, state, title}], state ok, missing or order
+//   sections: [{index, part, tag, label, heading, parent, blocks, first, last, rank, phrase, rail}],
+//                       // part: caption, question, answer, introduction, facts, standard,
+//                       // umbrella, sub-issue, conclusion or other. Only umbrellas and
+//                       // sub-issues get rails and IRAC checks: introduction (a brief's
+//                       // introduction or summary of argument), standard (the legal standard
+//                       // or standard of review) and other (jurisdiction, and sections with
+//                       // no legal analysis in them) get none;
+//                       // tag: "I", "I.A" (numerals joined down the headings), "Part 2", or
+//                       // the part's name; heading: the heading's block number or null;
+//                       // parent: the index of the umbrella it is under, or null;
+//                       // first, last: sentence numbers;
+//                       // rank 1-3 and phrase: how sure it sounds, or null (always null in a brief);
+//                       // rail: null, or [{letter, roles, state, title}], state ok, missing or order;
+//                       // null too for an umbrella that is only its heading. A sub-issue
+//                       // under an umbrella that states the rule has R ok ("Rule stated in
+//                       // the umbrella")
 //   runs: [{first, last, label, method, parent, role, kind, also, guess, conflict}],
 //                       // runs of sentences that share a role, as DocumentModel.runs takes them;
 //                       // parent is the section's index
@@ -45,10 +72,22 @@ import { ROLES, KINDS, ALLOWED, STRUCTURE_CHECKS } from './legal-core.js';
 //                       // severity fail, warn or info, sorted that way and then by STRUCTURE_CHECKS;
 //                       // where: the section's tag or ''; spans: [{block, start, end}] it points at
 //   authorities: [{key, group, name, title, italic, court, level, mentions, where, warnings, count}],
-//                       // group cases, statutes or other; italic: [start, end] of the name in title;
-//                       // level: supreme, circuit, district, statute or unknown;
+//                       // group: cases (with unreported cases cited by docket or Westlaw
+//                       // number), statutes, or other (law reviews, treatises, dictionaries,
+//                       // agency guidance, legislative history, bare docket and database
+//                       // numbers). The record, sections of the document and the caption's
+//                       // citations are not authorities. title: as the document cites it,
+//                       // without pins (Bluebook, California's "(2001) 25 Cal.4th 826 […]",
+//                       // English and Canadian), with parallel citations, the full date of an
+//                       // unreported case, and an article's or book's author and title;
+//                       // italic: [start, end] of the case name, or of the article's or book's
+//                       // title, in title; level: supreme (the U.S., UK and Canadian supreme
+//                       // courts, the House of Lords), circuit, district, state-supreme,
+//                       // state-appellate, appellate (an English or Canadian court of
+//                       // appeal), statute or unknown;
 //                       // mentions: [{block, start, end, type, state, section}], section a tag
-//   unresolved: [{text, span}],  // citations nothing resolves, with {block, start, end}
+//   unresolved: [{text, span}],  // short forms, supras and id. that name no case cited in
+//                       // full here, each with why and its {block, start, end}
 //   attentionCount,
 // }
 
@@ -64,7 +103,7 @@ export function opening(text, limit) {
   if (text.length <= limit) return text;
   const cut = text.slice(0, limit);
   const space = cut.lastIndexOf(' ');
-  return `${(space > limit / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:]+$/, '')}…`;
+  return `${(space > limit / 2 ? cut.slice(0, space) : cut).replace(/(?<![\s,;:])[\s,;:]+$/, '')}…`;
 }
 
 // A list in prose: "a", "a and b", "a, b, and c".
@@ -75,32 +114,72 @@ const prose = items =>
 // Sections
 // ---------------------------------------------------------------------------
 
+// The parts a top heading names, by its words without a numeral or a final colon. A
+// memo's question, answer, facts and conclusion; a brief's introduction, statement of
+// the case and standard of review; and parts with no analysis, such as jurisdiction.
+// A facts heading is a short one: "Facts and Procedural History", "Relevant Facts",
+// "Factual Background", not a point heading that mentions facts.
 const PARTS = [
-  [/^questions?\s+presented$/i, 'question'],
+  [
+    /^(?:(?:questions?|issues?)(?:\s+presented)?(?:\s+for\s+review)?|statement\s+of\s+(?:the\s+)?(?:issues?|questions?)(?:\s+presented)?)$/i,
+    'question',
+  ],
   [/^(?:brief|short)?\s*answers?$/i, 'answer'],
-  [/^(?:statement\s+of\s+(?:the\s+)?facts|facts|background|factual\s+background)$/i, 'facts'],
-  [/^conclusions?$/i, 'conclusion'],
+  [
+    /^(?:introduction|preliminary\s+statement|summary\s+of\s+(?:the\s+)?argument)$/i,
+    'introduction',
+  ],
+  [
+    /^(?:(?:the\s+)?(?:applicable\s+|governing\s+)?legal\s+standards?|standards?\s+of\s+(?:review|decision)|(?:the\s+)?(?:applicable|governing)\s+standards?)$/i,
+    'standard',
+  ],
+  [
+    /^(?:(?:statement|summary)\s+of\s+(?:the\s+)?(?:(?:relevant|material|undisputed|pertinent)\s+)?facts|(?:(?:the|relevant|material|undisputed|pertinent|background|key)\s+){0,2}facts?(?:\s+and\s+(?:procedural\s+)?(?:history|background|posture|proceedings))?|factual\s+(?:and\s+procedural\s+)?(?:background|summary|history)|(?:(?:factual|procedural|relevant)\s+)?background(?:\s+facts)?|statement\s+of\s+the\s+case(?:\s+and\s+(?:the\s+)?facts)?|procedural\s+(?:history|background|posture))$/i,
+    'facts',
+  ],
+  [
+    /^(?:conclusions?|recommendations?)(?:\s+and\s+(?:recommendations?|conclusions?|relief(?:\s+(?:sought|requested))?))?$/i,
+    'conclusion',
+  ],
+  [
+    /^(?:(?:(?:statement|basis)\s+of\s+)?(?:appellate\s+)?(?:jurisdiction|appealability)|jurisdictional\s+statement|table\s+of\s+(?:contents|authorities)|certificate\s+of\s+(?:compliance|service|word\s+count)|proof\s+of\s+service)$/i,
+    'other',
+  ],
 ];
+// The heading that names the discussion. A top heading that names no part comes under
+// the discussion, after it, as a point heading; before it, it is a part of its own with
+// no analysis. A document whose headings never name the discussion has every such
+// heading as a discussion of its own.
+const DISCUSSION = /^(?:discussion|(?:legal\s+)?analysis|argument|points\s+and\s+authorities)$/i;
+// Headings a brief has and a memo does not.
+const BRIEF_HEADING =
+  /^(?:argument|summary\s+of\s+(?:the\s+)?argument|statement\s+of\s+the\s+case|preliminary\s+statement|points\s+and\s+authorities)$/i;
 const TAGS = {
   caption: 'Caption',
   question: 'Question',
   answer: 'Answer',
+  introduction: 'Introduction',
   facts: 'Facts',
+  standard: 'Standard',
   umbrella: 'Umbrella',
   conclusion: 'Conclusion',
+  other: 'Other',
 };
 const NUMERAL = /^\s*((?:[IVXLC]+|[A-Z]|\d{1,2}))[.)]\s/;
-// "IV. Conclusion" is the conclusion, as "Conclusion" is.
-const partOf = heading => {
-  const text = heading.replace(NUMERAL, '').trim().replace(/[:.]$/, '').trim();
-  return PARTS.find(([pattern]) => pattern.test(text))?.[1] || 'discussion';
-};
+// "IV. Conclusion:" is the conclusion, as "Conclusion" is.
+const headingWords = heading => heading.replace(NUMERAL, '').trim().replace(/[:.]$/, '').trim();
+const partOf = heading =>
+  PARTS.find(([pattern]) => pattern.test(headingWords(heading)))?.[1] || null;
+// A numeral as a tag: "IV", "A", or "Part 4" for a number, which alone reads as a count.
+const numeralTag = numeral => (/^\d+$/.test(numeral) ? `Part ${numeral}` : numeral);
 
-// The memo's sections, taken from its headings: [{index, part, tag, label,
-// heading, blocks, first, last}]. Blocks before the first h2-h6 are the caption;
-// an h2 (or a later h1) starts a part, named by its heading; an h3-h6 in the
-// discussion starts a sub-issue, and the discussion before sub-issues is their
-// umbrella. A document with no such headings is one sub-issue, "Analysis".
+// The document's sections, taken from its headings: [{index, part, tag, label, heading,
+// parent, blocks, first, last}]. Blocks before the first h2-h6 are the caption; an h2
+// (or a later h1) starts a part, named by its heading. In the discussion, each deeper
+// heading starts a sub-issue, under the nearest shallower one; a sub-issue with others
+// under it is their umbrella ("I" over "I.A" and "I.B"), as the discussion before its
+// first sub-issue is theirs. A document with no such headings is one sub-issue,
+// "Analysis".
 export function sectionsOf(blocks) {
   const live = [];
   let count = 0;
@@ -111,40 +190,76 @@ export function sectionsOf(blocks) {
     count += sentences.length;
   });
   const sections = [];
-  const open = (part, heading = null) => {
-    const section = { part, heading, blocks: [], first: 0, last: 0 };
+  const open = (part, heading = null, level = 0, parent = null) => {
+    const section = { part, heading, level, parent, blocks: [], nested: false };
     sections.push(section);
     return section;
   };
   const start = live.findIndex(block => /^h[2-6]$/.test(block.kind));
+  const top = block => block.kind === 'h2' || block.kind === 'h1';
+  const named = live.some(
+    (block, i) =>
+      start >= 0 && i >= start && top(block) && DISCUSSION.test(headingWords(block.text)),
+  );
   let current = null;
-  let top = null;
+  let discussion = null;
+  let stack = [];
+  let sawTop = false;
+  // A point heading at `level` sits under the nearest open heading above that level.
+  const subIssue = (block, level) => {
+    while (stack.length && stack.at(-1).level >= level) stack.pop();
+    const parent = stack.at(-1) || discussion;
+    if (parent) parent.nested = true;
+    const section = open('sub-issue', block, level, parent);
+    stack.push(section);
+    return section;
+  };
   live.forEach((block, i) => {
     if (start < 0) {
       if (i === 0 && block.kind === 'h1') current = open('caption');
       else if (!current || current.part === 'caption') current = open('sub-issue');
     } else if (i < start) {
       current ||= open('caption');
-    } else if (block.kind === 'h2' || block.kind === 'h1') {
-      current = top = open(partOf(block.text), block);
-    } else if (/^h[3-6]$/.test(block.kind) && (!top || top.part === 'discussion')) {
-      // Under any other part, a subheading stays in that part.
-      current = open('sub-issue', block);
+    } else if (top(block)) {
+      sawTop = true;
+      const part = partOf(block.text);
+      if (part) {
+        current = open(part, block);
+        discussion = null;
+      } else if (!named || DISCUSSION.test(headingWords(block.text))) {
+        current = discussion = open('discussion', block, 2);
+        stack = [];
+      } else if (discussion) {
+        // A point heading set as an h2 under the discussion's own h2.
+        current = subIssue(block, 2.5);
+      } else current = open('other', block);
+    } else if (/^h[3-6]$/.test(block.kind) && (discussion || !sawTop)) {
+      // Before any h2, a deeper heading starts a sub-issue as well.
+      current = subIssue(block, Number(block.kind[1]));
     }
     current.blocks.push(block);
   });
   let part = 0;
+  // Numerals joined down the headings: "I" then "I.A". The discussion's own numeral
+  // ("IV. Discussion") is not one of them.
+  const chains = new Map();
   return sections.map((section, index) => {
-    if (section.part === 'discussion') {
-      section.part = sections[index + 1]?.part === 'sub-issue' ? 'umbrella' : 'sub-issue';
-    }
     const heading = section.heading;
     const numeral = heading?.text.match(NUMERAL);
     const title = heading ? heading.text.slice(numeral ? numeral[0].length : 0).trim() : '';
+    if (section.part === 'discussion') section.part = section.nested ? 'umbrella' : 'sub-issue';
+    else if (section.part === 'sub-issue' && section.nested) section.part = 'umbrella';
     let tag = TAGS[section.part];
-    if (section.part === 'sub-issue') {
+    // A point heading with others under it is named as a sub-issue is; only the umbrella
+    // a Discussion heading starts is "Umbrella".
+    const point =
+      section.part === 'umbrella' && heading && !DISCUSSION.test(headingWords(heading.text));
+    if (section.parent || section.part === 'sub-issue' || point) {
       part++;
-      tag = numeral ? numeral[1] : start < 0 ? 'Analysis' : `Part ${part}`;
+      const above = section.parent && chains.get(section.parent);
+      const chain = numeral ? (above ? `${above}.${numeral[1]}` : numeral[1]) : null;
+      chains.set(section, chain);
+      tag = chain ? numeralTag(chain) : start < 0 ? 'Analysis' : `Part ${part}`;
     }
     return {
       index,
@@ -152,11 +267,85 @@ export function sectionsOf(blocks) {
       tag,
       label: section.part === 'caption' ? 'Title and routing lines' : opening(title, 70),
       heading: heading ? heading.block : null,
+      parent: section.parent ? sections.indexOf(section.parent) : null,
       blocks: section.blocks.map(block => block.block),
       first: section.blocks[0].first,
       last: section.blocks.at(-1).last,
     };
   });
+}
+
+// Whether a document is laid out as legal analysis: a heading names its question,
+// answer, facts, standard or discussion. A letter or a story is not, so its sections
+// with no analysis are not a Statement of Facts, and its facts need no record.
+function legalShape(blocks, sections) {
+  return sections.some(section => {
+    if (section.heading === null || section.part === 'caption') return false;
+    const text = blocks[section.heading].text;
+    return (
+      DISCUSSION.test(headingWords(text)) ||
+      ['question', 'answer', 'facts', 'standard'].includes(partOf(text))
+    );
+  });
+}
+
+// A brief: a caption with the parties ("MARIA DELGADO, Plaintiff and Appellant,"), a
+// brief's title, or a brief's headings. Anything else reads as a memo.
+const PARTY_LINE =
+  /,[^\S\n]*(?:Plaintiffs?|Defendants?|Appellants?|Appellees?|Petitioners?|Respondents?|Cross-[A-Z]\w+)\b/;
+const BRIEF_TITLE =
+  /\bbrief\b|\bpoints\s+and\s+authorities\b|\bin\s+(?:support\s+of|opposition\s+to)\b/i;
+function typeOf(blocks, sections) {
+  for (const section of sections) {
+    if (section.part === 'caption') {
+      for (const at of section.blocks) {
+        const { kind, text } = blocks[at];
+        if (PARTY_LINE.test(text) || (HEADING.test(kind) && BRIEF_TITLE.test(text))) return 'brief';
+      }
+    } else if (
+      section.heading !== null &&
+      BRIEF_HEADING.test(headingWords(blocks[section.heading].text))
+    ) {
+      return 'brief';
+    }
+  }
+  return 'memo';
+}
+
+// The roles that make a section analysis rather than a story or a contract's text.
+const ANALYTIC = new Set(['issue', 'rule', 'explanation', 'application', 'counter', 'conclusion']);
+
+// With labels, a sub-issue or umbrella that holds no analysis is not one: a contract's
+// clauses or a story's paragraphs under a heading. It becomes facts when most of it
+// states facts in a document laid out as legal analysis, and other otherwise, so it
+// gets no rail and no IRAC checks. An umbrella left with no sub-issues under it is a
+// sub-issue itself, "Analysis" if it was "Umbrella". Other tags stay, so a section keeps
+// its name with and without labels.
+function reclassify(sections, sentences, legal) {
+  for (let i = sections.length - 1; i >= 0; i--) {
+    const section = sections[i];
+    if (section.part !== 'sub-issue' && section.part !== 'umbrella') continue;
+    const mine = sentences.slice(section.first - 1, section.last);
+    // Reproduced text is not analysis, even when it states the governing term.
+    const analytic = mine.some(
+      item => item.kind !== 'document-text' && (ANALYTIC.has(item.role) || ANALYTIC.has(item.also)),
+    );
+    const under = sections.some(
+      other =>
+        other.parent === section.index && (other.part === 'sub-issue' || other.part === 'umbrella'),
+    );
+    if (under) continue;
+    if (analytic) {
+      if (section.part === 'umbrella') {
+        section.part = 'sub-issue';
+        if (section.tag === TAGS.umbrella) section.tag = 'Analysis';
+      }
+      continue;
+    }
+    const body = mine.filter(item => item.role !== 'heading');
+    const facts = body.filter(item => item.role === 'facts').length;
+    section.part = legal && body.length && facts >= 0.6 * body.length ? 'facts' : 'other';
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -215,9 +404,12 @@ export function roleRuns(sections, sentences) {
         part.members.push(sentence);
       } else parts.push({ block: sentence.block, role: sentence.role, members: [sentence] });
     }
+    // How many parts each paragraph has, counted once rather than again for each part.
+    const perBlock = new Map();
+    for (const part of parts) perBlock.set(part.block, (perBlock.get(part.block) || 0) + 1);
     let previous = null;
     for (const part of parts) {
-      part.whole = parts.filter(other => other.block === part.block).length === 1;
+      part.whole = perBlock.get(part.block) === 1;
       if (part.whole && previous?.whole && part.role !== null && previous.role === part.role) {
         previous.members.push(...part.members);
         continue;
@@ -247,28 +439,51 @@ const step = (letter, roles, state, titles) => ({
   state,
   title: titles[state],
 });
+// Whether a run does one of `roles`, as its role or its second one.
+const does = (run, roles) => roles.includes(run.role) || roles.includes(run.also);
+// The runs a section opens and closes with: a greeting, a line of thanks or a sign-off
+// is not where it starts or ends.
+const working = run => run.role !== 'other' && run.role !== null;
+const openingRun = own => own.find(working) || own[0];
+const closingRun = own => own.findLast(working) || own.at(-1);
+// The sentences of a section that are not its heading.
+const bodyOf = (section, sentences) =>
+  sentences.slice(section.first - 1, section.last).filter(sentence => sentence.role !== 'heading');
 
 // The letters over a section: I R A C for a sub-issue, P R M (prediction, cited
-// rule, roadmap) for the umbrella, none for other parts. `runs` are all the
-// document's runs; `sentences` are the analysis's.
+// rule, roadmap) for the umbrella, none for other parts or for an umbrella that is
+// only its heading. `runs` are all the document's runs; `sentences` are the
+// analysis's. A sentence's second role counts toward its letters too.
 export function railOf(section, runs, sentences) {
   const own = runs.filter(run => run.parent === section.index);
-  const roles = own.map(run => run.role);
   if (section.part === 'sub-issue') {
-    const firstApplying = roles.findIndex(role => APPLYING.includes(role));
-    const lastApplying = roles.findLastIndex(role => APPLYING.includes(role));
-    const firstRule = roles.indexOf('rule');
-    const issue = roles.includes('issue') || roles.includes('heading') || roles[0] === 'conclusion';
+    const firstApplying = own.findIndex(run => does(run, APPLYING));
+    const lastApplying = own.findLastIndex(run => does(run, APPLYING));
+    const firstRule = own.findIndex(run => does(run, ['rule']));
+    const issue =
+      own.some(run => does(run, ['issue', 'heading'])) || openingRun(own)?.role === 'conclusion';
+    // A sub-issue under an umbrella that states the rule may go straight to explaining it.
+    const above =
+      section.parent !== null &&
+      runs.some(run => run.parent === section.parent && does(run, ['rule']));
     const rule =
-      firstRule < 0 ? 'missing' : firstApplying >= 0 && firstRule > firstApplying ? 'order' : 'ok';
-    const closes = roles.some((role, i) => role === 'conclusion' && i > lastApplying);
+      firstRule < 0
+        ? above
+          ? 'ok'
+          : 'missing'
+        : firstApplying >= 0 && firstRule > firstApplying
+          ? 'order'
+          : 'ok';
+    // A conclusion at or after the last application: one that both applies and
+    // concludes closes the section too.
+    const closes = own.some((run, i) => does(run, ['conclusion']) && i >= lastApplying);
     return [
       step('I', ['issue', 'heading'], issue ? 'ok' : 'missing', {
         ok: 'Issue',
         missing: 'No issue stated',
       }),
       step('R', ['rule'], rule, {
-        ok: 'Rule',
+        ok: firstRule < 0 ? 'Rule stated in the umbrella' : 'Rule',
         missing: 'No rule',
         order: 'The rule comes after the application',
       }),
@@ -284,6 +499,7 @@ export function railOf(section, runs, sentences) {
   }
   if (section.part === 'umbrella') {
     const mine = sentences.slice(section.first - 1, section.last);
+    if (!bodyOf(section, sentences).length) return null;
     const predicting = mine.filter(predicts);
     const cited = mine.some(
       sentence =>
@@ -319,21 +535,28 @@ const predicts = sentence =>
 // Confidence
 // ---------------------------------------------------------------------------
 
+// A concession is not the prediction, whether it opens the sentence ("While we cannot
+// say for certain …, it is highly likely") or trails it ("probably not, although a
+// judge is unlikely to decide").
 const CONCESSION = /^(?:while|although|though|even if)\b[^,]*,\s*/i;
+const TRAILING_CONCESSION = /,\s*(?:although|though|while|even if)\b[^.;]*/i;
+// "Unlikely" predicts as surely as "likely" does, the other way.
 const RANKS = [
   [
     1,
-    /\b(?:(?:more |quite |very )?(?:uncertain|unclear)|close question|cannot say for certain|may not|might not|unlikely)\b/i,
+    /\b(?:(?:more |quite |very )?(?:uncertain|unclear)|close question|cannot say for certain|may not|might not)\b/i,
   ],
-  [3, /\b(?:highly likely|very likely|almost certainly|high confidence|easily met|clearly)\b/i],
-  [2, /\b(?:(?:most |more )?likely|probably|should)\b/i],
+  [
+    3,
+    /\b(?:highly likely|very likely|almost certainly|high confidence|easily met|clearly|(?:highly|very) unlikely)\b/i,
+  ],
+  [2, /\b(?:(?:most |more )?likely|probably|should|unlikely)\b/i],
 ];
 
 // How sure a prediction sounds: {rank, phrase}, from 1 (unsure) to 3 (sure), or
-// null. A concession that opens the sentence ("While we cannot say for certain
-// …, it is highly likely") is not the prediction, so it is skipped.
+// null. Concessions are skipped.
 export function confidenceRank(text) {
-  const prediction = text.replace(CONCESSION, '');
+  const prediction = text.replace(CONCESSION, '').replace(TRAILING_CONCESSION, '');
   for (const [rank, pattern] of RANKS) {
     const found = prediction.match(pattern);
     if (found) return { rank, phrase: found[0] };
@@ -367,90 +590,120 @@ function confidenceOf(section, sentences, surest = section.part === 'conclusion'
 // quotations are kept. The oldest entry goes when the cache is full.
 const BLOCK_CACHE = 500;
 const blockCache = new Map();
+// A signal at the end of the text before a citation, in any case: "See", "but see",
+// "see, e.g.,", "Cf.".
 const SIGNAL_BEFORE =
-  /(?<![A-Za-z])(See(?:,? e\.g\.,| also| generally)?|Cf\.|But see|But cf\.|Compare|Accord|Contra|E\.g\.,)\s*$/;
+  /(?<![A-Za-z])((?:but\s+)?(?:see(?:,?\s+e\.g\.,|\s+also|\s+generally)?|cf\.)|compare|accord|contra|e\.g\.,)\s*$/i;
+// Only a semicolon between two citations: a string citation, where a signal carries on.
+const STRING_CITE = /^\s*;\s*$/;
 
 // A block's citations, each with `quoted` (inside the writer's quotation, so it is
-// the quoted court's) and its `signal`, and its quotation spans. Callers copy
-// the citations before adding anything to them.
+// the quoted court's) and its `signal`, and its quotation spans. A signal carries
+// through a string citation until another one starts: in "See A; B", B is a See
+// citation too. Callers copy the citations before adding anything to them.
 function readBlock(text) {
   const cached = blockCache.get(text);
   if (cached) return cached;
   const quotes = quoteSpans(text);
-  const cites = findCitations(text).map(cite => ({
-    ...cite,
-    quoted: quotes.some(([start, end]) => start < cite.start && cite.end <= end),
-    signal:
+  let previous = null;
+  const cites = findCitations(text).map(cite => {
+    let signal =
       cite.signal ||
-      text.slice(Math.max(0, cite.start - 24), cite.start).match(SIGNAL_BEFORE)?.[1] ||
-      null,
-  }));
+      text.slice(Math.max(0, cite.start - 30), cite.start).match(SIGNAL_BEFORE)?.[1] ||
+      null;
+    if (
+      !signal &&
+      !cite.nested &&
+      previous &&
+      STRING_CITE.test(text.slice(previous.end, cite.start))
+    ) {
+      signal = previous.signal;
+    }
+    const read = {
+      ...cite,
+      quoted: quotes.some(([start, end]) => start < cite.start && cite.end <= end),
+      signal,
+    };
+    if (!cite.nested) previous = read;
+    return read;
+  });
   const read = { quotes, cites };
   if (blockCache.size >= BLOCK_CACHE) blockCache.delete(blockCache.keys().next().value);
   blockCache.set(text, read);
   return read;
 }
 
-const GOVERNMENT = /^(?:United States|State|People|Commonwealth)\b/;
 const FULL_DATE =
-  /\b(?:Jan|Feb|Mar|Apr|May|June?|July?|Aug|Sept?|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},\s+\d{4}\)/;
+  /\b(?:Jan|Feb|Mar|Apr|May|June?|July?|Aug|Sept?|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},\s+\d{4}\b/;
 // "U.S. Code", or a space before a subsection: "§ 3602 (b)". A space before the
-// code's edition is Bluebook form: "§ 1332 (2018)", "§ 1332 (West 2020)".
-const STATUTE_FORM = /\bU\.S\. Code\b|§\s*\d[\w.]*\s+\((?![^()]*\d{4}\))/;
+// code's edition is Bluebook form ("§ 1332 (2018)", "§ 1332 (West 2020)"), and so is
+// a note after the citation ("§ 349 (Count III)").
+const STATUTE_FORM = /\bU\.S\. Code\b|§\s*\d[\w.]*\s+\((?!\d{4}\))[0-9a-zA-Z]{1,4}\)/;
 const SUBSECTIONS = /(?:\s?\((?!\d{4}\))[0-9a-zA-Z]{1,4}\))+/;
-// The code's edition after a statute: "(2018)".
-const YEAR_AFTER = /\s*\([^()]*\d{4}\)$/;
+// California's subdivisions: ", subd. (d)", ", subds. (a) & (b)".
+const SUBDIVISIONS =
+  /,\s*(?:subds?|pars?|paras?)\.\s*(?:\([0-9a-zA-Z]{1,4}\))+(?:(?:,\s*|\s+(?:&|and)\s+)(?:\([0-9a-zA-Z]{1,4}\))+)*/;
+// The code's edition after a statute: "(2018)". The look-behind starts each try at the
+// start of a run of spaces, so a long run is read once rather than again from each of
+// its spaces; the other patterns anchored at the end start the same way.
+const YEAR_AFTER = /(?<!\s)\s*\([^()]*\d{4}\)$/;
 const SIGNAL_START =
-  /^(?:See(?:,? e\.g\.,| also| generally)?|Cf\.|But see|But cf\.|Compare|Accord|Contra|E\.g\.,)\s+/;
+  /^(?:See(?:,? e\.g\.,| also| generally)?|Cf\.|But see|But cf\.|Compare|Accord|Contra|E\.g\.,)\s+/i;
 const STRENGTHS = ['direct', 'inferential', 'indirect', 'background'];
 
-// How strongly a signal says the source supports the sentence.
+// How strongly a signal says the source supports the sentence, whatever its case:
+// "See" and "see", "But see" and "but see".
 function strengthOf(signal) {
-  if (!signal || /^(?:E\.g\.,?|Accord)$/.test(signal)) return 'direct';
-  if (/^See(?:,? e\.g\.,?)?$/.test(signal)) return 'inferential';
-  if (/^(?:See also|Cf\.|Compare)$/.test(signal)) return 'indirect';
-  if (signal === 'See generally') return 'background';
-  if (/^(?:But see|But cf\.|Contra)$/.test(signal)) return 'contrary';
+  const plain = (signal || '').toLowerCase().replace(/\s+/g, ' ').replace(/,$/, '').trim();
+  if (!plain || plain === 'e.g.' || plain === 'accord') return 'direct';
+  if (plain === 'see' || plain === 'see, e.g.' || plain === 'see e.g.') return 'inferential';
+  if (plain === 'see also' || plain === 'cf.' || plain === 'compare') return 'indirect';
+  if (plain === 'see generally') return 'background';
+  if (plain === 'but see' || plain === 'but cf.' || plain === 'contra') return 'contrary';
   return 'direct';
 }
 
-// The short name a case goes by: the plaintiff's first word ("Lakeside"), or
-// the defendant when the government sues ("Columbus Country Club").
-// A docket citation has a name but no parties of its own, so they are read from it.
-function shortName(cite) {
-  const [plaintiff, defendant] =
-    cite.plaintiff || cite.defendant
-      ? [cite.plaintiff, cite.defendant]
-      : (cite.name || '').split(/\s+v\.\s+/);
-  if (plaintiff && !GOVERNMENT.test(plaintiff) && !/^In re\b/.test(plaintiff)) {
-    const first = plaintiff.split(/[\s,]+/)[0];
-    return first.length > 2 ? first : plaintiff.replace(/,.*$/, '');
-  }
-  if (defendant) return defendant.replace(/,.*$/, '');
-  if (cite.name || cite.antecedent) return (cite.name || cite.antecedent).replace(/,\s*$/, '');
-  return cite.volume ? `${cite.volume} ${cite.reporter}` : cite.docket || cite.text;
-}
+// A statute from its section on ("§ 3602(b)"), since a code with a title number
+// repeats through a document. A code named by words alone ("Evid. Code, § 452", "N.Y.
+// Gen. Bus. Law § 349") or a constitution ("U.S. Const. amend. XIV, § 1") keeps them:
+// its section means nothing without them, and two codes may share a section number.
+const fromSection = text => {
+  const at = text.indexOf('§');
+  return at < 0 || /\bConst\./.test(text) || !/^\d+\s+[A-Z]/.test(text.slice(0, at))
+    ? text
+    : text.slice(at);
+};
 
-// A statute from its section on ("§ 3602(b)"), since the code's name repeats
-// through a document. A constitution's "§ 1" means nothing without its article or
-// amendment, so it keeps them.
-const fromSection = text =>
-  /\bConst\./.test(text) ? text : text.slice(Math.max(0, text.indexOf('§')));
+// A statute's name in chips and messages: its section, without subsections ("§ 3602"),
+// or a session law's number ("Pub. L. No. 110-325").
+const sectionName = text =>
+  text.match(/^Pub\.\s?L\.\s?No\.\s?\d+[-–]\d+/)?.[0] ||
+  fromSection(text).replace(YEAR_AFTER, '').replace(SUBDIVISIONS, '').replace(SUBSECTIONS, '');
 
-// A statute's name in chips and messages: its section, without subsections ("§ 3602").
-const sectionName = cite => fromSection(cite.text).replace(YEAR_AFTER, '').replace(SUBSECTIONS, '');
+// Citations to the case's own record or to the document's own sections: they are a
+// fact's source, not an authority. An id. after one refers to it, and a bare "§ 4.3"
+// in a document that discusses a contract's sections is one of them.
+const isRecord = cite =>
+  cite.type === 'record' || cite.type === 'internal' || Boolean(cite.internal || cite.record);
 
 const pinOf = cite => (cite.pin || '').replace(/^at\s+/, '');
 const hasPin = cite => {
+  if (isRecord(cite)) return true;
   if (cite.type === 'statute' || cite.type === 'section') return true;
-  if (cite.type === 'docket' || cite.type === 'docket-number') {
-    return /\bat\s+\*?\d/.test(cite.database || '');
+  if (cite.type === 'docket' || cite.type === 'docket-number' || cite.type === 'database') {
+    return Boolean(cite.pin) || /\bat\s+\*?\d/.test(cite.database || '');
   }
-  if (cite.type === 'supra') return /\bat\s+\*?\d/.test(cite.text);
+  if (cite.type === 'supra') return Boolean(cite.pin) || /\bat\s+\*?\d/.test(cite.text);
+  // An id. takes the pin of the citation it repeats, and "Id. § 12102(2)(B)" or
+  // "Id. ¶ 6" is its own pin.
+  if (cite.type === 'id')
+    return Boolean(pinOf(cite) || cite.inheritedPin || /[§¶]/.test(cite.text));
   return Boolean(pinOf(cite));
 };
 const unresolved = cite =>
-  ['short', 'id', 'supra'].includes(cite.type) && (!cite.authority || cite.authority.nameless);
+  ['short', 'id', 'supra'].includes(cite.type) &&
+  !cite.record &&
+  (!cite.authority || cite.authority.nameless);
 
 // Whether a citation cannot support the sentence as written: a full cite with no
 // pin, an unreported case with no database cite or full date, or a short form
@@ -458,7 +711,7 @@ const unresolved = cite =>
 function deficient(cite) {
   if (cite.type === 'full') return !pinOf(cite);
   if (cite.type === 'docket' || cite.type === 'docket-number') {
-    return !cite.database || !FULL_DATE.test(cite.text);
+    return !cite.database || !FULL_DATE.test(cite.date || cite.text);
   }
   return unresolved(cite);
 }
@@ -466,28 +719,46 @@ function deficient(cite) {
 const stateOf = cite =>
   cite.nested ? 'nested' : cite.quoted ? 'quoted' : unresolved(cite) ? 'unresolved' : 'own';
 
+// A database citation without its pin: "2019 WL 1234567".
+const withoutPin = database => (database || '').replace(/,\s*at\b[^]*$/, '');
+
 // What a citation chip says: the case's short name and pin, "Smith (docket)",
-// "§ 3602(b)", or "id. → Lakeside".
+// "§ 3602(b)", "id. → Lakeside", "id. → Compl. ¶ 6", or the citation itself.
 function chipLabel(cite) {
   const authority = cite.authority;
+  const id = () => cite.text.match(/^[Ii](?:bi)?d\./)[0];
+  if (cite.type === 'id') {
+    if (cite.record) return `${id()} → ${opening(cite.record.text, 24)}`;
+    return authority && !authority.nameless ? `${id()} → ${authority.name}` : id();
+  }
+  if (!authority) {
+    if (cite.type === 'short' && !cite.database) {
+      return `${cite.volume} ${cite.reporter} at ${pinOf(cite)}`;
+    }
+    if (cite.type === 'supra') return cite.text.replace(SIGNAL_START, '');
+    return cite.text;
+  }
   switch (cite.type) {
     case 'full':
       return `${authority.name} ${pinOf(cite) || cite.page}`;
     case 'short':
-      return authority
-        ? `${authority.name} ${pinOf(cite)}`
-        : `${cite.volume} ${cite.reporter} at ${pinOf(cite)}`;
+      return `${authority.name} ${pinOf(cite)}`.trim();
     case 'docket':
-      return `${authority.name} (docket)`;
-    case 'id': {
-      const id = cite.text.match(/^[Ii](?:bi)?d\./)[0];
-      return authority && !authority.nameless ? `${id} → ${authority.name}` : id;
-    }
+      return cite.database && pinOf(cite)
+        ? `${authority.name} ${pinOf(cite)}`
+        : `${authority.name} (docket)`;
     case 'supra':
-      return authority ? `${authority.name}, supra` : cite.text.replace(SIGNAL_START, '');
+      return `${authority.name}, supra`;
     case 'statute':
     case 'section':
-      return fromSection(cite.text).replace(YEAR_AFTER, '').replace(/\s+\(/g, '(');
+      return fromSection(cite.text)
+        .replace(YEAR_AFTER, '')
+        .replace(/(?<!\s)\s+\(/g, '(');
+    case 'periodical':
+    case 'secondary':
+      return [authority.name, pinOf(cite)].filter(Boolean).join(' ');
+    case 'legislative':
+      return authority.name;
     default:
       return cite.text;
   }
@@ -503,118 +774,257 @@ const CITABLE = new Set([
   'supra',
   'statute',
   'section',
+  'periodical',
+  'secondary',
+  'legislative',
 ]);
 
-// Citations that name an authority in full, with its court.
-const FULL_TYPES = new Set(['full', 'docket', 'docket-number']);
+// Citations that cite an authority in full: a case with its court, a statute, an
+// article, a book, a report.
+const FULL_TYPES = new Set([
+  'full',
+  'docket',
+  'docket-number',
+  'database',
+  'periodical',
+  'secondary',
+  'legislative',
+]);
 
 // The page a pin starts on: "418–19" is 418, "*3" is 3.
 const pinPage = cite => parseInt(String(cite.pin || '').replace(/^\D+/, ''), 10);
 
-// The case a short form means among the cases cited in its volume and reporter.
-// With one case cited in full, that one. With several (Celotex and Anderson are
-// both in 477 U.S.), the one its name names, else the last to start before its
-// pin, since a pin falls inside the case it cites. With none cited in full, a
-// case never cited in full by the same name, or by any name if it gives none.
-function caseIn(cases, cite) {
+// The case a short form or supra means among the cases cited in the volume and
+// reporter (or database number) it cites, `key`. With one case cited in full, that
+// one. With several (Celotex and Anderson are both in 477 U.S.), the one its name
+// names, else the last to start before its pin, since a pin falls inside the case it
+// cites. With none cited in full, a case never cited in full by the same name, or by
+// any name if it gives none.
+function caseIn(cases, cite, key) {
   const full = cases.filter(item => !item.nameless);
-  const name = cite.antecedent ? shortName(cite) : null;
+  const name = cite.antecedent ? cite.antecedent.replace(SIGNAL_START, '') : null;
   if (!full.length) return cases.find(item => !name || item.name === name) || null;
   if (full.length === 1) return full[0];
-  const named = name && full.find(item => item.name === name || item.caseName?.includes(name));
+  const named =
+    name &&
+    full.find(
+      item => item.name === name || item.shortTitle === name || item.caseName?.includes(name),
+    );
   if (named) return named;
   const pin = pinPage(cite);
-  const before = full.filter(item => Number(item.page) <= pin);
-  return before.sort((a, b) => Number(b.page) - Number(a.page))[0] || full[0];
+  const pageIn = item => Number(item.pages.get(key) ?? item.page);
+  const before = full.filter(item => pageIn(item) <= pin);
+  return before.sort((a, b) => pageIn(b) - pageIn(a))[0] || full[0];
 }
 
+// The surname an author goes by: "Roe" for "Jane Roe", "Wright & Miller" for "Charles
+// Alan Wright & Arthur R. Miller", "Lindemann" for "Barbara T. Lindemann et al.".
+const surnames = author =>
+  (author || '')
+    .replace(/(?<![\s,]),?\s+et\s+al\.?$/, '')
+    .split(/(?<!\s)\s+(?:&|and)\s+/)
+    .map(person => person.trim().split(/\s+/).at(-1))
+    .filter(Boolean)
+    .join(' & ');
+
+// An authority for a law review article, a book or guidance, or legislative history,
+// listed under "other": its name for chips, and its author for supras that name them.
+function otherSource(cite) {
+  if (cite.type === 'legislative') {
+    // Its number, without the part, pin or year: "H.R. Rep. No. 110-730".
+    const cut = cite.text.search(/,\s*(?:pt\.|at)\b|\(/);
+    return { name: (cut < 0 ? cite.text : cite.text.slice(0, cut)).trimEnd(), author: null };
+  }
+  const name =
+    surnames(cite.author) ||
+    opening((cite.title || cite.text).replace(/(?<![,\s])[,\s]+$/, ''), 40);
+  return { name, author: cite.author || null, title: cite.title || null };
+}
+
+// The key two citations of one book or guidance share: its author and title, so its
+// pins do not make rows of their own.
+const sourceKey = cite =>
+  cite.type === 'secondary' && cite.title
+    ? `secondary:${squeeze(cite.author || '')}|${squeeze(cite.title)}`
+    : citationKey(cite) || cite.text;
+
+// A section numbered the way a contract's clauses are, "§ 4.3" or "§ 12.2(b)", and no
+// code's sections are: a code's run to three digits or more ("§ 1983", "§ 1630.2").
+const CLAUSE = /^§§?\s*\d{1,2}\.\d{1,2}(?![\d.])/;
+
 // The authorities the citations point at. A full citation's key is its volume,
-// reporter and first page, so two cases in one volume stay two; a statute's is
-// legal-text's citationKey, which drops subsections. Full citations, dockets
-// and statutes name their own; a short form resolves to a case cited in full in
-// its volume and reporter anywhere in the document, or else stands for a case
-// never cited in full ("Hovsons"); a bare section ("§ 3602(c)") joins the statute
-// cited with that section; id. resolves to the last authority the writer cited,
-// not one inside a quotation or a parenthetical.
-function resolve(all) {
+// reporter and first page, so two cases in one volume stay two, and it is found
+// under each of its parallel citations too ("550 U.S. 544, 127 S. Ct. 1955"); a
+// statute's is legal-text's citationKey, which drops subsections; an unreported
+// case's is its docket or database number. Full citations, dockets, statutes and
+// secondary sources name their own; a short form resolves to a case cited in full in
+// its volume and reporter (or database number) anywhere in the document, or else
+// stands for a case never cited in full ("Hovsons"); a supra to the case, article or
+// book its volume or name names; a bare section ("§ 3602(c)") joins the statute cited
+// with that section, but in a document that cites a contract's sections it does so only
+// in the statute's own paragraph and is otherwise one of the contract's sections, never
+// a statute, as is one numbered as a contract's are ("§ 4.3") that no statute here
+// has; id. resolves to the last citation the writer
+// made, not one inside a quotation or a parenthetical, and "Id. § 12926(m)" after a
+// code's section is another section of that code. The record and the document's own
+// sections are not authorities, and neither is anything cited in the caption.
+function resolve(all, caption) {
   const byKey = new Map();
   const authority = (key, make) => {
     if (!byKey.has(key)) byKey.set(key, { key, cites: [], refs: [], ...make() });
     return byKey.get(key);
   };
-  // The cases cited in each volume and reporter, and the statutes, in order.
+  // The cases cited in each volume and reporter (or database number), and the statutes,
+  // in order.
   const volumes = new Map();
-  const inVolume = (cite, item) => {
-    const list = volumes.get(citationKey(cite)) || [];
+  const file = (key, item, page) => {
+    const list = volumes.get(key) || [];
     if (!list.includes(item)) list.push(item);
-    volumes.set(citationKey(cite), list);
+    volumes.set(key, list);
+    if (!item.pages.has(key)) item.pages.set(key, page);
+  };
+  const inVolume = (cite, item) => {
+    file(citationKey(cite), item, cite.page);
+    for (const parallel of cite.parallel || []) {
+      file(`${parallel.volume} ${squeeze(parallel.reporter)}`, item, parallel.page);
+    }
     return item;
   };
   const statutes = [];
-  for (const cite of all) {
-    if (cite.type === 'full') {
+  const statute = (key, cite, code) => {
+    const item = authority(key, () => ({
+      group: 'statutes',
+      name: sectionName(code + cite.text.slice(Math.max(0, cite.text.indexOf('§')))),
+      code,
+      block: cite.block,
+    }));
+    if (!statutes.includes(item)) statutes.push(item);
+    return item;
+  };
+  const counted = cite => !caption.has(cite.block);
+  for (const cite of all.filter(counted)) {
+    if (cite.type === 'full' || cite.type === 'docket') {
       cite.authority = inVolume(
         cite,
-        authority(`${citationKey(cite)} ${cite.page}`, () => ({
-          group: 'cases',
-          name: shortName(cite),
-          caseName: cite.name,
-          page: cite.page,
-        })),
+        authority(
+          cite.type === 'full' ? `${citationKey(cite)} ${cite.page}` : citationKey(cite),
+          () => ({
+            group: 'cases',
+            name: shortName(cite, all),
+            caseName: cite.name,
+            shortTitle: cite.shortTitle || null,
+            page: cite.page,
+            pages: new Map(),
+          }),
+        ),
       );
-    } else if (cite.type === 'docket') {
-      cite.authority = authority(citationKey(cite), () => ({
-        group: 'cases',
-        name: shortName(cite),
-      }));
     } else if (cite.type === 'statute') {
+      const code = cite.text.includes('§') ? cite.text.slice(0, cite.text.indexOf('§')) : '';
       cite.authority = authority(citationKey(cite), () => ({
         group: 'statutes',
-        name: sectionName(cite),
+        name: sectionName(cite.text),
+        code,
+        block: cite.block,
       }));
       if (!statutes.includes(cite.authority)) statutes.push(cite.authority);
     } else if (cite.type === 'docket-number' || cite.type === 'database') {
-      cite.authority = authority(cite.docket || cite.text, () => ({
+      cite.authority = authority(citationKey(cite) || cite.text, () => ({
         group: 'other',
-        name: cite.docket || cite.text,
+        name: cite.docket || withoutPin(cite.database) || cite.text,
       }));
+    } else if (['periodical', 'secondary', 'legislative'].includes(cite.type)) {
+      cite.authority = authority(sourceKey(cite), () => ({ group: 'other', ...otherSource(cite) }));
     }
   }
+  // A supra that names its source: a case by its name or short title, else an article
+  // or book by its author.
+  const byName = antecedent => {
+    const name = antecedent
+      .replace(SIGNAL_START, '')
+      .replace(/(?<![\s,]),?\s+et\s+al\.?$/, '')
+      .trim();
+    if (!name) return null;
+    const word = new RegExp(String.raw`(?<![\w])${escape(name)}(?![\w])`);
+    const items = [...byKey.values()];
+    return (
+      items.find(
+        item =>
+          item.group === 'cases' &&
+          !item.nameless &&
+          (item.name === name || item.shortTitle === name || word.test(item.caseName || '')),
+      ) ||
+      items.find(item => item.group === 'other' && item.author && word.test(item.author)) ||
+      null
+    );
+  };
+  const contract = all.some(cite => cite.type === 'internal');
+  // What an id. refers to: {authority, cite}, {record} (a record citation or a section
+  // of the document), or {lost} (a citation nothing resolves), or null.
   let last = null;
-  for (const cite of all) {
+  for (const cite of all.filter(counted)) {
     if (cite.type === 'short') {
-      const found = caseIn(volumes.get(citationKey(cite)) || [], cite);
+      const key = citationKey(cite);
+      const found = caseIn(volumes.get(key) || [], cite, key);
       if (found) cite.authority = found;
       else if (cite.antecedent) {
         const name = shortName(cite);
-        cite.authority = inVolume(
-          cite,
-          authority(`${citationKey(cite)} ${name}`, () => ({
-            group: 'cases',
-            name,
-            nameless: true,
-            volume: cite.volume,
-            reporter: cite.reporter,
-          })),
-        );
+        const item = authority(`${key} ${name}`, () => ({
+          group: 'cases',
+          name,
+          nameless: true,
+          volume: cite.volume,
+          reporter: cite.reporter,
+          database: withoutPin(cite.database) || null,
+          pages: new Map(),
+        }));
+        cite.authority = inVolume(cite, item);
       }
     } else if (cite.type === 'section') {
       const key = citationKey(cite);
-      cite.authority =
-        statutes.find(item => item.key.endsWith(key)) ||
-        authority(key, () => ({ group: 'statutes', name: sectionName(cite) }));
+      // In a document that cites a contract's sections, "§ 2" is the statute's only in the
+      // paragraph that cites the statute; elsewhere, a statute cited anywhere.
+      const cited = statutes.find(
+        item =>
+          item.key.replace(/^[^§]*/, '') === key &&
+          (!contract ||
+            all.some(
+              other =>
+                other.type === 'statute' && other.authority === item && other.block === cite.block,
+            )),
+      );
+      if (cited) cite.authority = cited;
+      else if (contract || CLAUSE.test(cite.text)) cite.internal = true;
+      else cite.authority = statute(key, cite, '');
     } else if (cite.type === 'supra') {
-      // The supra pattern can take a signal into the name: "See Jones, supra".
-      const name = cite.antecedent.replace(SIGNAL_START, '');
-      const full = all.find(other => other.type === 'full' && other.name?.includes(name));
-      cite.authority = full ? full.authority : null;
-    } else if (cite.type === 'id') {
-      cite.authority = cite.quoted ? null : last;
+      if (cite.volume) {
+        const key = `${cite.volume} ${squeeze(cite.reporter)}`;
+        cite.authority = caseIn(volumes.get(key) || [], cite, key);
+      }
+      cite.authority ||= cite.antecedent ? byName(cite.antecedent) : null;
+    } else if (cite.type === 'id' && !cite.quoted) {
+      if (last?.record) cite.record = last.record;
+      else if (last?.lost) cite.lost = last.lost;
+      else if (last?.authority) {
+        const at = cite.text.indexOf('§');
+        const was = last.authority;
+        if (at >= 0 && was.group === 'statutes' && was.key.includes('§')) {
+          // "Id. § 12926(m)" after "Cal. Gov’t Code § 12940(m)" is § 12926 of that code.
+          const section = citationKey({ type: 'section', text: cite.text.slice(at) });
+          const key = was.key.slice(0, was.key.indexOf('§')) + section;
+          cite.authority = key === was.key ? was : statute(key, cite, was.code);
+        } else cite.authority = was;
+        cite.inheritedPin = hasPin(last.cite);
+      }
     }
-    // A short form for a case never cited in full still names the case an id. after
-    // it means, so it counts; the id. then shows as unresolved, as the short form does.
-    const usable = cite.authority && !cite.quoted && !cite.nested && CITABLE.has(cite.type);
-    if (usable) last = cite.authority;
+    if (!cite.quoted && !cite.nested) {
+      if (isRecord(cite)) last = { record: cite.record || cite };
+      else if (cite.lost) last = { lost: cite.lost };
+      else if (cite.authority && (CITABLE.has(cite.type) || cite.type === 'id')) {
+        // A short form for a case never cited in full still names the case an id. after
+        // it means, so it counts; the id. then shows as unresolved, as the short form does.
+        last = { authority: cite.authority, cite };
+      } else if (['short', 'supra', 'id'].includes(cite.type)) last = { lost: cite };
+    }
     cite.authority?.cites.push(cite);
   }
   return byKey;
@@ -624,27 +1034,43 @@ function resolve(all) {
 // Support and flags
 // ---------------------------------------------------------------------------
 
-const RECORD = /\b(?:Ex\.|Exh\.|Compl\.|Dep\.|Decl\.|Aff\.|R\. at|ECF No\.)/;
+// Record citations the parser did not read as citations, in a fact's own words.
+const RECORD =
+  /\b(?:Ex\.|Exh\.|Compl\.|Dep\.|Decl\.|Aff\.|Tr\.|R\. at|ECF No\.)|\b\d*\s*(?:CT|RT|AA)\s+\d/;
 const OPEN_ITEM = /\[cite\]|\bTK\b|needs? to confirm|confirm with client|\?\?\?/i;
 const WEAK = new Set(['missing', 'incomplete', 'secondhand', 'contrary', 'unsourced']);
+// Roles that state no law or fact, so need no source.
+const SOURCELESS = new Set(['issue', 'roadmap', 'heading']);
+// Words that say who is speaking: "she says", "Pruitt told me", "according to".
+const SPEECH =
+  /\b(?:says|said|say|tells|told|explains|explained|adds|added|recalls|recalled|warns|warned|asks|asked|writes|wrote|notes|noted|replies|replied|insists|insisted|laughs|laughed|shrugs|shrugged|according to)\b/i;
 
-// What a sentence rests on, first match wins.
-function supportOf(sentence, { heading, cites, own, named, citedBelow }) {
-  if (heading) return 'n/a';
-  if (own.length) {
-    const strengths = own.map(cite => strengthOf(cite.signal));
+// What a sentence rests on, first match wins. A fact citing the record rests on the
+// record; anything else rests on its legal citations, by their signals. A fact told in
+// a story, a letter or a contract's clauses (`narrative`) needs no source, and there a
+// cross-reference to another clause is not the record.
+function supportOf(sentence, { heading, caption, narrative, cites, own, secondhand, citedBelow }) {
+  if (heading || caption || SOURCELESS.has(sentence.role)) return 'n/a';
+  if (sentence.kind === 'document-text') return 'n/a';
+  const records = own.filter(isRecord);
+  const legal = own.filter(cite => !isRecord(cite));
+  const record = records.some(cite => cite.type === 'record' || cite.record);
+  if (sentence.kind === 'client-fact' && (narrative ? record : records.length)) return 'record';
+  if (legal.length) {
+    const strengths = legal.map(cite => strengthOf(cite.signal));
     const support = strengths.every(strength => strength === 'contrary')
       ? 'contrary'
       : STRENGTHS.find(strength => strengths.includes(strength));
-    if (own.every(deficient)) return 'incomplete';
+    if (legal.every(deficient)) return 'incomplete';
     // A case described through another court's citation of it.
-    const keys = new Set(own.map(cite => cite.authority?.key));
-    if (sentence.kind === 'precedent' && named.some(ref => !keys.has(ref.authority.key))) {
-      return 'secondhand';
-    }
+    if (sentence.kind === 'precedent' && secondhand) return 'secondhand';
     return support;
   }
-  if (sentence.kind === 'client-fact') return RECORD.test(sentence.text) ? 'record' : 'unsourced';
+  if (records.length) return 'record';
+  if (sentence.kind === 'client-fact') {
+    if (narrative) return 'n/a';
+    return RECORD.test(sentence.text) ? 'record' : 'unsourced';
+  }
   if (!sentence.kind) return 'unknown';
   if (['conclusion', 'framing', 'application'].includes(sentence.kind)) return 'n/a';
   if (cites.length) return 'secondhand';
@@ -658,7 +1084,11 @@ const FORM = [
   [
     'lowercase',
     'Starts in lowercase after a period',
-    ({ sentence }) => sentence.index > 0 && /^[a-z]/.test(sentence.text),
+    // Not on a new line, where a caption's "v." stands alone.
+    ({ sentence, text }) =>
+      sentence.index > 0 &&
+      /^[a-z]/.test(sentence.text) &&
+      !/\n[^\S\n]*$/.test(text.slice(Math.max(0, sentence.start - 40), sentence.start)),
   ],
   [
     'no-period',
@@ -669,7 +1099,11 @@ const FORM = [
     'no-punctuation-before-citation',
     'No punctuation between the quotation and the citation',
     ({ sentence, own, text }) =>
-      own.some(cite => /[^.!?,;:\s][”"]\s+$/.test(text.slice(sentence.start, cite.start))),
+      own.some(cite =>
+        /[^.!?,;:\s][”"]\s+$/.test(
+          text.slice(Math.max(sentence.start, cite.start - 40), cite.start),
+        ),
+      ),
   ],
   [
     'footnote',
@@ -706,13 +1140,25 @@ function unclosedQuote(text) {
 }
 
 function flagsOf(sentence, context) {
-  const { heading, quoted, cites, own, named, text, unclosed } = context;
+  const { heading, caption, narrative, quoted, attributed, cites, own, named, uncited } = context;
+  const { text, unclosed } = context;
   const flags = [];
   const add = (id, label, attention) => flags.push({ id, text: label, attention });
   const kind = sentence.kind;
   if (quoted) add('quote', 'Quotation', false);
-  if (quoted && !own.length && !heading && kind !== 'conclusion' && kind !== 'framing') {
-    add('quote-unsourced', 'Quotation with no source', true);
+  // A quotation needs a source when it states law or a holding, or a fact the analysis
+  // rests on; one the writer says someone spoke, or one in a story, does not. Without
+  // labels it is noted but not counted, since it may be either.
+  if (quoted && !own.length && !heading && !caption) {
+    if (!kind) {
+      if (!attributed) add('quote-unsourced', 'Quotation with no source', false);
+    } else if (
+      kind === 'law' ||
+      kind === 'precedent' ||
+      (kind === 'client-fact' && !narrative && !attributed)
+    ) {
+      add('quote-unsourced', 'Quotation with no source', true);
+    }
   }
   if (quoted && own.length && own.every(cite => !hasPin(cite))) {
     add('quote-no-pin', 'Quotation without a pin cite', true);
@@ -728,10 +1174,13 @@ function flagsOf(sentence, context) {
       add('named-before-full', `Named before its full citation: ${authority.name}`, true);
     }
   }
-  if (kind === 'precedent' && !own.length) {
-    for (const { name } of cases) add('uncited-case', `Describes ${name} without citing it`, true);
+  if (kind === 'precedent') {
+    for (const { name } of uncited)
+      add('uncited-case', `Describes ${name} without citing it`, true);
   }
-  if (own.some(cite => strengthOf(cite.signal) === 'indirect' && !cite.parentheticals?.length)) {
+  // The record needs no parenthetical: what it shows is the sentence's fact.
+  const legal = own.filter(cite => !isRecord(cite));
+  if (legal.some(cite => strengthOf(cite.signal) === 'indirect' && !cite.parentheticals?.length)) {
     add('needs-parenthetical', 'Add a parenthetical saying how it supports this', true);
   }
   if (kind === 'application' && !own.length) {
@@ -739,9 +1188,13 @@ function flagsOf(sentence, context) {
       add('see-suggested', `Relies on ${name}: consider a See cite`, false);
     }
   }
-  const items = FORM.filter(([, , test]) => test({ sentence, own, cites, text })).map(
-    ([id, label]) => ({ id, text: label }),
-  );
+  // The caption's lines are not prose, so their form is not checked.
+  const items = caption
+    ? []
+    : FORM.filter(([, , test]) => test({ sentence, own, cites, text })).map(([id, label]) => ({
+        id,
+        text: label,
+      }));
   if (items.length) {
     flags.push({
       id: 'form',
@@ -763,11 +1216,19 @@ const later = (cite, sentence) =>
 // The analysis
 // ---------------------------------------------------------------------------
 
+// Quotations in a sentence's words, so what is said around them can be read alone.
+const QUOTED = /“[^“”]*”|"[^"]*"/g;
+
 export function analyzeLegal(blocks, labels) {
   const labeled = Array.isArray(labels) && labels.some(labelOf);
   const sections = sectionsOf(blocks);
+  const type = typeOf(blocks, sections);
+  const legal = legalShape(blocks, sections);
   const sectionOf = new Map();
   for (const section of sections) for (const block of section.blocks) sectionOf.set(block, section);
+  const caption = new Set(
+    sections.filter(section => section.part === 'caption').flatMap(section => section.blocks),
+  );
 
   // Sentences, numbered through the document as DocumentModel.runs numbers them.
   const sentences = [];
@@ -785,13 +1246,14 @@ export function analyzeLegal(blocks, labels) {
         ...labelsFor(labels?.[sentences.length], {
           labeled,
           heading: HEADING.test(block.kind),
-          caption: section.part === 'caption',
+          caption: caption.has(at),
         }),
       };
       sentences.push(entry);
       return entry;
     }),
   );
+  if (labeled) reclassify(sections, sentences, legal);
   const tagOf = at => sectionOf.get(at)?.tag ?? '';
   const sentenceAt = (at, offset) =>
     byBlock[at].find(sentence => offset >= sentence.start && offset < sentence.end) || null;
@@ -805,11 +1267,13 @@ export function analyzeLegal(blocks, labels) {
     all.push(...own);
     return own;
   });
-  const authorities = resolve(all);
+  const authorities = resolve(all, caption);
   for (const authority of authorities.values()) {
     authority.full = authority.cites.find(cite => FULL_TYPES.has(cite.type));
   }
-  const names = referenceNames(all);
+  // The caption's citations name no case the analysis relies on.
+  const counted = all.filter(cite => !caption.has(cite.block));
+  const names = referenceNames(counted);
   const refsOf = blocks.map((block, at) =>
     findReferences(block.text, citesOf[at], names)
       .map(ref => ({
@@ -817,10 +1281,10 @@ export function analyzeLegal(blocks, labels) {
         start: ref.start,
         end: ref.end,
         text: ref.text,
-        authority: all[ref.refersTo]?.authority,
+        authority: counted[ref.refersTo]?.authority,
         quoted: read[at].quotes.some(([start, end]) => start < ref.start && ref.start < end),
       }))
-      .filter(ref => ref.authority),
+      .filter(ref => ref.authority && !caption.has(at)),
   );
   for (const refs of refsOf) for (const ref of refs) ref.authority.refs.push(ref);
 
@@ -835,17 +1299,42 @@ export function analyzeLegal(blocks, labels) {
     });
     return out;
   };
+  // A document not laid out as legal analysis that never cites a record, such as a
+  // letter, an email or an article, tells its facts without sources.
+  const story = !legal && !all.some(cite => cite.type === 'record');
   const sentenceCites = inSentence(citesOf);
   const sentenceRefs = inSentence(refsOf);
   const ownOf = n => sentenceCites[n - 1].filter(cite => !cite.nested && !cite.quoted);
   const nextBlock = at => byBlock.slice(at + 1).find(own => own.length)?.[0];
+  const previousBlock = at => byBlock.slice(0, at).findLast(own => own.length)?.[0]?.block;
   const unclosed = blocks.map(block => unclosedQuote(block.text));
+  // A block quotation whose citation is the paragraph right after it rests on that
+  // citation, as one that ends with it does.
+  const borrowed = new Map();
+  blocks.forEach((block, at) => {
+    if (block.kind !== 'blockquote' || !block.sentences.length) return;
+    const next = nextBlock(at);
+    if (next && blocks[next.block].kind !== 'blockquote' && isCitationSentence(next.text)) {
+      borrowed.set(at, ownOf(next.n));
+    }
+  });
+  // Whether a case is cited in full in a paragraph or the one before it, so a sentence
+  // there that names it needs no citation of its own to say which case it is.
+  const citedNear = (authority, at) => {
+    const near = [at, previousBlock(at)];
+    return authority.cites.some(
+      cite => FULL_TYPES.has(cite.type) && !cite.nested && near.includes(cite.block),
+    );
+  };
 
   for (const sentence of sentences) {
     const block = blocks[sentence.block];
+    const section = sections[sentence.section];
     const heading = HEADING.test(block.kind);
+    const inCaption = caption.has(sentence.block);
+    const narrative = section.part === 'other' || story;
     const cites = sentenceCites[sentence.n - 1];
-    const own = ownOf(sentence.n);
+    const own = [...ownOf(sentence.n), ...(borrowed.get(sentence.block) || [])];
     const named = sentenceRefs[sentence.n - 1].filter(ref => !ref.quoted);
     const next = nextBlock(sentence.block);
     const quoted =
@@ -854,19 +1343,44 @@ export function analyzeLegal(blocks, labels) {
         ([start, end]) =>
           start < sentence.end && end > sentence.start && words(block.text.slice(start, end)) >= 4,
       );
+    // Cases the sentence names but does not cite. One cited only inside its citation's
+    // parenthetical ("(quoting …)"), or never cited in full, is described through the
+    // case the sentence does cite; one cited in full nearby needs no citation to say
+    // which case it is; any other is uncited.
+    const keys = new Set(own.map(cite => cite.authority?.key));
+    const nestedKeys = new Set(cites.filter(cite => cite.nested).map(cite => cite.authority?.key));
+    const others = [
+      ...new Map(
+        named
+          .filter(ref => !keys.has(ref.authority.key))
+          .map(ref => [ref.authority.key, ref.authority]),
+      ).values(),
+    ];
+    const through = authority =>
+      nestedKeys.has(authority.key) || (authority.nameless && own.length > 0);
+    const secondhand = others.some(through);
+    const uncited = others.filter(
+      authority => !through(authority) && !citedNear(authority, sentence.block),
+    );
     sentence.support = supportOf(sentence, {
       heading,
+      caption: inCaption,
+      narrative,
       cites,
       own,
-      named,
-      citedBelow: Boolean(next && ownOf(next.n).length),
+      secondhand,
+      citedBelow: Boolean(next && (ownOf(next.n).length || borrowed.get(next.block)?.length)),
     });
     sentence.flags = flagsOf(sentence, {
       heading,
+      caption: inCaption,
+      narrative,
       quoted,
+      attributed: SPEECH.test(sentence.text.replace(QUOTED, ' ')),
       cites,
       own,
       named,
+      uncited,
       text: block.text,
       unclosed: unclosed[sentence.block],
     });
@@ -878,12 +1392,10 @@ export function analyzeLegal(blocks, labels) {
       key: cite.authority?.key ?? null,
       text: cite.text,
     }));
-    const lead = own.length
-      ? block.text
-          .slice(sentence.start, own[0].start)
-          .trimEnd()
-          .replace(SIGNAL_BEFORE, '')
-          .trimEnd()
+    // A reference to a section of the document is part of what the sentence says.
+    const first = ownOf(sentence.n).find(cite => cite.type !== 'internal' && !cite.internal);
+    const lead = first
+      ? block.text.slice(sentence.start, first.start).trimEnd().replace(SIGNAL_BEFORE, '').trimEnd()
       : '';
     sentence.lead = lead || sentence.text;
     sentence.attention = WEAK.has(sentence.support) || sentence.flags.some(flag => flag.attention);
@@ -891,23 +1403,25 @@ export function analyzeLegal(blocks, labels) {
 
   const runs = roleRuns(sections, sentences);
   for (const section of sections) {
-    const confidence = labeled ? confidenceOf(section, sentences) : null;
+    // A brief argues; how sure its words sound is advocacy, not a prediction.
+    const confidence = labeled && type === 'memo' ? confidenceOf(section, sentences) : null;
     section.rank = confidence?.rank ?? null;
     section.phrase = confidence?.phrase ?? null;
     section.rail = labeled ? railOf(section, runs, sentences) : null;
   }
   const checks = labeled
-    ? checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf })
+    ? checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf, type, legal })
     : [];
 
   return {
     labeled,
+    type,
     sentences,
     sections,
     runs,
     checks,
     authorities: tableOf(authorities, tagOf),
-    unresolved: unresolvedOf(all, tagOf),
+    unresolved: unresolvedOf(all, tagOf, caption),
     attentionCount: sentences.filter(sentence => sentence.attention).length,
   };
 }
@@ -919,19 +1433,136 @@ export function analyzeLegal(blocks, labels) {
 const SEVERITY = { fail: 0, warn: 1, info: 2 };
 // Spaces only, not line breaks: with \s each line start would look through every
 // line after it, a pause of a fifth of a second on a block of empty lines.
-const CLIENT_LINE = /^[^\S\n]*RE[^\S\n]*:[^\S\n]*(.*)$/im;
+const CLIENT_LINE = /^[^\S\n]*(?:RE|Re|Subject)[^\S\n]*:[^\S\n]*(.*)$/m;
+// A party line in a brief's caption: "MARIA DELGADO, Plaintiff and Appellant,".
+const PARTY =
+  /^[^\S\n]*([A-Z][A-Z0-9 .,'’&-]*?),[^\S\n]+(?:Plaintiffs?|Defendants?|Petitioners?|Respondents?|Appellants?|Appellees?|Cross-[A-Za-z]+|Real[^\S\n]+Part(?:y|ies))\b/gm;
+// Runs of capitalized words: names, or the words of a topic ("Title VII").
+const CAPITALIZED = /[A-Z][\w'’&.-]*(?:[^\S\n]+(?:[A-Z][\w'’&.-]*|&))*/g;
+// What comes before a party's name on a subject line: "claim of Marisol Alvarez against
+// Brightwater Logistics, Inc.", "Smith v. Jones". Read on the few characters before it.
+const BEFORE_PARTY = /\b(?:of|against|for|by|v\.?|vs\.?|and|with|from|client)\s+$/i;
+// Lowercase words after a run that make it a topic ("Title VII retaliation claim"), not
+// the connectors between parties ("Marisol Alvarez against Brightwater").
+const TOPIC_AFTER = /^\s+(?!(?:of|against|for|by|v\.?|vs\.?|and|with|from|in|on|re)\b)[a-z]/;
+// Entity endings, which are not part of the name the writer uses: "Inc.", "LLC,".
+const ENTITY_WORD =
+  /^(?:Inc|LLC|L\.L\.C|Corp|Co|Ltd|LLP|L\.P|LP|P\.C|PLLC|N\.A|plc|GmbH|S\.A)\.?,?$/i;
+// A party's name has a few words; a longer run is a title or a topic.
+const MAX_NAME_WORDS = 6;
+const MAX_NAME_LENGTH = 80;
+const MAX_NAMES = 8;
 
-// The client's names: capitalized words of three or more letters at the start of
-// the RE line, before its first ";" or ",".
-export function clientNames(blocks) {
-  for (const block of blocks) {
-    const line = block.text.match(CLIENT_LINE);
-    if (line) return line[1].split(/[;,]/)[0].match(/\b[A-Z][A-Za-z'’-]{2,}/g) || [];
-  }
-  return [];
+// A name without its entity endings, its words one space apart. Word by word, since a
+// pattern anchored at the end would look through the whole text from every space.
+function withoutEntity(name) {
+  const words = name.split(/\s+/).filter(Boolean);
+  while (words.length > 1 && ENTITY_WORD.test(words.at(-1))) words.pop();
+  let last = words.pop() || '';
+  while (last.endsWith(',') || last.endsWith('.')) last = last.slice(0, -1);
+  return [...words, last]
+    .join(' ')
+    .replace(/,(?= |$)/g, '')
+    .trim();
 }
 
-function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf }) {
+// Words of law and of topics, which name no party: "Title VII", "Accommodation Request".
+const NOT_PARTY = new Set(
+  `Title Act Code Section Rule Rules Amendment Amendments Constitution Statute Regulation
+  Regulations Request Requests Accommodation Claim Claims Matter Definition Issue Issues
+  Question Questions Memo Memorandum Re Subject Analysis Advice Update Opinion Letter Draft
+  Termination Agreement Contract Lease Dispute Retaliation Discrimination Liability Privileged
+  Confidential Attorney Client Communication The A An Our Your Federal State County City`.split(
+    /\s+/,
+  ),
+);
+const ROMAN = /^[IVXLC]+$/;
+// The government is a party in its own name, not the client's.
+const GOVERNMENT_PARTY = /^(?:the\s+)?(?:people|state|united\s+states|commonwealth)\b/i;
+
+// The words of a name, as the document writes them: "MARIA DELGADO" is "Maria Delgado".
+const titleCase = name =>
+  name === name.toUpperCase()
+    ? name
+        .toLowerCase()
+        .replace(/(^|[\s'’&-])(\p{L})/gu, (all, lead, letter) => lead + letter.toUpperCase())
+    : name;
+
+// A name as running text writes it: a capital first letter, then letters in any case,
+// so the caption's "FRESHWAY MARKETS" finds "FreshWay", but "markets" is not a name.
+const namePattern = (name, flags = 'u') =>
+  new RegExp(
+    String.raw`(?<![\p{L}\p{N}_])${escape(name[0])}${[...name.slice(1)]
+      .map(char =>
+        /\p{L}/u.test(char) ? `[${char.toLowerCase()}${char.toUpperCase()}]` : escape(char),
+      )
+      .join('')}(?![\p{L}\p{N}_])`,
+    flags,
+  );
+
+// The client's names: the parties named on the RE or Subject line, in every one of its
+// parts ("RE: Marisol Alvarez; Title VII retaliation claim against Brightwater
+// Logistics, Inc."), and in a brief's caption ("MARIA DELGADO, Plaintiff and
+// Appellant,"). A part of the line is a name when it is all of that part or comes after
+// "of", "against", "v." and the like; topic words ("Title VII retaliation claim") are not.
+// Each name is matched as a phrase ("Harbor Point Logistics"), and so is the shorter
+// form the document calls it by elsewhere: its first words ("Harbor Point",
+// "Brightwater") or its last ("Alvarez"). Phrases come first.
+export function clientNames(blocks) {
+  const runs = [];
+  for (const block of blocks) {
+    const line = block.text.match(CLIENT_LINE);
+    if (!line) continue;
+    for (const part of line[1].split(';')) {
+      const plain = part.trim();
+      for (const m of plain.matchAll(CAPITALIZED)) {
+        const end = m.index + m[0].length;
+        const whole =
+          m.index === 0 &&
+          /^[.,\s]*(?:(?:Inc|LLC|Corp|Co|Ltd|LLP|LP|plc)\.?)?$/i.test(plain.slice(end));
+        const party =
+          (m.index === 0 || BEFORE_PARTY.test(plain.slice(Math.max(0, m.index - 12), m.index))) &&
+          !TOPIC_AFTER.test(plain.slice(end, end + 24));
+        if (whole || party) runs.push(withoutEntity(m[0]));
+      }
+    }
+    break;
+  }
+  // A brief's caption, before its first heading below the title.
+  for (const block of blocks) {
+    if (/^h[2-6]$/.test(block.kind)) break;
+    for (const m of block.text.matchAll(PARTY)) {
+      const name = withoutEntity(m[1]);
+      if (!GOVERNMENT_PARTY.test(name)) runs.push(titleCase(name));
+    }
+  }
+  const text = blocks.map(block => block.text).join('\n');
+  const names = [];
+  const forms = [];
+  for (const run of runs) {
+    const words = run.replace(/^(?:The|A|An) /, '').split(' ');
+    // A run with a word of law or of a topic in it names no party.
+    if (words.length > MAX_NAME_WORDS || names.length >= MAX_NAMES) continue;
+    if (words.some(word => NOT_PARTY.has(word) || ROMAN.test(word))) continue;
+    const phrase = words.join(' ');
+    if (phrase.length < 3 || phrase.length > MAX_NAME_LENGTH || names.includes(phrase)) continue;
+    names.push(phrase);
+    if (words.length < 2) continue;
+    let rest = text.replace(namePattern(phrase, 'gu'), ' ');
+    const shorter = [
+      ...words.slice(1).map((_, i) => words.slice(0, words.length - 1 - i).join(' ')),
+      words.at(-1),
+    ];
+    for (const form of shorter) {
+      if (form.length < 3 || forms.includes(form) || !namePattern(form).test(rest)) continue;
+      forms.push(form);
+      rest = rest.replace(namePattern(form, 'gu'), ' ');
+    }
+  }
+  return [...names, ...forms.filter(form => !names.includes(form))];
+}
+
+function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf, type, legal }) {
   const checks = [];
   const span = n => {
     const { block, start, end } = sentences[n - 1];
@@ -947,14 +1578,22 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf }) {
       sentences: numbers,
       spans: numbers.map(span),
     });
+  // Only the analysis, its umbrellas and sub-issues, gets the IRAC checks: not a brief's
+  // introduction or standard, not facts, and not a contract's clauses or a story.
+  const analytic = section => section.part === 'sub-issue' || section.part === 'umbrella';
   const subIssues = sections.filter(section => section.part === 'sub-issue');
   const runsOf = section => runs.filter(run => run.parent === section.index);
   const sectionAt = n => sections[sentences[n - 1].section];
+  const inAnalysis = sentence => analytic(sections[sentence.section]);
   const letter = (section, name) => section.rail?.find(item => item.letter === name)?.state;
 
-  // facts-section
-  const facts = sentences.filter(sentence => sentence.kind === 'client-fact');
-  if (facts.length && !sections.some(section => section.part === 'facts')) {
+  // facts-section: in a document laid out as a memo or brief, client facts that appear
+  // only in the analysis, with no Statement of Facts. Reproduced text is not a fact.
+  const shaped = legal || sections.some(section => section.part === 'conclusion');
+  const facts = sentences.filter(
+    sentence => sentence.kind === 'client-fact' && inAnalysis(sentence),
+  );
+  if (shaped && facts.length && !sections.some(section => section.part === 'facts')) {
     add(
       'facts-section',
       'fail',
@@ -964,43 +1603,52 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf }) {
     );
   }
 
-  // umbrella: two or more sub-issues in a row need an umbrella before them.
+  // umbrella: two or more sub-issues need an umbrella over them that predicts the
+  // outcome, says the order of discussion and, in a memo, states a cited rule. An
+  // umbrella that is only its heading, such as a brief's ARGUMENT over its point
+  // headings, asks for none of these.
   sections.forEach((section, i) => {
-    if (section.part !== 'sub-issue' || sections[i - 1]?.part === 'sub-issue') return;
+    const top = item => item?.part === 'sub-issue' && item.parent === null;
+    if (!top(section) || top(sections[i - 1])) return;
     let count = 0;
-    while (sections[i + count]?.part === 'sub-issue') count++;
-    if (count < 2) return;
-    const umbrella = sections[i - 1]?.part === 'umbrella' ? sections[i - 1] : null;
-    if (!umbrella) {
+    while (top(sections[i + count])) count++;
+    if (count >= 2) {
       add('umbrella', 'warn', 'There is no umbrella before the sub-issues.', section, [
         section.first,
       ]);
-      return;
     }
+  });
+  for (const umbrella of sections) {
+    if (umbrella.part !== 'umbrella' || !umbrella.rail) continue;
+    const under = sections.filter(
+      section => section.parent === umbrella.index && analytic(section),
+    );
+    if (under.length < 2) continue;
     const lacks = [
       letter(umbrella, 'P') === 'missing' && 'gives no overall prediction',
       letter(umbrella, 'M') === 'missing' && 'does not say the order of discussion',
-      letter(umbrella, 'R') === 'missing' && 'states no cited rule',
+      type === 'memo' && letter(umbrella, 'R') === 'missing' && 'states no cited rule',
     ].filter(Boolean);
     if (lacks.length) {
-      add('umbrella', 'warn', `The umbrella ${prose(lacks)}.`, umbrella, [umbrella.first]);
+      const name = umbrella.tag === TAGS.umbrella ? 'The umbrella' : `The umbrella ${umbrella.tag}`;
+      add('umbrella', 'warn', `${name} ${prose(lacks)}.`, umbrella, [umbrella.first]);
     }
-  });
+  }
 
   for (const section of subIssues) {
     const own = runsOf(section);
     const { tag } = section;
-    // opens-with-issue
-    if (!['issue', 'conclusion', 'heading'].includes(own[0].role)) {
+    // opens-with-issue, after any greeting
+    if (!['issue', 'conclusion', 'heading'].includes(openingRun(own).role)) {
       add('opens-with-issue', 'warn', `${tag} opens without stating its issue.`, section, [
-        section.first,
+        openingRun(own).first,
       ]);
     }
     // rule-before-application
     const rule = letter(section, 'R');
     if (rule === 'order') {
-      const applying = own.find(run => APPLYING.includes(run.role));
-      const first = own.find(run => run.role === 'rule');
+      const applying = own.find(run => does(run, APPLYING));
+      const first = own.find(run => does(run, ['rule']));
       add(
         'rule-before-application',
         'warn',
@@ -1014,7 +1662,7 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf }) {
     // closes-with-conclusion
     if (letter(section, 'C') === 'missing') {
       add('closes-with-conclusion', 'warn', `${tag} ends without a conclusion.`, section, [
-        section.last,
+        closingRun(own).last,
       ]);
     }
     // alternating: explanation and application taking turns.
@@ -1035,14 +1683,15 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf }) {
     }
   }
 
-  // new-law-in-application: an authority first cited while applying the law.
+  // new-law-in-application: an authority first cited while applying the law. A
+  // counter-argument may bring in the other side's case, so it does not count.
   const explained = new Set();
   const reported = new Set();
   for (const sentence of sentences) {
     const keys = ownOf(sentence.n)
       .map(cite => cite.authority)
       .filter(Boolean);
-    if (APPLYING.includes(sentence.role)) {
+    if (sentence.role === 'application' && inAnalysis(sentence)) {
       for (const authority of keys) {
         if (explained.has(authority.key) || reported.has(authority.key)) continue;
         reported.add(authority.key);
@@ -1060,37 +1709,55 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf }) {
     }
   }
 
-  // law-mentions-client
-  const clients = clientNames(blocks);
+  // law-mentions-client: a rule or explanation in the analysis that names the client.
+  // Reproduced contract text names the parties as a matter of course.
+  const clients = clientNames(blocks).map(name => ({ name, pattern: namePattern(name) }));
   for (const sentence of sentences) {
     if (sentence.role !== 'rule' && sentence.role !== 'explanation') continue;
-    const name = clients.find(client =>
-      new RegExp(String.raw`(?<![\w])${escape(client)}(?![\w])`).test(sentence.text),
-    );
-    if (!name) continue;
+    if (sentence.kind === 'document-text' || !inAnalysis(sentence)) continue;
+    const client = clients.find(({ pattern }) => pattern.test(sentence.text));
+    if (!client) continue;
     const role = sentence.role === 'rule' ? 'a rule' : 'an explanation';
     add(
       'law-mentions-client',
       'warn',
-      `${sectionAt(sentence.n).tag}: ${role} mentions ${name}; keep client facts in the application.`,
+      `${sectionAt(sentence.n).tag}: ${role} mentions ${client.name}; keep client facts in the application.`,
       sectionAt(sentence.n),
       [sentence.n],
     );
   }
 
-  // generalization: "courts" in general, resting on one authority or none.
-  for (const sentence of sentences) {
-    if (sentence.kind !== 'law' && sentence.kind !== 'precedent') continue;
-    if (!/\bcourts\b/i.test(sentence.text.split(/\s+/).slice(0, 4).join(' '))) continue;
-    const rest = sentences.filter(other => other.block === sentence.block && other.n >= sentence.n);
-    const cited = new Map();
-    for (const other of rest) {
-      for (const cite of ownOf(other.n)) {
-        if (cite.authority) cited.set(cite.authority.key, cite.authority);
+  // The authorities a sentence and the rest of its paragraph cite, up to two: all the
+  // generalization check needs, gathered once from the end of each paragraph.
+  const ahead = new Array(sentences.length);
+  for (let i = sentences.length - 1; i >= 0; i--) {
+    const same = sentences[i + 1]?.block === sentences[i].block;
+    const list = same ? [...ahead[i + 1]] : [];
+    for (const cite of ownOf(i + 1)) {
+      if (cite.authority && list.length < 2 && !list.includes(cite.authority)) {
+        list.push(cite.authority);
       }
     }
-    if (cited.size > 1) continue;
-    const [authority] = cited.values();
+    ahead[i] = list;
+  }
+
+  // generalization: courts in general, as the sentence's subject, resting on one case or
+  // none. "Federal law requires courts to …" speaks for the law, and one statute may
+  // well say what every court must do.
+  for (const sentence of sentences) {
+    if (sentence.kind !== 'law' && sentence.kind !== 'precedent') continue;
+    if (['caption', 'other'].includes(sectionAt(sentence.n).part)) continue;
+    const subject = sentence.text.match(/^((?:[\w’'-]+\s+){0,2})courts\b/i);
+    if (
+      !subject ||
+      /\b(?:requires?|allows?|permits?|directs?|tells?|lets?)\s+$/i.test(subject[1])
+    ) {
+      continue;
+    }
+    const cited = ahead[sentence.n - 1];
+    if (cited.length > 1) continue;
+    const [authority] = cited;
+    if (authority?.group === 'statutes') continue;
     const basis = authority ? `one authority (${authority.name || authority.key})` : 'no authority';
     add(
       'generalization',
@@ -1101,9 +1768,10 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf }) {
     );
   }
 
-  // confidence: the conclusion sounds surer than its least sure part.
+  // confidence: the conclusion sounds surer than its least sure part. A brief argues,
+  // so it has no confidence to compare.
   const conclusion = sections.find(section => section.part === 'conclusion');
-  if (conclusion) {
+  if (conclusion && type === 'memo') {
     const surest = confidenceOf(conclusion, sentences, true);
     const weakest = subIssues
       .map(section => ({ section, ...confidenceOf(section, sentences, false) }))
@@ -1136,11 +1804,12 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf }) {
     }
   }
 
-  // headings-predict
-  for (const section of subIssues) {
-    if (section.heading === null || !/^h[3-6]$/.test(blocks[section.heading].kind)) continue;
+  // headings-predict: a point heading over a sub-issue, or over sub-issues of its own.
+  for (const section of sections) {
+    if (!analytic(section) || section.heading === null) continue;
+    if (section.parent === null && !/^h[3-6]$/.test(blocks[section.heading].kind)) continue;
     const heading = sentences.filter(sentence => sentence.block === section.heading);
-    if (heading.some(sentence => sentence.kind === 'conclusion')) continue;
+    if (!heading.length || heading.some(sentence => sentence.kind === 'conclusion')) continue;
     add(
       'headings-predict',
       'warn',
@@ -1198,50 +1867,148 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf }) {
 const GROUPS = ['cases', 'statutes', 'other'];
 // The whole reporter: "U.S. App. D.C." starts like U.S. but is not the Supreme Court's.
 const SUPREME = /^(?:U\.S\.|S\.Ct\.|L\.Ed\.(?:2d)?)$/;
+// The states as courts and official reporters name them, without spaces.
+const STATES = new Set(
+  `Ala. Alaska Ariz. Ark. Cal. Colo. Conn. Del. D.C. Fla. Ga. Haw. Idaho Ill. Ind. Iowa Kan.
+  Ky. La. Me. Md. Mass. Mich. Minn. Miss. Mo. Mont. Neb. Nev. N.H. N.J. N.M. N.Y. N.C. N.D.
+  Ohio Okla. Or. Pa. R.I. S.C. S.D. Tenn. Tex. Utah Vt. Va. Wash. W.Va. Wis. Wyo.`.split(/\s+/),
+);
+// A state's highest court's own reporter: "Cal.4th", "N.Y.2d", "Ill.2d", "Ohio St.3d".
+const STATE_REPORTER = /^(.+?)(?:2d|3d|4th|5th)?$/;
+// An intermediate court of appeals: "Cal. App. 5th", "A.D.3d", "Ill. App. 3d", "(Ct. App.
+// 2002)", "(N.Y. App. Div. 2005)", "Pa. Super.".
+const STATE_APPEAL = /App\.|^A\.D\.|Super\./;
+// England and Canada: the highest courts, and the courts of appeal.
+const TOP_COURT = /^(?:UKSC|UKHL|HL|SCC|S\.C\.R\.|SCR)$/;
+const APPEAL_COURT =
+  /^(?:EWCA(?:Civ|Crim)?|CA|Civ|ONCA|BCCA|ABCA|QCCA|NSCA|NBCA|MBCA|SKCA|NLCA|PECA|FCA|CMAC)$/;
 
 function levelOf(authority) {
   if (authority.group === 'statutes') return 'statute';
-  const court = authority.full?.court || '';
-  if (/\bCir\.$/.test(court)) return 'circuit';
-  if (/^(?:[NSEWMC]\.D\.|D\.)\s?\S/.test(court)) return 'district';
-  const reporter = authority.full?.reporter || authority.reporter || '';
-  if (SUPREME.test(squeeze(reporter))) return 'supreme';
+  const full = authority.full || {};
+  const court = squeeze(full.court || '');
+  const reporters = [
+    full.reporter || authority.reporter || '',
+    ...(full.parallel || []).map(p => p.reporter),
+  ].map(squeeze);
+  if (/Cir\.$/.test(court)) return 'circuit';
+  if (/^(?:[NSEWMC]\.D\.|D\.)\S/.test(court)) return 'district';
+  if (reporters.some(reporter => SUPREME.test(reporter))) return 'supreme';
+  // The courts of appeals' own reporters: "F. App'x", and "U.S. App. D.C." for the D.C. Circuit.
+  if (/^(?:F\.App|U\.S\.App\.D\.C\.)/.test(reporters[0])) return 'circuit';
+  if (TOP_COURT.test(court) || reporters.some(reporter => TOP_COURT.test(reporter)))
+    return 'supreme';
+  // "EWCA(Civ)" is the Court of Appeal's Civil Division.
+  if (APPEAL_COURT.test(court.split('(')[0])) return 'appellate';
+  if (court && STATES.has(court)) return 'state-supreme';
+  if (STATE_APPEAL.test(court) || STATE_APPEAL.test(reporters[0])) return 'state-appellate';
+  const official = reporters[0].match(STATE_REPORTER)?.[1];
+  if (STATES.has(official) || /^OhioSt\.$/.test(official)) return 'state-supreme';
   return 'unknown';
 }
 
 // A statute's title from its first mention in Bluebook form, with every
 // subsection the document cites: "42 U.S.C. § 3602(b), (c)". The first mention
-// that names the code, since a bare "§ 3602" may come before it.
-function statuteTitle(cites) {
-  const base = (cites.find(cite => cite.type === 'statute') || cites[0]).text
+// that names the code, since a bare "§ 3602" may come before it; a section known only
+// from "Id. § 12926(m)" takes its code from the citation before it. A session law, the
+// Statutes at Large and the Federal Register are titled as first cited, since their
+// subsections and pages sit inside the citation ("Pub. L. No. 110-325, § 2(b)(5), 122
+// Stat. 3553").
+const SUBSECTION_GROUP = /\((?!\d{4}\))[0-9a-zA-Z]{1,4}\)(?:\s?\((?!\d{4}\))[0-9a-zA-Z]{1,4}\))*/g;
+function statuteTitle(authority) {
+  const cites = authority.cites;
+  const named = cites.find(cite => cite.type === 'statute');
+  const text = named
+    ? named.text
+    : `${authority.code || ''}${cites[0].text.slice(Math.max(0, cites[0].text.indexOf('§')))}`;
+  if (/^(?:Pub\.L\.|\d+(?:Stat\.|Fed\.Reg\.))/.test(authority.key)) {
+    return text.replace(YEAR_AFTER, '').trim();
+  }
+  const base = text
     .replace(YEAR_AFTER, '')
-    .replace(SUBSECTIONS, '')
+    .replace(SUBDIVISIONS, '')
+    .replace(SUBSECTION_GROUP, '')
+    .replace(/(?<![\s,])[\s,]+$/, '')
     .replace(/U\.\s?S\.\s?Code\b/, 'U.S.C.')
     .trim();
-  const subsections = cites.map(cite => cite.text.match(SUBSECTIONS)?.[0].replace(/\s/g, ''));
-  return base + [...new Set(subsections.filter(Boolean))].join(', ');
+  const subsections = cites.flatMap(
+    cite =>
+      cite.text
+        .replace(YEAR_AFTER, '')
+        .match(SUBSECTION_GROUP)
+        ?.map(group => group.replace(/\s/g, '')) || [],
+  );
+  return base + [...new Set(subsections)].join(', ');
+}
+
+// A case's citation as the document gives it: Bluebook ("Bell Atl. Corp. v. Twombly,
+// 550 U.S. 544, 127 S. Ct. 1955 (2007)"), California ("Aguilar v. Atlantic Richfield Co.
+// (2001) 25 Cal.4th 826 [107 Cal.Rptr.2d 841]"), English ("Donoghue v Stevenson [1932] AC
+// 562 (HL)") or Canadian ("R. v. Jordan, 2016 SCC 27").
+function caseTitle(full) {
+  const name = full.name || '';
+  const core = `${full.volume} ${full.reporter} ${full.page}`;
+  const between = full.core
+    ? full.text.slice(name.length, full.core[0] - full.start).replace(/\s+/g, ' ')
+    : ', ';
+  const parallels = (full.parallel || []).map(p => `${p.volume} ${p.reporter} ${p.page}`);
+  if (/\(\s*(?:[^()]*\s)?\d{4}\)\s*$/.test(between)) {
+    const title = `${name}${between}${core}${parallels.length ? ` [${parallels.join(', ')}]` : ''}`;
+    return { title: title.trim(), italic: name ? [0, name.length] : null };
+  }
+  const separator = name ? (between.includes(',') ? ', ' : ' ') : '';
+  // The court and date, unless the citation names its court already ("[2015] UKSC 31")
+  // or gives its year in brackets ("[1932] AC 562 (HL)").
+  const neutral = full.court && squeeze(full.court) === squeeze(full.reporter);
+  const paren = neutral
+    ? ''
+    : /^\[/.test(full.volume)
+      ? full.court || ''
+      : [full.court, full.date || full.year].filter(Boolean).join(' ');
+  const title = `${name}${separator}${[core, ...parallels].join(', ')}${paren ? ` (${paren})` : ''}`;
+  return { title, italic: name ? [0, name.length] : null };
+}
+
+// An article's, book's or report's citation, without the pin: "Jane Roe, Rethinking
+// Essential Functions, 100 Harv. L. Rev. 1 (1987)", its title in italics.
+function sourceTitle(authority) {
+  const cite = authority.full || authority.cites[0];
+  if (cite.type === 'legislative') {
+    return { title: `${authority.name}${cite.year ? ` (${cite.year})` : ''}`, italic: null };
+  }
+  if (cite.type !== 'periodical' && cite.type !== 'secondary') {
+    return { title: authority.name || cite.text, italic: null };
+  }
+  if (!cite.title) return { title: cite.text, italic: null };
+  const lead = cite.author ? `${cite.author}, ` : '';
+  const where =
+    cite.type === 'periodical'
+      ? `, ${cite.volume} ${cite.reporter} ${cite.page}${cite.year ? ` (${cite.year})` : ''}`
+      : (cite.text.match(YEAR_AFTER)?.[0] ?? '');
+  return {
+    title: `${lead}${cite.title}${where}`,
+    italic: [lead.length, lead.length + cite.title.length],
+  };
 }
 
 function titleOf(authority) {
   const full = authority.full;
-  const court = (cite = {}) => [cite.court, cite.year].filter(Boolean).join(' ');
-  if (authority.group === 'statutes') return { title: statuteTitle(authority.cites), italic: null };
-  if (authority.group === 'other') return { title: authority.cites[0].text, italic: null };
-  let name;
-  let rest;
+  if (authority.group === 'statutes') return { title: statuteTitle(authority), italic: null };
+  if (authority.group === 'other') return sourceTitle(authority);
   if (authority.nameless) {
-    name = authority.name;
-    rest = `, ${authority.volume} ${authority.reporter}`;
-  } else if (full.type === 'docket') {
-    name = full.name;
-    rest = `, ${[full.docket, full.database].filter(Boolean).join(', ')}`;
-    if (court(full)) rest += ` (${court(full)})`;
-  } else {
-    name = full.name || '';
-    rest = `${name ? ', ' : ''}${full.volume} ${full.reporter} ${full.page}`;
-    if (court(full)) rest += ` (${court(full)})`;
+    const where = authority.database || `${authority.volume} ${authority.reporter}`;
+    return { title: `${authority.name}, ${where}`, italic: [0, authority.name.length] };
   }
-  return { title: name + rest, italic: name ? [0, name.length] : null };
+  if (full.type === 'docket') {
+    const name = full.name || '';
+    const court = [full.court, full.date || full.year].filter(Boolean).join(' ');
+    const rest = [full.docket, withoutPin(full.database)].filter(Boolean).join(', ');
+    return {
+      title: `${name}${name && rest ? ', ' : ''}${rest}${court ? ` (${court})` : ''}`,
+      italic: name ? [0, name.length] : null,
+    };
+  }
+  return caseTitle(full);
 }
 
 function warningsOf(authority) {
@@ -1305,20 +2072,31 @@ function tableOf(authorities, tagOf) {
   return rows.sort((a, b) => GROUPS.indexOf(a.group) - GROUPS.indexOf(b.group) || compare(a, b));
 }
 
-// Citations nothing resolves, each with why.
-function unresolvedOf(all, tagOf) {
+// Citations nothing resolves, each with why: a short form, supra or id. that names no
+// case cited in full in this document. The record, the document's own sections and the
+// caption are not cited authority, so they are never listed.
+function unresolvedOf(all, tagOf, caption) {
   const items = [];
   for (const cite of all) {
-    if (cite.authority || !['id', 'supra', 'short'].includes(cite.type)) continue;
+    if (!['id', 'supra', 'short'].includes(cite.type) || caption.has(cite.block)) continue;
+    if (cite.record || (cite.authority && !cite.authority.nameless)) continue;
     const where = `${cite.text.replace(SIGNAL_START, '')} in ${tagOf(cite.block)}`;
-    const why =
-      cite.type === 'id'
-        ? cite.quoted
-          ? `${where}, inside a quotation: it refers to the quoted court’s own earlier citation.`
-          : `${where}: there is no earlier citation for it to refer to.`
-        : cite.type === 'supra'
-          ? `${where}: no full citation in this document has that name.`
-          : `${where}: no full citation in this document has this volume and reporter.`;
+    let why;
+    if (cite.type === 'id') {
+      if (cite.quoted) {
+        why = `${where}, inside a quotation: it refers to the quoted court’s own earlier citation.`;
+      } else if (cite.authority) {
+        why = `${where}: it repeats ${cite.authority.name}, which has no full citation in this document.`;
+      } else if (cite.lost) {
+        why = `${where}: the citation before it, ${cite.lost.text.replace(SIGNAL_START, '')}, names no case cited in this document.`;
+      } else why = `${where}: there is no earlier citation for it to refer to.`;
+    } else if (cite.type === 'supra') {
+      why = `${where}: no full citation in this document has that name.`;
+    } else if (cite.database) {
+      why = `${where}: no full citation in this document has this database number.`;
+    } else {
+      why = `${where}: no full citation in this document has this volume and reporter.`;
+    }
     items.push({ text: why, span: { block: cite.block, start: cite.start, end: cite.end } });
   }
   return items;

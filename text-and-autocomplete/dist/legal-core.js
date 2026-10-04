@@ -20,7 +20,15 @@ export const ROLES = [
   'facts',
   'other',
 ];
-export const KINDS = ['law', 'precedent', 'client-fact', 'application', 'conclusion', 'framing'];
+export const KINDS = [
+  'law',
+  'precedent',
+  'client-fact',
+  'application',
+  'conclusion',
+  'framing',
+  'document-text',
+];
 // The checks the IRAC view can run, in the order it shows them.
 export const STRUCTURE_CHECKS = [
   'facts-section',
@@ -56,21 +64,24 @@ export const KIND_NAMES = {
   application: 'Application',
   conclusion: 'Conclusion',
   framing: 'Framing',
+  'document-text': 'Document text',
 };
 
 // The kinds a sentence in each role can assert. A pair outside these means
-// Claude's two labels disagree, so one of them may be wrong.
+// Claude's two labels disagree, so one of them may be wrong. Text reproduced from a
+// contract, statute or other document can state the governing term (rule), show what a
+// provision says (explanation), or set out the matter's documents (facts, other).
 export const ALLOWED = {
-  rule: ['law'],
-  explanation: ['precedent', 'law'],
+  rule: ['law', 'document-text'],
+  explanation: ['precedent', 'law', 'document-text'],
   application: ['application', 'client-fact'],
   counter: ['application', 'client-fact', 'precedent', 'law'],
   conclusion: ['conclusion'],
   issue: ['framing', 'law'],
   roadmap: ['framing', 'law'],
   heading: ['framing', 'conclusion'],
-  facts: ['client-fact'],
-  other: ['framing'],
+  facts: ['client-fact', 'document-text'],
+  other: ['framing', 'document-text'],
 };
 // The most likely kind for a role, and role for a kind, when Claude gives only
 // one of the two.
@@ -93,6 +104,7 @@ export const DEFAULT_ROLE = {
   application: 'application',
   conclusion: 'conclusion',
   framing: 'other',
+  'document-text': 'other',
 };
 
 export const LEGAL_INSTRUCTIONS = `You label each sentence of a legal document, such as an office memo or a brief, by the job it does in the legal analysis, the way a supervising attorney reviews it.
@@ -118,10 +130,13 @@ Give every sentence exactly one entry, in order: [n, role, kind], or [n, role, k
 - application: a connection between law and the client's facts.
 - conclusion: a prediction, or a restatement of one.
 - framing: a heading, caption line, transition, roadmap, or question that asserts no law or fact.
+- document-text: text of a contract, statute, or other document reproduced in this document in its own words rather than in a sentence of the writer's, such as an agreement's clauses set out in an excerpt or a statute in a block quotation; it is its own source.
 "also" is a second role from the same list, only when the sentence clearly does two jobs, such as explanation and application.
 Rules:
 - Label what the writer uses the sentence for. A quotation that states the rule is a rule; a quotation that describes what a court did is an explanation.
 - A heading that predicts an outcome has role "heading" and kind "conclusion"; a heading that only names a topic has kind "framing".
+- Reproduced document text has kind "document-text" with role "rule" when the analysis relies on it as the governing term, and role "facts" or "other" when it only sets out what the document says.
+- A contract provision that the analysis invokes as the governing term is a rule: "Section 4.2(b) lets the customer terminate on sixty days' notice." has role "rule" and kind "law", and a cross-reference to the provision, such as "Agreement § 4.2" or "Section 4.2(b)", is its citation.
 - Keep a sentence's "prior" labels unless its words now clearly do a different job.
 - Return only sentence numbers and the words listed above. Never write a case name, citation, quotation, explanation, or any other text, and never judge whether a citation is correct; the app checks citations itself.
 ${DATA_ONLY}`;
@@ -195,6 +210,15 @@ const KIND_SYNONYMS = {
   facts: 'client-fact',
   'client fact': 'client-fact',
   client: 'client-fact',
+  'source text': 'document-text',
+  'contract text': 'document-text',
+  'contract language': 'document-text',
+  'reproduced text': 'document-text',
+  'quoted text': 'document-text',
+  excerpt: 'document-text',
+  clause: 'document-text',
+  provision: 'document-text',
+  document: 'document-text',
   rule: 'law',
   authority: 'law',
   statute: 'law',

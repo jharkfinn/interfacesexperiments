@@ -259,6 +259,97 @@ test('autocomplete stops before a citation, signal, or quotation it would begin'
     ' See you at 3 PM on 5 May.',
   );
 });
+test('a sentence ends after an abbreviation that can end one (CC-1)', () => {
+  for (const before of [
+    'Achterberg grew up outside the U.S. ',
+    'It opens at 7 a.m. ',
+    'She named it after her late uncle, Gustav Halvorsen Jr. ',
+    'Mix flour, sugar, etc. ',
+    'She earned her Ph.D. ',
+    'The supplier is Brightwater Logistics, Inc. ',
+    'The cap is $25,000 per shipment. ',
+    'Halvorsen keeps a letter from a customer in St. Paul, Minn. ',
+  ])
+    assert.ok(isSentenceBoundary(before), before);
+  // A legal abbreviation, a title, an initial, a page, a month or a word inside a name
+  // still keeps the sentence open.
+  for (const before of [
+    'as held in Smith v. ',
+    'See 42 U.S.C. ',
+    '550 U.S. ',
+    'Dr. ',
+    'Photograph by T. J. ',
+    'She lives in St. ',
+    'See id. at p. ',
+    'who wore No. ',
+    'See Bell Atl. ',
+    'Code Civ. ',
+    '(S.D.N.Y. Mar. ',
+    '(2d Cir. ',
+    'i.e. ',
+  ])
+    assert.ok(!isSentenceBoundary(before), before);
+  const before = 'Achterberg grew up outside the U.S. ';
+  const event = responseEvent('request', { before, after: '' });
+  assert.equal(JSON.parse(event.response.input[0].content[0].text).mode, 'new_sentence');
+});
+test('autocomplete stops in other citation forms and leaves prose whole (GD-9, GD-10, GD-12)', () => {
+  // A reply is cut before a report's name, and one that runs on in a guidance citation is
+  // not offered.
+  const report = 'Congress said so';
+  assert.deepEqual(
+    inspectCompletion(completionAnchor(report) + ' per H.R. Rep. No. 110-730', report, ''),
+    { text: ' per', reason: null },
+  );
+  const guidance = 'The agency agrees. EEOC, Enforcement Guidance';
+  assert.equal(
+    inspectCompletion(
+      `${completionAnchor(guidance)}: Reasonable Accommodation, Question 35 (Oct. 17, 2002).`,
+      guidance,
+      '',
+    ).text,
+    '',
+  );
+  // A signal before ordinary words, and a jersey number, are prose.
+  const before = 'The shop is easy to find.';
+  for (const insertion of [
+    ' See Halvorsen on Saturdays for the best rye.',
+    ' Pruitt wore No. 5 for the River Otters.',
+  ]) {
+    assert.equal(cleanCompletion(completionAnchor(before) + insertion, before, ''), insertion);
+    for (let end = 0; end <= insertion.length; end++) {
+      const preview = previewCompletion(
+        completionAnchor(before) + insertion.slice(0, end),
+        before,
+        '',
+      );
+      assert.ok(insertion.startsWith(preview), insertion.slice(0, end));
+    }
+  }
+  // A streamed parenthesis waits until it closes: one a quotation or citation cuts goes
+  // whole, so a preview never shows what the finished reply drops.
+  const fees = 'Customer shall pay the fees in Order Form No.';
+  const reply = ' 2023-014 (collectively, the “Fees”), within thirty days.';
+  assert.equal(cleanCompletion(completionAnchor(fees) + reply, fees, ''), ' 2023-014');
+  for (let end = 0; end <= reply.length; end++)
+    assert.ok(
+      ' 2023-014'.startsWith(
+        previewCompletion(completionAnchor(fees) + reply.slice(0, end), fees, ''),
+      ),
+      reply.slice(0, end),
+    );
+  // A sentence before a citation keeps its last word.
+  const dispute = 'The dispute goes to';
+  assert.equal(
+    cleanCompletion(
+      completionAnchor(dispute) +
+        ' JAMS. See Henry Schein, Inc. v. Archer & White Sales, Inc., 139 S. Ct. 524, 529 (2019).',
+      dispute,
+      '',
+    ),
+    ' JAMS.',
+  );
+});
 test('the context window keeps the paragraphs nearest the caret', () => {
   const short = { before: 'One.\nTwo three. ', after: ' four\nFive.' };
   assert.deepEqual(contextWindow(short), short);
