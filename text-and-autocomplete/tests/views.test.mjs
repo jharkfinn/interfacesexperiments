@@ -10,8 +10,11 @@ import {
   BUILT_IN,
   specFromPurpose,
   specFromLevel,
+  specFromRoles,
+  specFromSources,
   idFor,
 } from '../dist/view-specs.js';
+import { STRUCTURE_CHECKS } from '../dist/legal-core.js';
 import { resizeWeights as resize, restorePanes } from '../dist/panes.js';
 
 const TEXT = 'Pancakes are quick.  They take ten minutes! Does anyone complain?';
@@ -93,6 +96,25 @@ test('links tell listeners about changes only', () => {
   ]);
   assert.ok(sameLink(null, null));
   assert.ok(!sameLink({ origin: 'a' }, null));
+});
+
+test('a link to several ranges is the same only when every range is', () => {
+  const node = {};
+  const range = (start, end) => ({
+    startContainer: node,
+    startOffset: start,
+    endContainer: node,
+    endOffset: end,
+  });
+  const one = { range: range(0, 4), ranges: [range(0, 4), range(9, 12)], origin: 'a' };
+  assert.ok(
+    sameLink(one, { range: range(0, 4), ranges: [range(0, 4), range(9, 12)], origin: 'a' }),
+  );
+  assert.ok(
+    !sameLink(one, { range: range(0, 4), ranges: [range(0, 4), range(9, 13)], origin: 'a' }),
+  );
+  assert.ok(!sameLink(one, { range: range(0, 4), ranges: [range(0, 4)], origin: 'a' }));
+  assert.ok(!sameLink(one, { range: range(0, 4), origin: 'a' }));
 });
 
 test('a span is scrolled into the room only as far as it needs', () => {
@@ -327,6 +349,94 @@ test('a new view gets an id from its name, unlike the ids taken', () => {
   assert.equal(idFor('Claims', ['claims', 'claims-2']), 'claims-3');
   assert.equal(idFor('2024 plan', []), 'plan');
   assert.equal(idFor('!!!', []), 'view');
+});
+
+test('the legal views say what they show, and that nothing checks the sources', () => {
+  const builtIn = id => fullSpec(BUILT_IN.find(spec => spec.id === id));
+  assert.equal(
+    hintFor(builtIn('irac')),
+    'Claude labels each sentence’s job in the analysis; the app groups the labels by the document’s headings and checks the structure. A hollow letter is a part a section lacks. Drag a piece between two to move it. Double-click a piece to edit it in the document.',
+  );
+  assert.equal(
+    hintFor(builtIn('sourcing')),
+    'The app finds citations and quotations itself; Claude only says what each sentence asserts. Nothing here checks that a case exists, that a quotation is exact, or that a source supports the sentence. Drag a sentence between two to move it. Double-click a sentence to edit it in the document.',
+  );
+  assert.match(
+    statusText('waiting', false, 'legal'),
+    /^Claude is labeling each sentence’s job\. Citations/,
+  );
+  assert.match(statusText('offline', true, 'legal'), /^Connect.*The last labels stand in/);
+  assert.match(statusText('updating', true, 'legal'), /^Claude is updating the labels/);
+  assert.equal(statusText('ready', true, 'legal'), undefined);
+});
+
+test('IRAC and Sourcing are declarations with their own checks', () => {
+  const one = spec => checkSpec({ id: 'v', title: 'V', ...spec });
+  const irac = BUILT_IN.find(spec => spec.id === 'irac');
+  const sourcing = BUILT_IN.find(spec => spec.id === 'sourcing');
+  assert.deepEqual(checkSpec(irac), []);
+  assert.deepEqual(checkSpec(sourcing), []);
+  assert.deepEqual(fullSpec({ id: 'x', title: 'X', unit: 'role' }), {
+    kind: 'pieces',
+    unit: 'role',
+    group: 'section',
+    show: 'role',
+    layout: 'list',
+    header: 'checks',
+    id: 'x',
+    title: 'X',
+    on: {},
+    checks: STRUCTURE_CHECKS,
+  });
+  assert.deepEqual(fullSpec({ id: 'x', title: 'X', unit: 'sentence', show: 'sources' }), {
+    kind: 'pieces',
+    unit: 'sentence',
+    group: 'paragraph',
+    show: 'sources',
+    layout: 'list',
+    header: 'authorities',
+    id: 'x',
+    title: 'X',
+    on: {},
+  });
+  assert.deepEqual(one({ unit: 'role', group: 'paragraph' }), [
+    'With "unit": "role", "group" must be "section" or "none".',
+  ]);
+  assert.deepEqual(one({ unit: 'sentence', group: 'section' }), [
+    '"group": "section" needs "unit": "role".',
+  ]);
+  assert.deepEqual(one({ unit: 'sentence', show: 'role' }), [
+    '"show": "role" needs "unit": "role".',
+  ]);
+  assert.deepEqual(one({ unit: 'paragraph', show: 'sources', group: 'none' }), [
+    '"show": "sources" needs "unit": "sentence", because support is read sentence by sentence.',
+  ]);
+  assert.deepEqual(one({ unit: 'role', layout: 'cards' }), [
+    '"show": "role" works only with "layout": "list".',
+  ]);
+  assert.deepEqual(one({ unit: 'role', show: 'role', layout: 'cards' }), [
+    '"show": "role" works only with "layout": "list".',
+  ]);
+  assert.deepEqual(one({ unit: 'sentence', header: 'checks' }), [
+    '"header": "checks" needs "unit": "role".',
+  ]);
+  assert.equal(one({ unit: 'role', checks: ['facts-section', 'facts-section'] }).length, 1);
+  assert.equal(one({ unit: 'role', checks: ['made-up'] }).length, 1);
+  assert.equal(one({ unit: 'role', checks: 'umbrella' }).length, 1);
+  assert.deepEqual(one({ unit: 'role', checks: ['umbrella'] }), []);
+  assert.deepEqual(one({ unit: 'role', header: 'none', checks: ['umbrella'] }), [
+    '"checks" needs "header": "checks".',
+  ]);
+  assert.deepEqual(one({ unit: 'sentence', header: 'bogus' }), [
+    '"header" must be one of: none, checks, authorities.',
+  ]);
+  const roles = specFromRoles({ id: 'mine', title: ' Mine ', move: false });
+  assert.deepEqual(checkSpec(roles), []);
+  assert.deepEqual(roles.on, { 'double-click': 'open' });
+  assert.equal(roles.title, 'Mine');
+  const sources = specFromSources({ id: 'src', title: 'Src', open: false });
+  assert.deepEqual(checkSpec(sources), []);
+  assert.deepEqual(sources.on, { 'drop-between': 'move' });
 });
 
 test('the status line says why Claude’s pieces are not current', () => {

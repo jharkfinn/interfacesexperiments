@@ -224,8 +224,10 @@ export function checkSpec(spec) {
       '"show": "sources" needs "unit": "sentence", because support is read sentence by sentence.',
     );
   }
-  if ((spec.show === 'role' || spec.show === 'sources') && (spec.layout ?? 'list') !== 'list') {
-    problems.push(`"show": "${spec.show}" works only with "layout": "list".`);
+  // An IRAC view shows roles unless it says otherwise.
+  const show = spec.show ?? (unit === 'role' ? 'role' : undefined);
+  if ((show === 'role' || show === 'sources') && (spec.layout ?? 'list') !== 'list') {
+    problems.push(`"show": "${show}" works only with "layout": "list".`);
   }
   if (spec.header === 'checks' && unit !== 'role') {
     problems.push('"header": "checks" needs "unit": "role".');
