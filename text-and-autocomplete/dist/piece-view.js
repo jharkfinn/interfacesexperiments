@@ -1,12 +1,18 @@
-import { overlaps } from './doc-model.js?v=7ef16fd28f8c';
+import { overlaps } from './doc-model.js?v=c15b4514db7d';
 
-// A declared view: the document's pieces (sentences or paragraphs), arranged as
-// its declaration says, with gestures that run the operations it names. It
-// shows the shared links (hover, focus, drag, pending combine, flash) on its
-// pieces, sets them from its own pieces, and scrolls with the other panes.
+// A declared view: the document's pieces (sentences, paragraphs, or pieces
+// Claude chose for the view's purpose), arranged as its declaration says, with
+// gestures that run the operations it names. It shows the shared links (hover,
+// focus, drag, pending combine, flash) on its pieces, sets them from its own
+// pieces, and scrolls with the other panes.
+//
+// Sentence views have a gap before and after each sentence of a paragraph.
+// Views of larger pieces have one gap between each two pieces; where a dragged
+// piece can go depends on the piece: whole paragraphs go between paragraphs,
+// and a run of sentences goes into a paragraph.
 
-// Within this distance of a piece's left or right edge (top or bottom in a
-// list), a drop moves the piece beside it instead of combining with it.
+// Within this distance of a piece's edge, a drop moves the piece beside it
+// instead of combining with it.
 export const EDGE_PX = 14;
 const DRAG_START_PX = 4;
 // A finger has to rest on a piece this long before it drags; a quicker swipe
@@ -19,6 +25,9 @@ const SCROLL_STEP_PX = 14;
 // The line near the top of a pane that lines panes up with each other.
 export const READING_LINE_PX = 12;
 const START_CHARS = 90;
+const EXCERPT_CHARS = 140;
+
+const words = text => (text.match(/\S+/gu) || []).length;
 
 // How far to scroll so a span from `top` to `bottom` sits inside `start`..`end`
 // with `margin` to spare; 0 when it already does. A span taller than the room
@@ -39,11 +48,14 @@ export function opening(text, limit = START_CHARS) {
 
 // What the declaration lets a person do, in one or two sentences for the view's header.
 export function hintFor(spec) {
-  const noun = spec.unit === 'paragraph' ? 'paragraph' : 'sentence';
+  const noun = { sentence: 'sentence', paragraph: 'paragraph' }[spec.unit] || 'piece';
   const drag = [];
   if (spec.on['drop-on'] === 'combine') drag.push('onto another to combine them');
   if (spec.on['drop-between'] === 'move') drag.push('between two to move it');
   const parts = [];
+  if (spec.unit === 'claude') {
+    parts.push(`Claude divides the document for this view: “${spec.purpose}”`);
+  }
   if (drag.length) parts.push(`Drag a ${noun} ${drag.join(', or ')}.`);
   if (spec.on['double-click'] === 'open') {
     parts.push(`Double-click a ${noun} to edit it in the document.`);
@@ -52,35 +64,82 @@ export function hintFor(spec) {
   return parts.join(' ') || `Each ${noun} links to the same text in the other views.`;
 }
 
+// What the view says while Claude's pieces are not current.
+export function statusText(status, carried) {
+  const stand = carried
+    ? 'The last pieces stand in until then.'
+    : 'Paragraphs stand in until then.';
+  return {
+    waiting: `Claude is dividing the document for this view. ${stand}`,
+    updating: 'Claude is updating the pieces after your changes.',
+    offline: `Connect to let Claude divide the document for this view. ${stand}`,
+  }[status];
+}
+
+// Where a piece dropped in gap `index` (before piece number `index`) goes in
+// the document, or null where it cannot go. Whole paragraphs go between
+// paragraphs ({before}: a block number); a run of sentences goes into a
+// paragraph ({block, offset, side}). `firstStart(block)` is where the first
+// sentence of a block starts.
+export function destination(pieces, index, source, firstStart, blockCount) {
+  const at = pieces.indexOf(source);
+  if (index === at || index === at + 1) return null;
+  const next = pieces[index];
+  const previous = pieces[index - 1];
+  const between = !next || next.start === firstStart(next.block);
+  if (source.whole && between) return { before: next ? next.block : blockCount };
+  if ((source.endBlock ?? source.block) !== source.block) return null;
+  if (next) return { block: next.block, offset: next.start, side: 'before' };
+  return previous
+    ? { block: previous.endBlock ?? previous.block, offset: previous.end, side: 'after' }
+    : null;
+}
+
 export class PieceView {
-  constructor({ id, spec, model, ops, links }) {
-    Object.assign(this, { id, spec, model, ops, links });
+  constructor({ id, spec, model, ops, links, segments }) {
+    Object.assign(this, { id, spec, model, ops, links, segments });
+    this.sentences = spec.unit === 'sentence';
+    this.vertical = spec.layout === 'list' || spec.layout === 'bars';
     this.root = document.createElement('section');
     this.root.className = `piece-view page layout-${spec.layout} unit-${spec.unit}`;
     this.root.setAttribute('aria-label', spec.title);
     const hint = document.createElement('p');
     hint.className = 'pv-hint';
     hint.textContent = hintFor(spec);
+    this.status = document.createElement('p');
+    this.status.className = 'pv-status';
+    this.status.setAttribute('role', 'status');
     this.list = document.createElement('div');
     this.list.className = 'pv-list';
-    this.root.append(hint, this.list);
+    this.root.append(hint, this.status, this.list);
     this.scroller = null;
     this.pieces = new Map();
+    this.order = [];
     this.version = -1;
     this.press = null;
     this.drag = null;
+    this.stale = false;
     this.scrolling = 0;
     this.follows = true;
     this.expectedTop = null;
     this.flashed = null;
     this.wantFocus = false;
-    this.canDrag = spec.on['drop-on'] === 'combine' || spec.on['drop-between'] === 'move';
+    this.moves = spec.on['drop-between'] === 'move';
+    this.canDrag = spec.on['drop-on'] === 'combine' || this.moves;
     this.cleanup = [
       model.on(version => {
         if (version !== this.version && !this.drag) this.render();
       }),
       links.on((channel, value) => this.linked(channel, value)),
     ];
+    if (spec.unit === 'claude') {
+      this.cleanup.push(
+        segments.watch(spec.purpose, () => {
+          if (this.drag) this.stale = true;
+          else this.render();
+        }),
+      );
+    }
     const listen = (target, type, handler, options) => {
       target.addEventListener(type, handler, options);
       this.cleanup.push(() => target.removeEventListener(type, handler, options));
@@ -146,6 +205,11 @@ export class PieceView {
       if (this.links.get(channel)?.origin === this.id) this.links.set(channel, null);
     }
   }
+  // The view's pieces now, and the state of Claude's division for them.
+  source() {
+    if (this.spec.unit === 'claude') return this.segments.view(this.spec.purpose);
+    return { pieces: this.model.pieces(this.spec.unit), status: 'ready' };
+  }
   pieceOf(element) {
     const chip = element?.closest?.('.pv-piece');
     return chip && this.list.contains(chip) ? this.pieces.get(chip.dataset.id) : null;
@@ -163,69 +227,107 @@ export class PieceView {
     const spec = this.spec;
     const { blocks, version } = this.model.read();
     this.version = version;
-    const pieces = this.model.pieces(spec.unit);
+    this.stale = false;
+    const { pieces, status, message } = this.source();
     this.pieces = new Map(pieces.map(piece => [piece.id, piece]));
-    const moves = spec.on['drop-between'] === 'move' && spec.unit === 'sentence';
-    const gap = (block, at) => {
+    this.order = pieces;
+    const carried = spec.unit === 'claude' && pieces.some(piece => piece.label);
+    const note =
+      status === 'failed' ? `${message} The last pieces stand in.` : statusText(status, carried);
+    this.status.textContent = note || '';
+    this.status.hidden = !note;
+    const longest = Math.max(1, ...pieces.map(piece => words(piece.text)));
+    const gap = (at, block) => {
       const element = document.createElement('span');
       element.className = 'pv-gap';
-      element.dataset.block = block;
       element.dataset.at = at;
+      if (block !== undefined) element.dataset.block = block;
       element.setAttribute('aria-hidden', 'true');
       return element;
     };
-    const chip = piece => {
+    const chip = (piece, index) => {
       const element = document.createElement('span');
       element.className = 'pv-piece';
       element.setAttribute('role', 'button');
       element.setAttribute('aria-describedby', 'pv-keys');
       element.tabIndex = -1;
       element.dataset.id = piece.id;
+      element.dataset.index = index;
       element.dataset.kind = blocks[piece.block].kind;
-      if (spec.show === 'start') {
-        const first = spec.unit === 'paragraph' ? blocks[piece.block].sentences[0]?.text : null;
-        element.textContent = opening(first || piece.text);
-        element.title = piece.text;
-      } else element.textContent = piece.text;
+      const text =
+        spec.show === 'start'
+          ? opening(
+              (spec.unit === 'paragraph' ? blocks[piece.block].sentences[0]?.text : null) ||
+                piece.text,
+            )
+          : spec.show === 'label'
+            ? opening(piece.text, EXCERPT_CHARS)
+            : piece.text;
+      if (spec.show !== 'text') element.title = piece.text;
+      if (spec.layout === 'bars') {
+        // A bar as long as the piece, against the longest piece in the view.
+        const count = words(piece.text);
+        element.style.setProperty('--share', String(count / longest));
+        const number = document.createElement('span');
+        number.className = 'pv-count';
+        number.textContent = String(count);
+        const excerpt = document.createElement('span');
+        excerpt.className = 'pv-excerpt';
+        excerpt.textContent = spec.show === 'label' && piece.label ? piece.label : text;
+        element.setAttribute('aria-label', `${count} words: ${piece.text}`);
+        element.append(number, excerpt);
+      } else if (spec.show === 'label' && piece.label) {
+        const label = document.createElement('strong');
+        label.className = 'pv-label';
+        label.textContent = piece.label;
+        const excerpt = document.createElement('span');
+        excerpt.className = 'pv-excerpt';
+        excerpt.textContent = text;
+        element.append(label, excerpt);
+      } else element.textContent = text;
       return element;
     };
-    // Each block's pieces, with a gap before each and after the last when the
-    // view moves sentences.
-    const blockParts = block => {
-      const own = pieces.filter(piece => piece.block === block.index);
-      const parts = [];
-      if (moves) parts.push(gap(block.index, 0));
-      own.forEach((piece, i) => {
-        if (!moves) {
-          parts.push(chip(piece));
-          return;
-        }
-        // A gap stays on the line of the piece before it, so a wrapped line
-        // starts with a piece.
-        const unit = document.createElement('span');
-        unit.className = 'pv-unit';
-        unit.append(chip(piece), gap(block.index, i + 1));
-        parts.push(unit);
-      });
-      return { own, parts };
-    };
     const rows = [];
-    if (spec.group === 'paragraph') {
+    if (this.sentences) {
+      // A gap before each sentence and after the last, when sentences move.
       for (const block of blocks) {
-        const { own, parts } = blockParts(block);
-        if (!own.length && !moves) continue;
+        const own = pieces.filter(piece => piece.block === block.index);
+        if (!own.length && !this.moves) continue;
         const row = document.createElement('div');
         row.className = 'pv-row';
         row.dataset.kind = block.kind;
         row.dataset.block = block.index;
-        row.append(...parts);
+        if (this.moves) row.append(gap(0, block.index));
+        own.forEach((piece, i) => {
+          if (!this.moves) {
+            row.append(chip(piece, i));
+            return;
+          }
+          // A gap stays on the line of the piece before it, so a wrapped line
+          // starts with a piece.
+          const unit = document.createElement('span');
+          unit.className = 'pv-unit';
+          unit.append(chip(piece, i), gap(i + 1, block.index));
+          row.append(unit);
+        });
         if (!own.length) row.classList.add('pv-empty');
         rows.push(row);
       }
     } else {
+      // One gap between each two pieces, and one at each end.
       const row = document.createElement('div');
       row.className = 'pv-row';
-      for (const block of blocks) row.append(...blockParts(block).parts);
+      if (this.moves) row.append(gap(0));
+      pieces.forEach((piece, index) => {
+        if (!this.moves) {
+          row.append(chip(piece, index));
+          return;
+        }
+        const unit = document.createElement('span');
+        unit.className = 'pv-unit';
+        unit.append(chip(piece, index), gap(index + 1));
+        row.append(unit);
+      });
       rows.push(row);
     }
     // Keep focus on the chosen piece when the list is rebuilt under it.
@@ -235,8 +337,7 @@ export class PieceView {
   }
   // Marks every link on the pieces it touches.
   paintLinks({ focus = false } = {}) {
-    const all = [...this.list.querySelectorAll('.pv-piece, .pv-gap')];
-    for (const element of all) {
+    for (const element of this.list.querySelectorAll('.pv-piece, .pv-gap')) {
       element.classList.remove(
         'pv-hover',
         'pv-current',
@@ -278,10 +379,19 @@ export class PieceView {
   gapAt(range) {
     const span = range && this.model.span(range);
     if (!span) return null;
-    const pieces = [...this.pieces.values()].filter(piece => piece.block === span.startBlock);
-    const next = pieces.find(piece => piece.start >= span.start);
-    const at = next ? next.index : pieces.length;
-    return this.list.querySelector(`.pv-gap[data-block="${span.startBlock}"][data-at="${at}"]`);
+    if (this.sentences) {
+      const pieces = this.order.filter(piece => piece.block === span.startBlock);
+      const next = pieces.find(piece => piece.start >= span.start);
+      const at = next ? next.index : pieces.length;
+      return this.list.querySelector(`.pv-gap[data-block="${span.startBlock}"][data-at="${at}"]`);
+    }
+    let at = this.order.findIndex(
+      piece =>
+        piece.block > span.startBlock ||
+        (piece.block === span.startBlock && piece.start >= span.start),
+    );
+    if (at < 0) at = this.order.length;
+    return this.list.querySelector(`.pv-gap[data-at="${at}"]:not([data-block])`);
   }
   linked(channel, value) {
     if (channel === 'flash') {
@@ -302,10 +412,8 @@ export class PieceView {
     if (channel === 'focus' && value) {
       const chip = this.chips(value.range)[0];
       if (!chip) return;
-      if (value.origin === this.id) {
-        if (this.wantFocus) chip.focus({ preventScroll: true });
-        this.reveal(chip);
-      } else this.reveal(chip);
+      if (value.origin === this.id && this.wantFocus) chip.focus({ preventScroll: true });
+      this.reveal(chip);
     }
   }
   choose(piece, { focus = false } = {}) {
@@ -329,14 +437,13 @@ export class PieceView {
     this.expectedTop = target;
     scroller.scrollTop = target;
   }
-  // The element at the reading line, as a range and how far into it the line falls.
+  // The elements that line up with the other panes, each with its text as a range.
   anchors() {
     const blocks = this.model.read().blocks;
-    if (this.spec.group === 'paragraph') {
+    if (this.sentences) {
       return [...this.list.querySelectorAll('.pv-row')].map(row => {
-        const block = blocks[Number(row.dataset.block)];
         const range = document.createRange();
-        range.selectNodeContents(block.element);
+        range.selectNodeContents(blocks[Number(row.dataset.block)].element);
         return { element: row, range };
       });
     }
@@ -375,16 +482,14 @@ export class PieceView {
     }
     const span = this.model.span(range);
     if (!span) return;
-    const point = { startBlock: span.startBlock, start: span.start, endBlock: span.startBlock };
-    point.end = point.start;
     const anchors = this.anchors();
     const found =
       anchors.find(({ range: own }) => {
         const mine = this.model.span(own);
         return (
           mine &&
-          (mine.startBlock > point.startBlock ||
-            (mine.startBlock === point.startBlock && mine.end >= point.start))
+          (mine.endBlock > span.startBlock ||
+            (mine.endBlock === span.startBlock && mine.end >= span.start))
         );
       }) || anchors.at(-1);
     if (!found) return;
@@ -422,10 +527,11 @@ export class PieceView {
     } else if (step && event.altKey) {
       // Alt+Arrow moves the piece one place earlier or later.
       event.preventDefault();
-      const gap = on['drop-between'] === 'move' && this.neighbourGap(piece, step);
-      if (!gap) return;
+      if (!this.moves) return;
+      const target = this.neighbour(piece, step);
+      if (!target) return;
       this.wantFocus = true;
-      this.ops.run('move', { source: piece, gap }, this.id);
+      this.ops.run('move', { source: piece, ...target }, this.id);
     } else if (step || event.key === 'Home' || event.key === 'End') {
       event.preventDefault();
       const next =
@@ -434,14 +540,34 @@ export class PieceView {
       if (other) this.choose(other, { focus: true });
     }
   }
-  // The gap one sentence away, crossing into the next or previous block at an end.
-  neighbourGap(piece, step) {
+  // One place earlier or later: past the piece beside it.
+  neighbour(piece, step) {
+    if (this.sentences) {
+      const blocks = this.model.read().blocks;
+      const count = blocks[piece.block].sentences.length;
+      if (step < 0 && piece.index > 0) return { gap: { block: piece.block, at: piece.index - 1 } };
+      if (step > 0 && piece.index < count - 1) {
+        return { gap: { block: piece.block, at: piece.index + 2 } };
+      }
+      const other = blocks[piece.block + step];
+      return other
+        ? { gap: { block: piece.block + step, at: step < 0 ? other.sentences.length : 0 } }
+        : null;
+    }
+    const at = this.order.indexOf(piece);
+    const to = this.destinationAt(step < 0 ? at - 1 : at + 2, piece);
+    return to ? { to } : null;
+  }
+  destinationAt(index, source) {
     const blocks = this.model.read().blocks;
-    const count = blocks[piece.block].sentences.length;
-    if (step < 0 && piece.index > 0) return { block: piece.block, at: piece.index - 1 };
-    if (step > 0 && piece.index < count - 1) return { block: piece.block, at: piece.index + 2 };
-    const other = blocks[piece.block + step];
-    return other ? { block: piece.block + step, at: step < 0 ? other.sentences.length : 0 } : null;
+    if (index < 0 || index > this.order.length) return null;
+    return destination(
+      this.order,
+      index,
+      source,
+      block => blocks[block].sentences[0]?.start ?? 0,
+      blocks.length,
+    );
   }
 
   // Dragging uses pointer events, so it works with a mouse, a pen, or a finger.
@@ -487,10 +613,10 @@ export class PieceView {
     const ghost = document.createElement('div');
     ghost.className = 'combine-ghost';
     ghost.setAttribute('aria-hidden', 'true');
-    const text = chip.textContent;
+    const source = this.pieceOf(chip);
+    const text = source.label || source.text;
     ghost.textContent = text.length > 64 ? text.slice(0, 63).trimEnd() + '…' : text;
     document.body.append(ghost);
-    const source = this.pieceOf(chip);
     this.drag = { source, chip, ghost, target: null };
     chip.classList.add('pv-lifted');
     this.root.classList.add('pv-dragging');
@@ -507,24 +633,37 @@ export class PieceView {
         ? {
             source: this.model.range(drag.source),
             target: target?.kind === 'combine' ? this.model.range(target.piece) : null,
-            insert: target?.kind === 'move' ? this.insertion(target.gap) : null,
+            insert: target?.kind === 'move' ? this.insertion(target) : null,
             origin: this.id,
           }
         : null,
     );
   }
-  // Where a sentence dropped in `gap` goes in the document, as a collapsed range.
-  insertion(gap) {
-    const block = this.model.read().blocks[gap.block];
-    if (!block) return null;
-    if (!block.sentences.length) {
-      const range = document.createRange();
-      range.setStart(block.element, 0);
-      return range;
+  // Where a moved piece goes in the document, as a collapsed range.
+  insertion({ gap, to }) {
+    const blocks = this.model.read().blocks;
+    if (gap) {
+      const block = blocks[gap.block];
+      if (!block) return null;
+      if (!block.sentences.length) {
+        const range = document.createRange();
+        range.setStart(block.element, 0);
+        return range;
+      }
+      const at =
+        gap.at < block.sentences.length
+          ? block.sentences[gap.at].start
+          : block.sentences.at(-1).end;
+      return this.model.range({ block: gap.block, start: at, end: at });
     }
-    const at =
-      gap.at < block.sentences.length ? block.sentences[gap.at].start : block.sentences.at(-1).end;
-    return this.model.range({ block: gap.block, start: at, end: at });
+    if (to.before !== undefined) {
+      if (blocks[to.before]) return this.model.range({ block: to.before, start: 0, end: 0 });
+      const last = blocks.at(-1);
+      return last
+        ? this.model.range({ block: last.index, start: last.text.length, end: last.text.length })
+        : null;
+    }
+    return this.model.range({ block: to.block, start: to.offset, end: to.offset });
   }
   pointerUp(event) {
     const press = this.press;
@@ -537,7 +676,9 @@ export class PieceView {
     this.wantFocus = true;
     if (target.kind === 'combine') {
       this.ops.run('combine', { source: drag.source, target: target.piece }, this.id);
-    } else this.ops.run('move', { source: drag.source, gap: target.gap }, this.id);
+    } else {
+      this.ops.run('move', { source: drag.source, gap: target.gap, to: target.to }, this.id);
+    }
   }
   endDrag() {
     const press = this.press;
@@ -555,7 +696,7 @@ export class PieceView {
     this.root.classList.remove('pv-dragging');
     document.documentElement.classList.remove('combine-dragging');
     this.links.set('drag', null);
-    if (this.model.read().version !== this.version) this.render();
+    if (this.stale || this.model.read().version !== this.version) this.render();
   }
   autoScroll() {
     if (this.scrolling || !this.scroller) return;
@@ -578,42 +719,45 @@ export class PieceView {
     };
     this.scrolling = requestAnimationFrame(tick);
   }
-  // The gap just before or just after the dragged sentence leaves it where it is.
-  staysPut(gap) {
+  // What dropping in a gap element would do, or null where it does nothing.
+  gapTarget(element) {
     const source = this.drag.source;
-    return source.block === gap.block && (gap.at === source.index || gap.at === source.index + 1);
+    const at = Number(element.dataset.at);
+    if (this.sentences) {
+      const gap = { block: Number(element.dataset.block), at };
+      const stays =
+        source.block === gap.block && (gap.at === source.index || gap.at === source.index + 1);
+      return stays ? null : { kind: 'move', gap, element };
+    }
+    const to = this.destinationAt(at, source);
+    return to ? { kind: 'move', to, element } : null;
   }
   targetAt(x, y) {
     const on = this.spec.on;
     const element = document.elementFromPoint(x, y);
-    if (on['drop-between'] === 'move') {
+    if (this.moves) {
       const gap = element?.closest('.pv-gap');
-      if (gap && this.list.contains(gap)) {
-        const at = { block: Number(gap.dataset.block), at: Number(gap.dataset.at) };
-        return this.staysPut(at) ? null : { kind: 'move', gap: at, element: gap };
-      }
+      if (gap && this.list.contains(gap)) return this.gapTarget(gap);
       // An empty paragraph takes a dropped sentence anywhere along its row.
       const empty = element?.closest('.pv-empty');
       if (empty && this.list.contains(empty)) {
-        const gap = empty.querySelector('.pv-gap');
-        return { kind: 'move', gap: { block: Number(gap.dataset.block), at: 0 }, element: gap };
+        return this.gapTarget(empty.querySelector('.pv-gap'));
       }
     }
     const chip = element?.closest('.pv-piece');
     if (!chip || !this.list.contains(chip) || chip === this.drag.chip) return null;
     const piece = this.pieceOf(chip);
-    if (on['drop-between'] === 'move') {
+    if (this.moves) {
       const rect = chip.getBoundingClientRect();
-      const list = this.spec.layout === 'list';
-      const near = list ? y - rect.top : x - rect.left;
-      const far = list ? rect.bottom - y : rect.right - x;
+      const near = this.vertical ? y - rect.top : x - rect.left;
+      const far = this.vertical ? rect.bottom - y : rect.right - x;
       const side = near < EDGE_PX ? 0 : far < EDGE_PX ? 1 : null;
       if (side !== null || on['drop-on'] !== 'combine') {
-        const at = { block: piece.block, at: piece.index + (side ?? (near < far ? 0 : 1)) };
-        const edge = this.list.querySelector(
-          `.pv-gap[data-block="${at.block}"][data-at="${at.at}"]`,
-        );
-        return this.staysPut(at) ? null : { kind: 'move', gap: at, element: edge };
+        const index = Number(chip.dataset.index) + (side ?? (near < far ? 0 : 1));
+        const gap = this.sentences
+          ? this.list.querySelector(`.pv-gap[data-block="${piece.block}"][data-at="${index}"]`)
+          : this.list.querySelector(`.pv-gap[data-at="${index}"]:not([data-block])`);
+        return gap ? this.gapTarget(gap) : null;
       }
     }
     return on['drop-on'] === 'combine' ? { kind: 'combine', piece, element: chip } : null;

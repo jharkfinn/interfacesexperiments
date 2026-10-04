@@ -8,7 +8,9 @@ The document shows in **panes**, side by side, any number of them. Each pane sho
 
 - **Document** is the editor, where you write. There is one Document pane at most.
 - **Sentences** shows each sentence as a piece you can drag, grouped by paragraph.
-- **Paragraphs** shows each paragraph by its first sentence.
+- **Paragraphs** shows each paragraph by its first sentence. Drag one between two others to move it.
+- **Rhythm** shows each sentence as a bar as long as its word count, against the longest sentence, with the count at its start. Drag a bar to move its sentence.
+- **Outline** and **Ideas** are views Claude divides for their purpose: the parts a reader would list in an outline, and the distinct ideas a reader takes away. Outline is a list; Ideas is cards.
 
 **Add a view** above the panes opens another pane. Each pane's menu changes its view, ‹ and › move it, × closes it, and ⇅ turns its scrolling with the other panes on or off. Drag the line between two panes, or focus it and press the arrow keys, to give one more width. Panes are never narrower than 300 pixels; when they do not fit the window, the row of panes scrolls sideways. The page keeps the arrangement in this browser, and a link can start with `#document`, `#split` (Document and Sentences), or `#sentences`.
 
@@ -19,7 +21,16 @@ All views are linked:
 - Panes scroll together, so the text at the top of one pane is at the top of the others.
 - While you drag, the other views mark the sentence you are moving, the sentence it will combine with, or the place it will move to.
 
-Each view is a declaration, data that says what one piece is (a sentence or a paragraph), how pieces are grouped and laid out, what each piece shows, and what each gesture does. `view-specs.js` holds the built-in declarations and the checks every declaration must pass. A declaration can only name operations from a fixed list, so it cannot run code.
+Each view is a declaration, data that says what one piece is, how pieces are grouped and laid out, what each piece shows, and what each gesture does. `view-specs.js` holds the built-in declarations and the checks every declaration must pass. A declaration can only name operations from a fixed list, so it cannot run code.
+
+**Views Claude divides.** A piece can be a sentence, a paragraph, or what Claude chooses: a declaration with `"unit": "claude"` says in words what the view is for, and Claude divides the document into pieces that suit that purpose and names each one. A piece is always whole sentences: a run of sentences inside one paragraph, or a run of whole paragraphs, never part of one paragraph and part of another. That way every piece can move as native edits that Undo takes back.
+
+- Dragging a piece of whole paragraphs places it between paragraphs; dragging a run of sentences places it inside the paragraph at the drop. Only the places where the dragged piece can go light up. Paragraphs are moved by giving the blocks between the old and new place new contents, so no block is made or deleted; a move that would reorder list items as paragraphs is refused, with the document unchanged.
+- Claude divides the document when the view opens, and again after the text changes, once typing has stopped for 2.5 seconds. Until then, the pieces follow their sentences through moves and edits, and the view says it is updating. Moving pieces changes no text, so it asks for nothing.
+- Each division is saved in this browser by the document's text and the view's purpose, so a reload or a return to the same text asks again for nothing. On claude.ai, the views use a connection of their own, so a division never cancels autocomplete. The bridge and the Realtime API answer one request at a time, so there a division waits until the connection is free and tries again if autocomplete takes it.
+- Not connected, a view shows the last pieces it had, or paragraphs, and says so.
+
+**New view…** declares a view of your own: a name and what the view is for, a layout (list, cards, or bars), and whether pieces move by dragging and open with a double-click. The **Declaration** section shows the view as data; edit it to set any field a view can have, and the form follows it. Problems are named as you type, and Save waits until there are none. Your views are kept in this browser, and ✎ in a pane's bar edits the view, or deletes it.
 
 Each feature in the Document view can be turned on or off from the **Intelligence** menu.
 
@@ -54,6 +65,7 @@ Language models can't count characters reliably, so when resizing, the app measu
 | `combine-core.js` | Combine prompt and sentence handling |
 | `selection-rewrite.js`, `rewrite-preview.js` | Resize handle and in-place previews |
 | `view-specs.js` | Built-in view declarations and the checks a declaration must pass |
+| `segment-core.js`, `segments.js` | Claude's division of the document for a view's purpose: the prompt, the checks and repairs of its reply, and the saved divisions |
 | `panes.js` | The row of panes: add, close, move, resize, and remember them |
 | `doc-model.js` | The document as blocks and pieces, which every view reads |
 | `links.js` | What the views point at: hover, focus, drag, pending combine, scroll |
@@ -94,7 +106,7 @@ Open the link it prints, and keep it private while the bridge runs: its token pa
 
 **Rules.** Both routes are for one person using their own plan on their own computer. Never host the bridge for other people or share one sign-in. Anthropic's [legal and compliance page](https://code.claude.com/docs/en/legal-and-compliance) says it does not "prevent an end user from signing in to the unmodified Claude Code binary with their own Claude subscription", but it does not permit third-party developers "to route requests through Free, Pro, or Max plan credentials on behalf of their users", and says plan limits assume "ordinary, individual usage". Its Consumer Terms allow automated access only with an API key or where Anthropic explicitly permits it, the Agent SDK documentation says third-party developers may not offer Claude.ai login or rate limits without approval, and Anthropic reserves the right to enforce without notice. Whether a self-run bridge that sends a request on every typing pause counts as ordinary use is not settled, and these pages and the [usage-limit article](https://support.claude.com/en/articles/15036540) changed several times in 2026, so read them first. Sign in with ChatGPT is a preview under the [Sign in with ChatGPT Terms](https://openai.com/policies/sign-in-with-chatgpt-terms/), which require tokens to be stored locally under the user's control and consent before background use; a paid or remotely hosted app needs OpenAI's approval.
 
-**Security.** The bridge listens on `127.0.0.1` only. Every API call must come from the bridge's own page: the exact host and origin, the token in an `Authorization` header, and a JSON body. The page can only name an operation (autocomplete, paragraph, rewrite, or combine) and send document text; the bridge builds the prompt with the same modules as the editor, caps the reply length, and runs one request at a time.
+**Security.** The bridge listens on `127.0.0.1` only. Every API call must come from the bridge's own page: the exact host and origin, the token in an `Authorization` header, and a JSON body. The page can only name an operation (autocomplete, paragraph, rewrite, combine, or segment) and send document text; the bridge builds the prompt with the same modules as the editor, caps the reply length, and runs one request at a time.
 
 ## Test
 

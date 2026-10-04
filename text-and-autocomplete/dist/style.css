@@ -1263,6 +1263,195 @@ body:not(:has(.pane .document-view)) .toolbar .group:not(.history, .zoom-group) 
   }
 }
 
+/* Claude's pieces: a label for what each piece is, over the opening of its text. */
+.pv-status {
+  margin: -6px 0 16px;
+  color: #eac384;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.pv-label {
+  display: block;
+  font-weight: 600;
+  color: #e8ecf3;
+}
+.pv-excerpt {
+  display: block;
+  color: #a5aab4;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.pv-piece[data-kind^='h'] .pv-excerpt {
+  font-weight: 400;
+}
+.layout-list .pv-piece:has(.pv-label),
+.layout-cards .pv-piece {
+  padding: 8px 12px;
+}
+:is(.layout-list, .layout-cards) .pv-piece:has(.pv-label) {
+  font-size: 15px;
+}
+/* Cards: pieces side by side, wrapping into rows. */
+.layout-cards .pv-row {
+  line-height: 0;
+}
+.layout-cards .pv-piece {
+  width: max(10rem, calc(50% - 12px));
+  max-width: calc(100% - 10px);
+  min-height: 7.5rem;
+  line-height: 1.45;
+  margin: 4px 0;
+}
+@container pane (min-width: 760px) {
+  .layout-cards .pv-piece {
+    width: calc(33.3% - 12px);
+  }
+}
+.layout-cards .pv-gap {
+  height: 7.5rem;
+  margin: 4px 0;
+}
+/* Bars: each piece is a bar as long as its word count, against the longest. */
+.layout-bars .pv-row {
+  display: flex;
+  flex-direction: column;
+}
+.layout-bars .pv-unit {
+  display: flex;
+  flex-direction: column;
+  white-space: normal;
+}
+.layout-bars .pv-piece {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max(4.5rem, calc(var(--share, 1) * 100%));
+  max-width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: #2c3442;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.layout-bars .pv-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: #c0d6fa;
+  min-width: 1.6em;
+}
+.layout-bars .pv-excerpt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #cbd0da;
+  font-size: 13px;
+}
+.layout-bars .pv-gap,
+.layout-bars .pv-row > .pv-gap:first-child {
+  display: block;
+  width: auto;
+  height: 6px;
+  margin: 0;
+}
+.layout-bars .pv-gap.pv-target {
+  background: linear-gradient(#a8c7fa, #a8c7fa) center / 100% 3px no-repeat;
+}
+.layout-bars .pv-row[data-kind^='h'] .pv-piece {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* The New view dialog. */
+.new-view {
+  border: 1px solid #45474d;
+  border-radius: 6px;
+  background: #2a2c31;
+  color: #d0d3d9;
+  font-size: 13px;
+  padding: 4px 10px;
+}
+.new-view:hover {
+  background: #3a3d44;
+}
+.view-dialog input:not([type='checkbox']),
+.view-dialog textarea,
+.view-dialog select {
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  background: #1b1d22;
+  color: #e6eaf2;
+  border: 1px solid #515765;
+  border-radius: 7px;
+  font-size: 14px;
+}
+.view-dialog textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+#view-json {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.view-dialog .view-note {
+  font-size: 12px;
+  margin: -6px 0 16px;
+}
+.view-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.view-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.view-options select {
+  width: auto;
+  margin: 0;
+  padding: 6px 8px;
+}
+.view-data {
+  margin-top: 8px;
+}
+.view-data summary {
+  font-size: 13px;
+  color: #c0d6fa;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+.view-dialog .view-problems {
+  color: #ffb4ab;
+  font-size: 13px;
+  margin: 8px 0 0;
+}
+.view-dialog .view-problems:empty {
+  display: none;
+}
+.view-dialog .dialog-actions {
+  margin-top: 20px;
+}
+#view-save {
+  margin-left: auto;
+  background: #a8c7fa;
+  color: #1c2c46;
+  font-weight: 600;
+}
+#view-save:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+#view-delete {
+  background: transparent;
+  color: #ffb4ab;
+  padding-left: 0;
+}
+
 /* Linked highlighting: what one view points at, the others mark. */
 .doc-mark {
   position: absolute;

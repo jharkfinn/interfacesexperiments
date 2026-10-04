@@ -9,6 +9,9 @@ const hash = file =>
     .slice(0, 12);
 for (const [file, dependencies] of [
   ['combine-core.js', ['compose-core.js']],
+  ['segment-core.js', ['compose-core.js']],
+  ['segments.js', ['segment-core.js']],
+  ['view-specs.js', ['segment-core.js']],
   ['doc-edits.js', ['doc-model.js', 'combine-core.js']],
   ['operations.js', ['combine-core.js', 'doc-edits.js']],
   ['document-marks.js', ['rewrite-preview.js']],
@@ -16,8 +19,11 @@ for (const [file, dependencies] of [
   ['document-view.js', ['document-marks.js', 'piece-view.js']],
   ['rewrite-core.js', ['compose-core.js']],
   ['selection-rewrite.js', ['rewrite-core.js', 'rewrite-preview.js']],
-  ['realtime.js', ['compose-core.js', 'rewrite-core.js', 'combine-core.js']],
-  ['sample-client.js', ['compose-core.js', 'rewrite-core.js', 'combine-core.js']],
+  ['realtime.js', ['compose-core.js', 'rewrite-core.js', 'combine-core.js', 'segment-core.js']],
+  [
+    'sample-client.js',
+    ['compose-core.js', 'rewrite-core.js', 'combine-core.js', 'segment-core.js'],
+  ],
   [
     'app.js',
     [
@@ -35,6 +41,7 @@ for (const [file, dependencies] of [
       'piece-view.js',
       'panes.js',
       'view-specs.js',
+      'segments.js',
       'diagnostics.js',
     ],
   ],

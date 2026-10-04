@@ -1,4 +1,4 @@
-import { blocksOf, blockText, offsetIn, rangeIn, joiner } from './doc-model.js?v=7ef16fd28f8c';
+import { blocksOf, blockText, offsetIn, rangeIn, joiner } from './doc-model.js?v=c15b4514db7d';
 import { removalSpan } from './combine-core.js?v=1c8f69eb2a6d';
 
 // Every change a view asks for is planned on copies of the blocks it touches,
@@ -35,6 +35,15 @@ export function expectedHTML(editor, steps) {
   const blocks = blocksOf(editor);
   const copies = blocksOf(copy);
   for (const step of steps) {
+    if (step.format) {
+      // A block that takes another type keeps its contents.
+      const old = copies[step.index];
+      const block = document.createElement(step.format);
+      block.append(...old.childNodes);
+      old.replaceWith(block);
+      copies[step.index] = block;
+      continue;
+    }
     const block = copies[blocks.indexOf(step.block)];
     if (!step.remove) block.innerHTML = step.html;
     else {
@@ -53,44 +62,102 @@ export function indexAfter(editor, block, steps) {
   return at - steps.filter(step => step.remove && blocks.indexOf(step.block) < at).length;
 }
 
+// Moving text inside paragraphs. `source` is a span in one block ({block,
+// start, end}); `to` is where it goes: {block, offset, side}, where side
+// 'before' puts it ahead of the text at offset, 'after' puts it behind the
+// text that ends at offset, and 'into' fills an empty block. Returns the steps
+// and the span the text lands on, {block, start, end}, once they are made.
+export function planSpanMove(editor, model, source, to) {
+  const { blocks } = model.read();
+  const from = blocks[source.block];
+  const into = blocks[to.block];
+  if (!from || !into) return null;
+  const moving = from.text.slice(source.start, source.end);
+  const copies = new Map([[from.element, from.element.cloneNode(true)]]);
+  if (!copies.has(into.element)) copies.set(into.element, into.element.cloneNode(true));
+  const fromCopy = copies.get(from.element);
+  const intoCopy = copies.get(into.element);
+  const fragment = rangeIn(from.element, source.start, source.end).cloneContents();
+  // A marker holds the destination while the text leaves its old place. It
+  // adds no text, so the offsets found before it went in still hold.
+  const marker = document.createElement('span');
+  const space = joiner(moving);
+  let before = '';
+  let after = '';
+  if (to.side === 'into') intoCopy.replaceChildren(marker);
+  else {
+    rangeIn(intoCopy, to.offset, to.offset).insertNode(marker);
+    if (to.side === 'before') after = space;
+    else before = space;
+  }
+  const span = removalSpan(from.text, source.start, source.end);
+  rangeIn(fromCopy, span.start, span.end).deleteContents();
+  const offset = offsetIn(intoCopy, marker, 0) + before.length;
+  marker.replaceWith(before, fragment, after);
+  for (const copy of copies.values()) copy.normalize();
+  const steps = stepsFor(editor, copies);
+  const block = indexAfter(editor, into.element, steps);
+  return { steps, landing: { block, start: offset, end: offset + moving.length } };
+}
+
 // Moving a sentence to a gap. `gap` is {block, at}: the gap before sentence
-// number `at` of that block, or after its last sentence. Returns the steps and
-// where the sentence lands: {block, offset} once the steps are made.
+// number `at` of that block, or after its last sentence.
 export function planMove(editor, model, source, gap) {
   const { blocks } = model.read();
   const from = blocks[source.block];
   const to = blocks[gap.block];
   const sentence = from?.sentences[source.index];
   if (!sentence || !to) return null;
-  const copies = new Map([[from.element, from.element.cloneNode(true)]]);
-  if (!copies.has(to.element)) copies.set(to.element, to.element.cloneNode(true));
-  const fromCopy = copies.get(from.element);
-  const toCopy = copies.get(to.element);
-  const fragment = rangeIn(from.element, sentence.start, sentence.end).cloneContents();
-  // A marker holds the destination while the sentence leaves its old place.
-  // It adds no text, so the offsets found before it went in still hold.
-  const marker = document.createElement('span');
-  const space = joiner(sentence.text);
-  let before = '';
-  let after = '';
-  if (!to.sentences.length) {
-    toCopy.replaceChildren(marker);
-  } else if (gap.at < to.sentences.length) {
-    const next = to.sentences[gap.at].start;
-    rangeIn(toCopy, next, next).insertNode(marker);
-    after = space;
-  } else {
-    const end = to.sentences.at(-1).end;
-    rangeIn(toCopy, end, end).insertNode(marker);
-    before = space;
+  const destination = !to.sentences.length
+    ? { block: gap.block, offset: 0, side: 'into' }
+    : gap.at < to.sentences.length
+      ? { block: gap.block, offset: to.sentences[gap.at].start, side: 'before' }
+      : { block: gap.block, offset: to.sentences.at(-1).end, side: 'after' };
+  const span = { block: source.block, start: sentence.start, end: sentence.end };
+  return planSpanMove(editor, model, span, destination);
+}
+
+const PLAIN = /^(P|DIV|H[1-6])$/;
+
+// Moving whole blocks `first`..`last` so they come before block `before`
+// (the number of blocks to put them at the end). No block is made or removed:
+// the blocks from the first one that changes to the last one take new contents
+// in their new order, and a block that needs another type gets it. Lists are
+// not reordered this way, so a move that touches a list item is refused.
+export function planBlockMove(editor, model, first, last, before) {
+  const { blocks } = model.read();
+  if (first < 0 || last >= blocks.length || first > last) return null;
+  if (before >= first && before <= last + 1) return null;
+  const order = blocks.map((_, index) => index);
+  const moving = order.splice(first, last - first + 1);
+  const at = before > last ? before - moving.length : before;
+  order.splice(at, 0, ...moving);
+  const from = Math.min(first, before);
+  const to = Math.max(last, before - 1);
+  const region = blocks.slice(from, to + 1);
+  if (!region.every(block => PLAIN.test(block.element.tagName))) return null;
+  const replace = [];
+  const format = [];
+  for (let index = from; index <= to; index++) {
+    const target = blocks[index].element;
+    const source = blocks[order[index]].element;
+    if (source.innerHTML !== target.innerHTML)
+      replace.push({ block: target, html: source.innerHTML });
+    if (source.tagName !== target.tagName) {
+      format.push({ index, format: source.tagName.toLowerCase() });
+    }
   }
-  const span = removalSpan(from.text, sentence.start, sentence.end);
-  rangeIn(fromCopy, span.start, span.end).deleteContents();
-  const offset = offsetIn(toCopy, marker, 0) + before.length;
-  marker.replaceWith(before, fragment, after);
-  for (const copy of copies.values()) copy.normalize();
-  const steps = stepsFor(editor, copies);
-  return { steps, landing: { block: indexAfter(editor, to.element, steps), offset } };
+  const head = blocks[first];
+  const tail = blocks[last];
+  return {
+    steps: [...replace, ...format],
+    landing: {
+      block: at,
+      start: head.sentences[0]?.start ?? 0,
+      endBlock: at + last - first,
+      end: tail.sentences.at(-1)?.end ?? tail.text.length,
+    },
+  };
 }
 
 // Replacing `target` with `text` and removing `source`, for a combine.
@@ -114,7 +181,8 @@ export function planCombine(editor, model, source, target, text) {
   const offset = offsetIn(intoCopy, combined, 0);
   for (const copy of copies.values()) copy.normalize();
   const steps = stepsFor(editor, copies);
-  return { steps, landing: { block: indexAfter(editor, into.element, steps), offset } };
+  const block = indexAfter(editor, into.element, steps);
+  return { steps, landing: { block, start: offset, end: offset + text.length } };
 }
 
 // Removing a sentence, with the space that set it apart.
@@ -171,9 +239,11 @@ export class DocumentEdits {
           selection.addRange(range);
         };
         for (const step of steps) {
-          const count = step.remove
-            ? this.removeBlock(step.block, select)
-            : this.replaceBlock(step, select);
+          const count = step.format
+            ? this.formatBlock(step, select)
+            : step.remove
+              ? this.removeBlock(step.block, select)
+              : this.replaceBlock(step, select);
           made += count;
           if (!count) break;
         }
@@ -192,6 +262,15 @@ export class DocumentEdits {
     }
     if (this.editor.innerHTML !== before) this.forget();
     return false;
+  }
+  // Gives the block at `index` another type, keeping its contents.
+  formatBlock({ index, format }, select) {
+    const block = blocksOf(this.editor)[index];
+    if (!block) return 0;
+    const range = document.createRange();
+    range.selectNodeContents(block);
+    select(range);
+    return document.execCommand('formatBlock', false, format) ? 1 : 0;
   }
   replaceBlock({ block, html }, select) {
     const range = document.createRange();

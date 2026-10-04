@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Pancakes for Dinner — Text and Autocomplete</title>
     <meta name="description" content="A quiet document editor with inline writing suggestions.">
-    <link rel="stylesheet" href="style.css?v=8e132b49ada0">
+    <link rel="stylesheet" href="style.css?v=491d19b532fb">
   </head>
   <body>
     <header class="app-header">
@@ -76,6 +76,7 @@
     <main class="workspace">
       <div class="workspace-bar">
         <label class="add-view">Add a view <select id="add-view"><option value="">Choose…</option></select></label>
+        <button id="new-view" class="new-view" type="button">New view…</button>
       </div>
       <div id="panes" class="panes" aria-label="Views of the document"></div>
       <!-- The document lives here while no pane shows it, so the other views can still edit it. -->
@@ -103,6 +104,33 @@
     </div>
     <p id="rewrite-help" class="sr-only">Drag the end handle right or down for more detail, or left or up to shorten. Release to keep the rewrite. Use arrow keys to adjust, Enter to keep, or Escape to cancel.</p>
     <p id="notice" class="notice" role="status" aria-live="polite"></p>
+
+    <dialog id="view-dialog" class="view-dialog" aria-labelledby="view-heading">
+      <form id="view-form" method="dialog">
+        <h2 id="view-heading">New view</h2>
+        <label for="view-title">Name</label>
+        <input id="view-title" maxlength="40" autocomplete="off" spellcheck="false" placeholder="Claims and support">
+        <label for="view-purpose">What is this view for?</label>
+        <textarea id="view-purpose" maxlength="300" rows="3" aria-describedby="view-purpose-note" placeholder="Each claim the essay makes, with the evidence for it."></textarea>
+        <p id="view-purpose-note" class="view-note">Claude divides the document into pieces that suit this purpose, and names each piece. A piece is whole sentences: some inside one paragraph, or whole paragraphs.</p>
+        <div class="view-options">
+          <label>Layout <select id="view-layout"><option value="list">List</option><option value="cards">Cards</option><option value="bars">Bars, as long as each piece</option></select></label>
+          <label><input type="checkbox" id="view-move" checked> Drag pieces to move them</label>
+          <label><input type="checkbox" id="view-open" checked> Double-click a piece to edit it in the document</label>
+        </div>
+        <details class="view-data">
+          <summary>Declaration</summary>
+          <p class="view-note">The view as data. Edit it to set any field a view can have; the form above follows it.</p>
+          <textarea id="view-json" rows="12" spellcheck="false" aria-label="Declaration as JSON" aria-describedby="view-problems"></textarea>
+        </details>
+        <p id="view-problems" class="view-problems" role="alert"></p>
+        <div class="dialog-actions">
+          <button id="view-delete" type="button" hidden>Delete view</button>
+          <button id="view-cancel" type="button">Cancel</button>
+          <button id="view-save" type="submit">Save</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="key-dialog" aria-labelledby="key-heading" aria-describedby="key-description key-terms">
       <button id="close-settings" class="close-settings" aria-label="Close settings">×</button>
@@ -148,6 +176,6 @@
       </section>
     </dialog>
 
-    <script type="module" src="app.js?v=38322cd42a7c"></script>
+    <script type="module" src="app.js?v=1cf465e8190e"></script>
   </body>
 </html>

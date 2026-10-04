@@ -134,6 +134,14 @@ export class BridgeCompose {
       20000,
     );
   }
+  // Divides the document into pieces for a view: {purpose, paragraphs}.
+  segment(context) {
+    return this.send(
+      { op: 'segment', purpose: context.purpose, paragraphs: context.paragraphs },
+      () => {},
+      30000,
+    );
+  }
   send(body, onProgress, timeout, attempt = null) {
     this.cancel();
     if (!this.ready) return Promise.reject(new Error('Connect first.'));

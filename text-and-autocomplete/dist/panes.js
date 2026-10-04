@@ -41,8 +41,9 @@ let paneCount = 0;
 export class Workspace {
   // `create(spec, id)` makes a view for a declaration; `specs()` lists the
   // declarations a pane can show.
-  constructor({ root, specs, create, storageKey, onChange }) {
-    Object.assign(this, { root, specs, create, storageKey, onChange });
+  // `editable(spec)` says whether a view can be edited, which `edit(spec)` does.
+  constructor({ root, specs, create, storageKey, onChange, editable = () => false, edit }) {
+    Object.assign(this, { root, specs, create, storageKey, onChange, editable, edit });
     this.panes = [];
   }
   spec(id) {
@@ -81,11 +82,12 @@ export class Workspace {
     const choose = document.createElement('select');
     choose.className = 'pane-view';
     choose.setAttribute('aria-label', 'View in this pane');
+    const edit = this.button('pane-edit', 'Edit this view', '✎');
     const sync = this.button('pane-sync', 'Scroll with the other panes', '⇅');
     const left = this.button('pane-left', 'Move this pane left', '‹');
     const right = this.button('pane-right', 'Move this pane right', '›');
     const close = this.button('pane-close', 'Close this pane', '×');
-    bar.append(choose, sync, left, right, close);
+    bar.append(choose, edit, sync, left, right, close);
     const body = document.createElement('div');
     body.className = 'pane-body';
     const content = document.createElement('div');
@@ -102,8 +104,10 @@ export class Workspace {
       content,
       choose,
       sync,
+      edit,
       instance: null,
     };
+    edit.onclick = () => this.edit?.(this.spec(pane.view));
     choose.onchange = () => this.change(pane, choose.value);
     sync.onclick = () => {
       pane.follows = !pane.follows;
@@ -139,8 +143,8 @@ export class Workspace {
     else instance?.destroy();
     pane.element.remove();
   }
-  change(pane, view) {
-    if (view === pane.view) return;
+  change(pane, view, { force = false } = {}) {
+    if (view === pane.view && !force) return;
     if (view === 'document' && this.has('document')) {
       pane.choose.value = pane.view;
       return;
@@ -153,6 +157,18 @@ export class Workspace {
     pane.element.dataset.view = view;
     this.mount(pane);
     this.layout();
+  }
+  // Panes showing a view whose declaration changed show it again.
+  refresh(view) {
+    for (const pane of this.panes) if (pane.view === view) this.change(pane, view, { force: true });
+  }
+  // Panes showing a view that no longer exists close; the last one shows the document.
+  remove(view) {
+    for (const pane of [...this.panes]) {
+      if (pane.view !== view) continue;
+      if (this.panes.length > 1) this.close(pane);
+      else this.change(pane, 'document');
+    }
   }
   close(pane) {
     if (this.panes.length < 2) return;
@@ -189,6 +205,7 @@ export class Workspace {
       pane.choose.replaceChildren(...options);
       pane.choose.value = pane.view;
       pane.sync.setAttribute('aria-pressed', String(pane.follows));
+      pane.edit.hidden = !this.editable(this.spec(pane.view));
       pane.element.querySelector('.pane-left').disabled = index === 0;
       pane.element.querySelector('.pane-right').disabled = index === this.panes.length - 1;
       pane.element.querySelector('.pane-close').disabled = this.panes.length < 2;

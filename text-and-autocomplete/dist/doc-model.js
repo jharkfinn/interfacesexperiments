@@ -102,18 +102,24 @@ export function sentenceIndex(sentences, offset, atEnd = true) {
 // scripts, puts a space between them.
 export const joiner = text => (/[぀-ヿ㐀-鿿]/u.test(text) ? '' : ' ');
 
-// Whether the span of one piece ({block, start, end}) and a span from a link overlap.
-// A collapsed link span (a caret) overlaps the piece it sits in.
+// Whether a piece and a span from a link share text. A piece runs from
+// {block, start} to {endBlock, end}; endBlock is block when left out. A
+// collapsed link span (a caret or an insertion point) overlaps the piece it
+// sits in, ends included.
 export function overlaps(piece, span) {
-  if (!span) return false;
-  const after = (block, offset) =>
-    piece.block > block || (piece.block === block && piece.end > offset);
-  const before = (block, offset) =>
-    piece.block < block || (piece.block === block && piece.start < offset);
+  if (!piece || !span) return false;
+  const endBlock = piece.endBlock ?? piece.block;
+  const order = (blockA, offsetA, blockB, offsetB) => blockA - blockB || offsetA - offsetB;
   if (span.startBlock === span.endBlock && span.start === span.end) {
-    return piece.block === span.startBlock && piece.start <= span.start && span.start <= piece.end;
+    return (
+      order(piece.block, piece.start, span.startBlock, span.start) <= 0 &&
+      order(endBlock, piece.end, span.startBlock, span.start) >= 0
+    );
   }
-  return after(span.startBlock, span.start) && before(span.endBlock, span.end);
+  return (
+    order(endBlock, piece.end, span.startBlock, span.start) > 0 &&
+    order(piece.block, piece.start, span.endBlock, span.end) < 0
+  );
 }
 
 export class DocumentModel {
@@ -186,9 +192,11 @@ export class DocumentModel {
           version,
           id: `p${block.index}`,
           block: block.index,
+          endBlock: block.index,
           index: 0,
           start,
           end: start + body.length,
+          whole: true,
           text: body,
         });
       } else {
@@ -209,9 +217,64 @@ export class DocumentModel {
   element(piece) {
     return this.read().blocks[piece.block]?.element || null;
   }
+  // A piece's text as a range; a piece can run across blocks.
   range(piece) {
-    const element = piece && this.element(piece);
-    return element ? rangeIn(element, piece.start, piece.end) : null;
+    if (!piece) return null;
+    const { blocks } = this.read();
+    const first = blocks[piece.block]?.element;
+    const last = blocks[piece.endBlock ?? piece.block]?.element;
+    if (!first || !last) return null;
+    if (first === last) return rangeIn(first, piece.start, piece.end);
+    const start = rangeIn(first, piece.start, piece.start);
+    const end = rangeIn(last, piece.end, piece.end);
+    if (!start || !end) return null;
+    const range = document.createRange();
+    range.setStart(start.startContainer, start.startOffset);
+    range.setEnd(end.endContainer, end.endOffset);
+    return range;
+  }
+  // The paragraphs that have text, as Claude sees them, with the sentences in
+  // document order and the block each paragraph is.
+  paragraphs() {
+    const { blocks } = this.read();
+    return blocks
+      .filter(block => block.sentences.length)
+      .map(block => ({
+        kind: block.kind,
+        block: block.index,
+        sentences: block.sentences.map(sentence => sentence.text),
+      }));
+  }
+  // Pieces made of runs of sentences, numbered through the document from 1, as
+  // a segmentation gives them: [{first, last, label}].
+  runs(runs, unit = 'claude') {
+    const { version, blocks } = this.read();
+    const sentences = blocks.flatMap(block =>
+      block.sentences.map(sentence => ({ ...sentence, block: block.index })),
+    );
+    return runs.map(({ first, last, label }) => {
+      const head = sentences[first - 1];
+      const tail = sentences[last - 1];
+      const own = sentences.slice(first - 1, last);
+      // Whole paragraphs: from the start of one to the end of another.
+      const whole =
+        head.start === blocks[head.block].sentences[0].start &&
+        tail.end === blocks[tail.block].sentences.at(-1).end;
+      return {
+        unit,
+        version,
+        id: `c${first}-${last}`,
+        block: head.block,
+        start: head.start,
+        endBlock: tail.block,
+        end: tail.end,
+        first,
+        last,
+        whole,
+        label: label || '',
+        text: own.map(sentence => sentence.text).join(' '),
+      };
+    });
   }
   // A point in the editor as a block number and an offset in that block's text.
   point(node, offset) {

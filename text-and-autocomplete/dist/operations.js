@@ -1,11 +1,18 @@
 import { combineText } from './combine-core.js?v=1c8f69eb2a6d';
-import { planMove, planCombine, planRemove } from './doc-edits.js?v=6ef60e76fe65';
+import {
+  planMove,
+  planSpanMove,
+  planBlockMove,
+  planCombine,
+  planRemove,
+} from './doc-edits.js?v=7d8c83a79b6c';
 
 // The operations a view's gestures can name. Each one changes the document
 // through DocumentEdits, then chooses and flashes the text it changed, so every
 // view shows the result the same way.
 //
 //   move     a sentence to a gap                 (source, gap)
+//            or any piece to a place             (source, to)
 //   combine  two sentences into one, by Claude   (source, target)
 //   remove   a sentence                          (piece)
 //   open     a piece in the Document view        (piece)
@@ -74,10 +81,15 @@ export class Operations {
           : 'Nothing to redo.',
     );
   }
-  // The text a change produced is chosen in every view and flashes.
+  // The text a change produced is chosen in every view and flashes. A landing
+  // is a span ({block, start, end}), or a point whose sentence is chosen.
   land(landing, unit, origin, message) {
     this.model.refresh();
-    const piece = landing && this.model.pieceAt(landing.block, landing.offset, unit);
+    const piece =
+      landing &&
+      (landing.end !== undefined
+        ? landing
+        : this.model.pieceAt(landing.block, landing.offset, unit));
     const range = piece && this.model.range(piece);
     if (range) {
       this.links.set('focus', { range, origin });
@@ -86,19 +98,32 @@ export class Operations {
     this.notify(message);
   }
   run(name, args, origin) {
-    if (name === 'move') this.move(args.source, args.gap, origin);
+    if (name === 'move') this.move(args, origin);
     else if (name === 'combine') void this.combine(args.source, args.target, origin);
     else if (name === 'remove') this.remove(args.piece, origin);
     else if (name === 'open') this.open(args.piece);
   }
-  move(source, gap, origin) {
+  // A sentence moves to a sentence gap. A piece of any size moves to `to`:
+  // whole paragraphs to a place between paragraphs ({before}: a block number),
+  // other pieces into a paragraph ({block, offset, side}).
+  move({ source, gap, to }, origin) {
     source = this.current(source);
     if (this.pending || !source) return;
     this.interrupt();
-    const plan = planMove(this.editor, this.model, source, gap);
+    let plan = null;
+    if (gap) plan = planMove(this.editor, this.model, source, gap);
+    else if (to?.before !== undefined) {
+      plan = planBlockMove(this.editor, this.model, source.block, source.endBlock, to.before);
+    } else if (to && (source.endBlock ?? source.block) === source.block) {
+      plan = planSpanMove(this.editor, this.model, source, to);
+    }
     if (!plan || !this.edits.apply(plan.steps)) {
       this.model.refresh();
-      this.notify('Could not move that sentence there. The document is unchanged.');
+      this.notify(
+        to?.before !== undefined && !plan
+          ? 'Moving paragraphs across a list is not supported yet. The document is unchanged.'
+          : 'Could not move that there. The document is unchanged.',
+      );
       return;
     }
     this.land(plan.landing, 'sentence', origin, 'Moved. Undo to put it back.');

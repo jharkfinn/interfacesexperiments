@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { sentencesIn, sentenceIndex, joiner, overlaps } from '../dist/doc-model.js';
 import { plainHTML } from '../dist/doc-edits.js';
 import { sameLink, Links } from '../dist/links.js';
-import { scrollToShow, opening, hintFor } from '../dist/piece-view.js';
-import { checkSpec, fullSpec, BUILT_IN } from '../dist/view-specs.js';
+import { scrollToShow, opening, hintFor, statusText, destination } from '../dist/piece-view.js';
+import { checkSpec, fullSpec, BUILT_IN, specFromPurpose, idFor } from '../dist/view-specs.js';
 import { resizeWeights as resize, restorePanes } from '../dist/panes.js';
 
 const TEXT = 'Pancakes are quick.  They take ten minutes! Does anyone complain?';
@@ -109,7 +109,13 @@ test('the header hint says what the declared gestures do', () => {
     hintFor(sentences),
     'Drag a sentence onto another to combine them, or between two to move it. Double-click a sentence to edit it in the document. Delete removes it.',
   );
-  assert.equal(hintFor(paragraphs), 'Double-click a paragraph to edit it in the document.');
+  assert.equal(
+    hintFor(paragraphs),
+    'Drag a paragraph between two to move it. Double-click a paragraph to edit it in the document.',
+  );
+  const ideas = fullSpec(BUILT_IN.find(spec => spec.id === 'ideas'));
+  assert.match(hintFor(ideas), /^Claude divides the document for this view: “The distinct ideas/);
+  assert.match(hintFor(ideas), /Drag a piece between two to move it\./);
   assert.match(hintFor(fullSpec({ id: 'x', title: 'X', on: {} })), /links to the same text/);
 });
 
@@ -129,14 +135,42 @@ test('declarations name fields, values, gestures, and operations from the vocabu
     on: { 'drop-on': 'delete-everything', swipe: 'move' },
   });
   assert.equal(problems.length, 6, problems.join('\n'));
+  const one = spec => checkSpec({ id: 'v', title: 'V', ...spec });
+  assert.deepEqual(one({ unit: 'paragraph', group: 'none', on: { 'drop-between': 'move' } }), []);
+  assert.deepEqual(one({ unit: 'paragraph', group: 'none', on: { 'drop-on': 'combine' } }), [
+    '"combine" works on sentences only, so "unit" must be "sentence".',
+  ]);
+  assert.deepEqual(one({ unit: 'claude', group: 'none' }), [
+    'With "unit": "claude", "purpose" must say what the view is for, in 1 to 300 characters.',
+  ]);
+  assert.deepEqual(one({ unit: 'claude', purpose: 'Claims.', group: 'paragraph' }), [
+    'With "unit": "claude", "group" must be "none".',
+  ]);
+  assert.deepEqual(one({ unit: 'sentence', purpose: 'Claims.' }), [
+    '"purpose" is used only with "unit": "claude".',
+  ]);
+  assert.deepEqual(one({ unit: 'sentence', show: 'label' }), [
+    '"show": "label" needs "unit": "claude", because Claude writes the labels.',
+  ]);
   assert.deepEqual(
-    checkSpec({ id: 'p', title: 'P', unit: 'paragraph', on: { 'drop-between': 'move' } }),
-    ['"move" works on sentences only, so "unit" must be "sentence".'],
+    one({ unit: 'claude', purpose: 'Claims.', layout: 'bars', on: { delete: 'remove' } }),
+    ['"remove" works on sentences only, so "unit" must be "sentence".'],
   );
   assert.equal(checkSpec({ id: 'p', title: 'P', on: 'move' }).length, 1);
 });
 
-test('a declaration is filled in with the defaults of a Sentences view', () => {
+test('a declaration is filled in with defaults that suit its unit', () => {
+  assert.deepEqual(fullSpec({ id: 'x', title: 'X', unit: 'claude', purpose: 'Claims.' }), {
+    kind: 'pieces',
+    unit: 'claude',
+    group: 'none',
+    show: 'label',
+    layout: 'list',
+    id: 'x',
+    title: 'X',
+    purpose: 'Claims.',
+    on: {},
+  });
   assert.deepEqual(fullSpec({ id: 'x', title: 'X' }), {
     kind: 'pieces',
     unit: 'sentence',
@@ -185,4 +219,79 @@ test('a saved arrangement keeps known views, one Document pane, and sane weights
   );
   assert.equal(restorePanes('nonsense', known), null);
   assert.equal(restorePanes([{ view: 'gone' }], known), null);
+});
+
+test('a view from a name and a purpose is a valid declaration of Claude-made pieces', () => {
+  const spec = specFromPurpose({
+    id: 'claims',
+    title: ' Claims ',
+    purpose: ' Each claim with its support. ',
+    layout: 'cards',
+    move: true,
+    open: false,
+  });
+  assert.deepEqual(spec, {
+    id: 'claims',
+    title: 'Claims',
+    kind: 'pieces',
+    unit: 'claude',
+    purpose: 'Each claim with its support.',
+    group: 'none',
+    show: 'label',
+    layout: 'cards',
+    on: { 'drop-between': 'move' },
+  });
+  assert.deepEqual(checkSpec(spec), []);
+});
+
+test('a new view gets an id from its name, unlike the ids taken', () => {
+  assert.equal(idFor('Claims & Support', []), 'claims-support');
+  assert.equal(idFor('Claims', ['claims', 'claims-2']), 'claims-3');
+  assert.equal(idFor('2024 plan', []), 'plan');
+  assert.equal(idFor('!!!', []), 'view');
+});
+
+test('the status line says why Claude’s pieces are not current', () => {
+  assert.match(statusText('waiting', false), /Paragraphs stand in/);
+  assert.match(statusText('offline', true), /^Connect.*The last pieces stand in/);
+  assert.equal(statusText('ready', true), undefined);
+});
+
+test('a dragged piece goes between paragraphs when it is whole paragraphs, else into one', () => {
+  // Blocks 0 (one sentence) and 1 (three sentences); pieces: the heading, two
+  // sentences of block 1, and its last sentence.
+  const firstStart = () => 0;
+  const heading = { block: 0, endBlock: 0, start: 0, end: 5, whole: true };
+  const head = { block: 1, endBlock: 1, start: 0, end: 30, whole: false };
+  const tail = { block: 1, endBlock: 1, start: 31, end: 40, whole: false };
+  const pieces = [heading, head, tail];
+  // Next to itself, a piece stays put.
+  assert.equal(destination(pieces, 0, heading, firstStart, 2), null);
+  assert.equal(destination(pieces, 1, heading, firstStart, 2), null);
+  // Whole paragraphs go before a paragraph start, or to the end.
+  assert.deepEqual(destination(pieces, 3, heading, firstStart, 2), { before: 2 });
+  // Part of a paragraph at the very end joins the last paragraph.
+  assert.deepEqual(destination(pieces, 3, head, firstStart, 2), {
+    block: 1,
+    offset: 40,
+    side: 'after',
+  });
+  assert.deepEqual(destination(pieces, 0, tail, firstStart, 2), {
+    block: 0,
+    offset: 0,
+    side: 'before',
+  });
+  // Part of a paragraph goes into the paragraph at the gap.
+  assert.deepEqual(destination(pieces, 1, tail, firstStart, 2), {
+    block: 1,
+    offset: 0,
+    side: 'before',
+  });
+  const both = { block: 0, endBlock: 1, start: 0, end: 40, whole: true };
+  assert.deepEqual(destination([both], 1, both, firstStart, 2), null);
+  // Several whole paragraphs only go between paragraphs.
+  const opening = { block: 2, endBlock: 2, start: 0, end: 2, whole: false };
+  const rest = { block: 2, endBlock: 2, start: 3, end: 9, whole: false };
+  assert.equal(destination([both, opening, rest], 2, both, firstStart, 3), null);
+  assert.deepEqual(destination([both, opening, rest], 3, both, firstStart, 3), { before: 3 });
 });

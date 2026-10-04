@@ -3,6 +3,7 @@
 import { responseEvent } from '../../dist/compose-core.js';
 import { rewriteEvent } from '../../dist/rewrite-core.js';
 import { combineEvent } from '../../dist/combine-core.js';
+import { segmentEvent } from '../../dist/segment-core.js';
 
 const MAX_AVOID = 12;
 const isText = value => typeof value === 'string';
@@ -57,6 +58,10 @@ export function buildRequest(body) {
       );
     } else if (body.op === 'combine') {
       event = combineEvent('bridge', texts(body, ['before', 'target', 'after', 'dragged']));
+    } else if (body.op === 'segment') {
+      // segmentEvent checks the purpose and the shape of every paragraph.
+      event = segmentEvent('bridge', { purpose: body.purpose, paragraphs: body.paragraphs });
+      timeoutMs = 30000;
     } else {
       fail('Unknown operation.');
     }

@@ -6,6 +6,7 @@ import {
 } from './compose-core.js?v=576be38817a3';
 import { rewriteEvent } from './rewrite-core.js?v=3b9f63316aa6';
 import { combineEvent } from './combine-core.js?v=1c8f69eb2a6d';
+import { segmentEvent } from './segment-core.js?v=da80b70b8354';
 
 export class RealtimeCompose {
   constructor(
@@ -164,6 +165,14 @@ export class RealtimeCompose {
       id => combineEvent(id, context),
       () => {},
       20000,
+    );
+  }
+  // Divides the document into pieces for a view: {purpose, paragraphs}.
+  segment(context) {
+    return this.sendRequest(
+      id => segmentEvent(id, context),
+      () => {},
+      30000,
     );
   }
   sendRequest(event, onProgress, timeout, attempt = null) {

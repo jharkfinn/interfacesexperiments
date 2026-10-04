@@ -1,6 +1,7 @@
 import { responseEvent } from './compose-core.js?v=576be38817a3';
 import { rewriteEvent } from './rewrite-core.js?v=3b9f63316aa6';
 import { combineEvent } from './combine-core.js?v=1c8f69eb2a6d';
+import { segmentEvent } from './segment-core.js?v=da80b70b8354';
 
 // Runs requests through Claude on the viewer's own claude.ai account, when the
 // editor is published as a claude.ai page with the `sample` capability. It has
@@ -96,6 +97,14 @@ export class SampleCompose {
   combine(context) {
     return this.send(
       () => combineEvent('page', context),
+      () => {},
+      'rewrite',
+    );
+  }
+  // Divides the document into pieces for a view: {purpose, paragraphs}.
+  segment(context) {
+    return this.send(
+      () => segmentEvent('page', context),
       () => {},
       'rewrite',
     );

@@ -13,19 +13,26 @@ import {
   ALTERNATIVE_COUNT,
   plainSpaces,
 } from './compose-core.js?v=576be38817a3';
-import { SampleCompose } from './sample-client.js?v=4274ac2acadf';
-import { BridgeCompose } from './bridge-client.js?v=ae40474645ea';
-import { RealtimeCompose } from './realtime.js?v=f6a116bc6cb8';
+import { SampleCompose } from './sample-client.js?v=6647a0bbb4f6';
+import { BridgeCompose } from './bridge-client.js?v=e1e82842942e';
+import { RealtimeCompose } from './realtime.js?v=d3d98863ae74';
 import { readSavedKey, saveKey, forgetKey } from './key-storage.js?v=d7465de288af';
 import { SelectionRewrite } from './selection-rewrite.js?v=65913731007c';
-import { DocumentModel } from './doc-model.js?v=7ef16fd28f8c';
-import { DocumentEdits } from './doc-edits.js?v=6ef60e76fe65';
+import { DocumentModel } from './doc-model.js?v=c15b4514db7d';
+import { DocumentEdits } from './doc-edits.js?v=7d8c83a79b6c';
 import { Links } from './links.js?v=39d5dc963aea';
-import { Operations } from './operations.js?v=4a97072d1e13';
-import { DocumentView } from './document-view.js?v=c854dd3f92e3';
-import { PieceView } from './piece-view.js?v=e43d9b5c99da';
-import { Workspace, restorePanes } from './panes.js?v=842d70368f0f';
-import { BUILT_IN, fullSpec } from './view-specs.js?v=b5636c05b183';
+import { Operations } from './operations.js?v=b8678a73a4ee';
+import { DocumentView } from './document-view.js?v=c6ea2c69faa7';
+import { PieceView } from './piece-view.js?v=b2275e91e719';
+import { Workspace, restorePanes } from './panes.js?v=d23cd6c84cb1';
+import {
+  BUILT_IN,
+  fullSpec,
+  checkSpec,
+  specFromPurpose,
+  idFor,
+} from './view-specs.js?v=fb455bb202ab';
+import { Segments } from './segments.js?v=d0ec063984a2';
 
 const $ = id => document.getElementById(id);
 const editor = $('editor');
@@ -79,6 +86,7 @@ let validHTML = editor.innerHTML;
 let beforeEdit = null;
 let rewriter = null;
 let ops = null;
+let segments = null;
 // A rewrite or a combine owns the document until it lands or is abandoned.
 const working = () => Boolean(rewriter?.busy || ops?.busy);
 const cancelWork = () => {
@@ -164,6 +172,7 @@ const onConnectionStatus = (state, message) => {
     clearSuggestion('connection-' + state);
   }
   rewriter?.update();
+  segments?.connectionChanged();
   if (message) showNotice(message);
   const dropped = wasReady && state !== 'ready' && !leaving;
   wasReady = state === 'ready';
@@ -1320,6 +1329,48 @@ ops = new Operations({
     rewriter.hideControls();
   },
 });
+// claude.ai answers several requests at once, so there the views get their
+// own connection and never cancel autocomplete. The bridge and the Realtime API
+// answer one at a time, so the views share the editor's and wait their turn.
+const viewClient = claudePage
+  ? new SampleCompose(() => {}, {
+      tiers,
+      diagnose: (event, data) => trace(`view-${event}`, data),
+    })
+  : client;
+segments = new Segments({
+  model,
+  client: viewClient,
+  ready: () => client.ready,
+  shared: viewClient === client,
+  storage: (() => {
+    try {
+      return localStorage;
+    } catch {
+      return null;
+    }
+  })(),
+  diagnose: (event, data) => trace(event, data),
+});
+// Views a person declared, kept in this browser.
+const VIEWS_KEY = 'text-and-autocomplete.views';
+let customViews = (() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(VIEWS_KEY) || '[]');
+    const builtIn = BUILT_IN.map(spec => spec.id);
+    return Array.isArray(saved)
+      ? saved.filter(spec => !checkSpec(spec).length && !builtIn.includes(spec.id))
+      : [];
+  } catch {
+    return [];
+  }
+})();
+const allSpecs = () => [...BUILT_IN, ...customViews];
+function saveViews() {
+  try {
+    localStorage.setItem(VIEWS_KEY, JSON.stringify(customViews));
+  } catch {}
+}
 const documentView = new DocumentView({
   root: $('document-view'),
   holder: documentHolder,
@@ -1331,11 +1382,15 @@ const documentView = new DocumentView({
 });
 const workspace = new Workspace({
   root: $('panes'),
-  specs: () => BUILT_IN.map(fullSpec),
+  specs: () => allSpecs().map(fullSpec),
   create: (spec, id) =>
-    spec.kind === 'document' ? documentView : new PieceView({ id, spec, model, ops, links }),
+    spec.kind === 'document'
+      ? documentView
+      : new PieceView({ id, spec, model, ops, links, segments }),
   storageKey: PANES_KEY,
   onChange: panesChanged,
+  editable: spec => customViews.some(view => view.id === spec.id),
+  edit: spec => openViewDialog(customViews.find(view => view.id === spec.id)),
 });
 const arrangementOf = views => views.map(view => ({ view, weight: 1, follows: true }));
 let documentOpen = false;
@@ -1356,7 +1411,7 @@ function panesChanged() {
     rewriter.hideControls();
   }
   const add = $('add-view');
-  const options = BUILT_IN.map(spec => {
+  const options = allSpecs().map(spec => {
     const option = document.createElement('option');
     option.value = spec.id;
     option.textContent = spec.title;
@@ -1372,6 +1427,113 @@ function panesChanged() {
 $('add-view').onchange = event => {
   if (event.target.value) workspace.add(event.target.value);
   event.target.value = '';
+};
+// A view a person declares: a name and what the view is for, from which
+// Claude divides the document, or the declaration itself, edited as data.
+const viewDialog = $('view-dialog');
+const viewForm = $('view-form');
+let editingView = null;
+function viewDraft() {
+  try {
+    const draft = JSON.parse($('view-json').value);
+    return draft && typeof draft === 'object' && !Array.isArray(draft) ? draft : null;
+  } catch {
+    return null;
+  }
+}
+function viewProblems(draft) {
+  if (!draft) return ['The declaration is not valid JSON.'];
+  const taken = allSpecs()
+    .map(spec => spec.id)
+    .filter(id => id !== editingView?.id);
+  const id = editingView?.id || idFor(draft.title || '', taken);
+  return checkSpec({ ...draft, id });
+}
+function showViewProblems() {
+  const problems = viewProblems(viewDraft());
+  $('view-problems').textContent = problems.join(' ');
+  $('view-save').disabled = Boolean(problems.length);
+}
+// The form fields write into the declaration, keeping any field set as data.
+function formToDraft() {
+  const draft = viewDraft() || {};
+  const purpose = specFromPurpose({
+    title: $('view-title').value,
+    purpose: $('view-purpose').value,
+    layout: $('view-layout').value,
+    move: $('view-move').checked,
+    open: $('view-open').checked,
+  });
+  delete purpose.id;
+  const on = { ...(draft.on || {}) };
+  for (const gesture of ['drop-between', 'double-click']) delete on[gesture];
+  Object.assign(on, purpose.on);
+  const next = { ...draft, ...purpose, on };
+  $('view-json').value = JSON.stringify(next, null, 2);
+  showViewProblems();
+}
+// A declaration edited as data shows in the form where the form has a field.
+function draftToForm() {
+  const draft = viewDraft();
+  if (draft) {
+    if (typeof draft.title === 'string') $('view-title').value = draft.title;
+    if (typeof draft.purpose === 'string') $('view-purpose').value = draft.purpose;
+    if (['list', 'cards', 'bars'].includes(draft.layout)) $('view-layout').value = draft.layout;
+    $('view-move').checked = draft.on?.['drop-between'] === 'move';
+    $('view-open').checked = draft.on?.['double-click'] === 'open';
+  }
+  showViewProblems();
+}
+function openViewDialog(spec = null) {
+  editingView = spec;
+  $('view-heading').textContent = spec ? 'Edit view' : 'New view';
+  $('view-delete').hidden = !spec;
+  const { id, ...draft } = spec || {
+    title: '',
+    kind: 'pieces',
+    unit: 'claude',
+    purpose: '',
+    group: 'none',
+    show: 'label',
+    layout: 'list',
+    on: { 'drop-between': 'move', 'double-click': 'open' },
+  };
+  $('view-json').value = JSON.stringify(draft, null, 2);
+  draftToForm();
+  viewDialog.showModal();
+  $('view-title').focus();
+}
+for (const field of ['view-title', 'view-purpose', 'view-layout', 'view-move', 'view-open']) {
+  $(field).addEventListener('input', formToDraft);
+}
+$('view-json').addEventListener('input', draftToForm);
+$('new-view').onclick = () => openViewDialog();
+$('view-cancel').onclick = () => viewDialog.close();
+viewForm.addEventListener('submit', event => {
+  event.preventDefault();
+  const draft = viewDraft();
+  if (viewProblems(draft).length) return;
+  const taken = allSpecs()
+    .map(spec => spec.id)
+    .filter(id => id !== editingView?.id);
+  const spec = { ...draft, id: editingView?.id || idFor(draft.title, taken) };
+  if (editingView) customViews = customViews.map(view => (view.id === spec.id ? spec : view));
+  else customViews = [...customViews, spec];
+  saveViews();
+  viewDialog.close();
+  trace('view-saved', { unit: spec.unit, layout: spec.layout, edited: Boolean(editingView) });
+  if (editingView) workspace.refresh(spec.id);
+  else workspace.add(spec.id);
+  panesChanged();
+});
+$('view-delete').onclick = () => {
+  if (!editingView) return;
+  const id = editingView.id;
+  customViews = customViews.filter(view => view.id !== id);
+  saveViews();
+  viewDialog.close();
+  workspace.remove(id);
+  panesChanged();
 };
 // The caret goes to the end of a piece another view opened, and the piece
 // flashes. A Document pane opens first when there is none.
@@ -1444,7 +1606,7 @@ try {
 // A link can name a set of panes; otherwise the reader's last arrangement holds.
 {
   const preset = PRESETS[location.hash.slice(1)];
-  const known = BUILT_IN.map(spec => spec.id);
+  const known = allSpecs().map(spec => spec.id);
   workspace.set(
     preset
       ? arrangementOf(preset)
