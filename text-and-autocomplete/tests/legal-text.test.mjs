@@ -10,6 +10,9 @@ import {
   quoteSpans,
   citationKey,
   unseenCitations,
+  shortName,
+  stripLead,
+  NOT_NAME,
 } from '../dist/legal-text.js';
 import { sentencesIn } from '../dist/doc-model.js';
 import { memoBlocks } from './fixtures/memo.mjs';
@@ -478,4 +481,775 @@ test('a long block splits in time linear in its length', () => {
     assert.ok(performance.now() - at < 200, name);
   }
   assert.equal(legalSentences('这是一个句子。'.repeat(3), 'zh').length, 3);
+});
+
+// ---------------------------------------------------------------------------
+// Generality: forms the sample memo does not use (problem IDs from the generality report)
+// ---------------------------------------------------------------------------
+
+const attached = text => texts(legalSentences(text, 'en', { attachCitations: true }));
+const only = text => {
+  const cites = findCitations(text).filter(cite => !cite.nested);
+  assert.equal(cites.length, 1, JSON.stringify(cites.map(cite => cite.text)));
+  return cites[0];
+};
+
+test('LT-1: record citations are citations, and attach to the fact they support', () => {
+  const records = [
+    'Compl. ¶ 6',
+    'Am. Compl. ¶¶ 34–58',
+    'Ex. A at 1',
+    'Ex. C',
+    'Tr. 45:3-7',
+    'R. at 12',
+    'Smith Decl. ¶ 5',
+    'Whitcombe Decl. ¶¶ 3–5',
+    'Alvarez Dep. 8:2-11',
+    'Hollis Dep. 22:15-23:4',
+    'ECF No. 12',
+    'Dkt. No. 45, at 3',
+    'J.A. 45',
+    "Pl.'s Mot. at 5",
+  ];
+  for (const record of records) {
+    const cite = only(`${record}.`);
+    assert.equal(cite.type, 'record', record);
+    assert.equal(cite.text, record);
+    assert.equal(citationKey(cite), `record:${record.replace(/\s+/g, '')}`);
+    assert.deepEqual(attached(`The fact. ${record}.`), [`The fact. ${record}.`], record);
+    assert.ok(isCitationSentence(`(${record}.)`), record);
+  }
+  // "Decl. of Tomas Reyes, ECF No. 12, Ex. A" is three record citations in one sentence.
+  assert.deepEqual(
+    findCitations('Id. ¶¶ 12–14; see also Decl. of Tomas Reyes, ECF No. 12, Ex. A.').map(cite => [
+      cite.type,
+      cite.text,
+    ]),
+    [
+      ['id', 'Id. ¶¶ 12–14'],
+      ['record', 'Decl. of Tomas Reyes'],
+      ['record', 'ECF No. 12'],
+      ['record', 'Ex. A'],
+    ],
+  );
+  // California's record: clerk's and reporter's transcripts.
+  assert.deepEqual(
+    findCitations('Delgado fell at 3:01 p.m. (2 CT 362; RT 9:14-18.)').map(cite => cite.text),
+    ['2 CT 362', 'RT 9:14-18'],
+  );
+  assert.equal(
+    only('(2 CT 371 [Ostrander depo. at 44:3-19].)').text,
+    '2 CT 371 [Ostrander depo. at 44:3-19]',
+  );
+  assert.deepEqual(attached('Delgado fell. (1 CT 52, 58.)'), ['Delgado fell. (1 CT 52, 58.)']);
+  // Without a volume, a line or an opening bracket, "ER 3" is prose.
+  assert.deepEqual(findCitations('He went to the ER 3 times.'), []);
+  assert.deepEqual(attached('The timing proves nothing. Breeden, 532 U.S. at 272; Ex. C at 4.'), [
+    'The timing proves nothing. Breeden, 532 U.S. at 272; Ex. C at 4.',
+  ]);
+});
+
+test('LT-2: parallel citations are one case, keyed by the first reporter', () => {
+  const twombly = only(
+    'Bell Atl. Corp. v. Twombly, 550 U.S. 544, 570, 127 S. Ct. 1955, 167 L. Ed. 2d 929 (2007).',
+  );
+  assert.equal(twombly.name, 'Bell Atl. Corp. v. Twombly');
+  assert.deepEqual(
+    [twombly.volume, twombly.reporter, twombly.page, twombly.pin],
+    ['550', 'U.S.', '544', '570'],
+  );
+  assert.equal(twombly.year, '2007');
+  assert.equal(citationKey(twombly), '550 U.S.');
+  assert.deepEqual(twombly.parallel, [
+    { volume: '127', reporter: 'S. Ct.', page: '1955', pin: null },
+    { volume: '167', reporter: 'L. Ed. 2d', page: '929', pin: null },
+  ]);
+  const aguilar = only(
+    'Aguilar v. Atl. Richfield Co., 25 Cal. 4th 826, 860, 24 P.3d 493, 518, 107 Cal. Rptr. 2d 841 (2001).',
+  );
+  assert.equal(aguilar.name, 'Aguilar v. Atl. Richfield Co.');
+  assert.deepEqual(
+    aguilar.parallel.map(p => p.pin),
+    ['518', null],
+  );
+  // Short forms in a parallel reporter, and a short form with its own parallel.
+  const short = only('Twombly, 550 U.S. at 555, 127 S. Ct. at 1965.');
+  assert.deepEqual([short.type, short.antecedent, short.pin], ['short', 'Twombly', '555']);
+  assert.deepEqual(short.parallel, [
+    { volume: '127', reporter: 'S. Ct.', page: null, pin: '1965' },
+  ]);
+  const text = `${twombly.text}. Labels will not do. Twombly, 127 S. Ct. at 1965.`;
+  const cites = resolveCitations(text, findCitations(text));
+  assert.equal(cites[1].refersTo, 0);
+});
+
+test('LT-3: California Style Manual citations have a name, a year, parallels and a short title', () => {
+  const text =
+    '(Aguilar v. Atlantic Richfield Co. (2001) 25 Cal.4th 826, 860 [107 Cal.Rptr.2d 841, 24 P.3d 493] (Aguilar).)';
+  const cite = only(text);
+  assert.equal(cite.type, 'full');
+  assert.equal(cite.name, 'Aguilar v. Atlantic Richfield Co.');
+  assert.deepEqual([cite.plaintiff, cite.defendant], ['Aguilar', 'Atlantic Richfield Co.']);
+  assert.deepEqual([cite.year, cite.court, cite.pin], ['2001', null, '860']);
+  assert.deepEqual(
+    cite.parallel.map(p => `${p.volume} ${p.reporter} ${p.page}`),
+    ['107 Cal.Rptr.2d 841', '24 P.3d 493'],
+  );
+  assert.equal(cite.shortTitle, 'Aguilar');
+  assert.deepEqual(cite.parentheticals, []);
+  assert.ok(isCitationSentence(text));
+  // A court before the year, and "hereafter" titles.
+  const federal = only('(Smith v. Jones (9th Cir. 2001) 250 F.3d 1, 5 (hereafter Smith).)');
+  assert.deepEqual(
+    [federal.court, federal.year, federal.shortTitle],
+    ['9th Cir.', '2001', 'Smith'],
+  );
+  assert.equal(
+    only('Restatement (Second) of Torts § 1 (Am. L. Inst. 1965) [hereinafter Restatement].').type,
+    'secondary',
+  );
+  assert.equal(
+    only('Smith v. Jones, 1 F.3d 2, 5 (2d Cir. 2000) [hereinafter Smith I].').shortTitle,
+    'Smith I',
+  );
+  // An explanatory parenthetical that does not name the case is not a short title.
+  assert.equal(only('Smith v. Jones, 1 F.3d 2, 5 (2d Cir. 2000) (Smyth).').shortTitle, null);
+});
+
+test('LT-4: California pins (at p., at pp.) in id., supra and short forms', () => {
+  const supra = only('(Ortega, supra, 26 Cal.4th at p. 1206.)');
+  assert.deepEqual(
+    [supra.type, supra.antecedent, supra.volume, supra.reporter, supra.pin],
+    ['supra', 'Ortega', '26', 'Cal.4th', '1206'],
+  );
+  assert.equal(only('(Saelzler, supra, 25 Cal.4th at pp. 775-776.)').pin, '775-776');
+  assert.deepEqual(
+    [only('(Id. at p. 843.)').text, only('(Id. at p. 843.)').pin],
+    ['Id. at p. 843', '843'],
+  );
+  assert.equal(only('(Id. at pp. 843-844.)').pin, '843-844');
+  const short = only('(Ortega, 26 Cal.4th at p. 1206.)');
+  assert.deepEqual([short.type, short.pin, short.antecedent], ['short', '1206', 'Ortega']);
+  for (const text of ['(Id. at p. 1207.)', '(Ortega, supra, 26 Cal.4th at p. 1206.)'])
+    assert.ok(isCitationSentence(text), text);
+  // California's notes after a comma, inside the parentheses.
+  const noted = only('(Id. at p. 1207, internal quotation marks omitted.)');
+  assert.deepEqual(noted.parentheticals, ['internal quotation marks omitted']);
+  assert.ok(isCitationSentence('(Id. at p. 1207, internal quotation marks omitted.)'));
+});
+
+test('LT-5: a full citation’s pin before the sentence’s period is kept', () => {
+  assert.equal(
+    only('A store owner must inspect. (Ortega v. Kmart Corp. (2001) 26 Cal.4th 1200, 1206.)').pin,
+    '1206',
+  );
+  assert.equal(only('Smith v. Jones, 1 F.3d 2, 5.').pin, '5');
+  // A parallel citation's volume is not a pin.
+  assert.equal(only('Smith v. Jones, 1 U.S. 2, 3 S. Ct. 4 (1990).').pin, null);
+});
+
+test('LT-6: California code citations keep their code and subdivision', () => {
+  const cites = findCitations(
+    'Rule. (Evid. Code, § 452, subd. (d).) Other rule. (Code Civ. Proc., § 452.) Third. (Gov. Code, § 810.)',
+  );
+  assert.deepEqual(
+    cites.map(cite => [cite.type, cite.text, citationKey(cite)]),
+    [
+      ['statute', 'Evid. Code, § 452, subd. (d)', 'Evid.Code§452'],
+      ['statute', 'Code Civ. Proc., § 452', 'CodeCiv.Proc.§452'],
+      ['statute', 'Gov. Code, § 810', 'Gov.Code§810'],
+    ],
+  );
+  assert.equal(
+    only('(Code Civ. Proc., § 437c, subd. (c).)').text,
+    'Code Civ. Proc., § 437c, subd. (c)',
+  );
+  assert.equal(only('(Bus. & Prof. Code, § 17200.)').text, 'Bus. & Prof. Code, § 17200');
+  assert.equal(
+    only('(Welf. & Inst. Code, § 300, subds. (a) & (b).)').text,
+    'Welf. & Inst. Code, § 300, subds. (a) & (b)',
+  );
+  // The California and Bluebook forms of a constitution share a key.
+  assert.equal(
+    citationKey(only('(Cal. Const., art. VI, § 13.)')),
+    citationKey(only('Cal. Const. art. VI, § 13.')),
+  );
+  assert.equal(only('Cal. Rules of Court, rule 8.204(a)(1).').type, 'statute');
+});
+
+test('LT-7: a docket citation runs through its judge, date and parentheticals', () => {
+  const text =
+    'Courts dismiss such claims. See Meridian Produce Co. v. Talbot Freight Sys., Inc., No. 18-cv-7702 (JPO), 2019 WL 1234567, at *3 (S.D.N.Y. Mar. 5, 2019) (dismissing fraud claim).';
+  const cite = only(text);
+  assert.equal(cite.type, 'docket');
+  assert.equal(cite.name, 'Meridian Produce Co. v. Talbot Freight Sys., Inc.');
+  assert.deepEqual(
+    [cite.plaintiff, cite.defendant],
+    ['Meridian Produce Co.', 'Talbot Freight Sys., Inc.'],
+  );
+  assert.equal(cite.signal, 'See');
+  assert.deepEqual(
+    [cite.docket, cite.database, cite.pin],
+    ['No. 18-cv-7702', '2019 WL 1234567, at *3', '*3'],
+  );
+  assert.deepEqual([cite.court, cite.date, cite.year], ['S.D.N.Y.', 'Mar. 5, 2019', '2019']);
+  assert.deepEqual(cite.parentheticals, ['dismissing fraud claim']);
+  assert.ok(cite.text.endsWith('(dismissing fraud claim)'));
+  assert.equal(citationKey(cite), '2019 WL 1234567');
+  assert.equal(attached(text).length, 1);
+  assert.deepEqual([...referenceNames([cite]).keys()], ['Meridian Produce', 'Meridian', 'Talbot']);
+});
+
+test('LT-8: a case cited only by its Westlaw number is a named case keyed by that number', () => {
+  const text =
+    'Some courts disagree, but see Kessler v. Northgate Cold Storage, LLC, 2021 WL 4410382, at *6 (S.D.N.Y. Sept. 27, 2021).';
+  const cite = only(text);
+  assert.deepEqual(
+    [cite.type, cite.docket, cite.name, cite.pin, cite.court, cite.date, cite.signal],
+    [
+      'docket',
+      null,
+      'Kessler v. Northgate Cold Storage, LLC',
+      '*6',
+      'S.D.N.Y.',
+      'Sept. 27, 2021',
+      'but see',
+    ],
+  );
+  assert.equal(citationKey(cite), '2021 WL 4410382');
+  assert.ok(referenceNames([cite]).has('Kessler'));
+  // Its short form, which resolves to it, and a bare database cite.
+  const short = only('Meridian Produce, 2019 WL 1234567, at *3.');
+  assert.deepEqual(
+    [short.type, short.antecedent, short.database, short.pin, citationKey(short)],
+    ['short', 'Meridian Produce', '2019 WL 1234567, at *3', '*3', '2019 WL 1234567'],
+  );
+  assert.deepEqual(
+    attached('Corvina does not say who spoke. Meridian Produce, 2019 WL 1234567, at *3.').length,
+    1,
+  );
+  const both =
+    'Meridian Produce Co. v. Talbot Freight Sys., Inc., No. 18-cv-7702, 2019 WL 1234567, at *3 (S.D.N.Y. Mar. 5, 2019). Corvina is silent. Meridian Produce, 2019 WL 1234567, at *4.';
+  const resolved = resolveCitations(both, findCitations(both));
+  assert.equal(resolved[1].refersTo, 0);
+  const bare = only('See 2018 WL 3456789, at *4.');
+  assert.deepEqual([bare.type, bare.pin, citationKey(bare)], ['database', '*4', '2018 WL 3456789']);
+});
+
+test('LT-9: case names never start with the sentence’s words', () => {
+  assert.equal(
+    only('In Summers v. Altarum Inst., Corp., 740 F.3d 325, 329 (4th Cir. 2014), the court held X.')
+      .name,
+    'Summers v. Altarum Inst., Corp.',
+  );
+  assert.equal(
+    only(
+      'The standard of Toyota Motor Mfg., Ky., Inc. v. Williams, 534 U.S. 184, 198 (2002), was rejected.',
+    ).name,
+    'Toyota Motor Mfg., Ky., Inc. v. Williams',
+  );
+  const under = only('Under United States v. Smith, 1 F.3d 1, 2 (2d Cir. 1990), x.');
+  assert.equal(under.name, 'United States v. Smith');
+  assert.ok(under.text.startsWith('United States'));
+  assert.equal(only('In re Smith, 1 B.R. 2 (Bankr. D. Del. 2000).').name, 'In re Smith');
+  assert.equal(only('In Lakeside, 455 F.3d at 159, it held so.').antecedent, 'Lakeside');
+  assert.equal(only('See Jones, supra, at 5.').antecedent, 'Jones');
+  assert.equal(stripLead('Under the United States'), 'United States');
+  assert.ok(NOT_NAME.has('Under'));
+});
+
+test('LT-10: a curly possessive does not cut the case name', () => {
+  assert.equal(
+    only(
+      'Oswego Laborers’ Local 214 Pension Fund v. Marine Midland Bank, N.A., 85 N.Y.2d 20, 25 (1995).',
+    ).name,
+    'Oswego Laborers’ Local 214 Pension Fund v. Marine Midland Bank, N.A.',
+  );
+  assert.equal(
+    only('Teamsters’ Pension Fund v. Acme Corp., 1 F.3d 1, 2 (2d Cir. 1990).').name,
+    'Teamsters’ Pension Fund v. Acme Corp.',
+  );
+  assert.equal(
+    only('Louie v. Hagstrom’s Food Stores, Inc., 81 Cal. App. 2d 601 (1947).').name,
+    'Louie v. Hagstrom’s Food Stores, Inc.',
+  );
+});
+
+test('LT-11: id. keeps paragraph ranges and deposition lines', () => {
+  assert.deepEqual(
+    [only('Id. ¶¶ 30–31.').text, only('Id. ¶¶ 30–31.').pin],
+    ['Id. ¶¶ 30–31', '¶¶ 30–31'],
+  );
+  assert.equal(only('Id. ¶¶ 3, 5–7.').text, 'Id. ¶¶ 3, 5–7');
+  assert.deepEqual(
+    [only('Id. at 14:3-9.').text, only('Id. at 14:3-9.').pin],
+    ['Id. at 14:3-9', '14:3-9'],
+  );
+  assert.equal(only('Id. § 12102(2)(B).').pin, '§ 12102(2)(B)');
+});
+
+test('LT-12: a contract’s or document’s sections are internal, not statutes', () => {
+  const internal = text => findCitations(text).map(cite => [cite.type, cite.text]);
+  assert.deepEqual(internal('Agreement § 4.2.'), [['internal', 'Agreement § 4.2']]);
+  assert.deepEqual(internal('Agreement §§ 4.2, 9.1.'), [['internal', 'Agreement §§ 4.2, 9.1']]);
+  assert.deepEqual(internal('Separately, § 4.3 of the MSA lets Kestrel leave.'), [
+    ['internal', '§ 4.3'],
+  ]);
+  assert.deepEqual(internal('Nothing in this § 12 prevents relief.'), [['internal', '§ 12']]);
+  assert.deepEqual(internal('Section 4.2(b) lets Kestrel terminate.'), [
+    ['internal', 'Section 4.2(b)'],
+  ]);
+  assert.deepEqual(internal('in accordance with this Section 4.'), [['internal', 'Section 4']]);
+  // Statutes are not internal, and a bare "Section 349" is prose.
+  assert.deepEqual(internal('Section 349 prohibits deception.'), []);
+  assert.deepEqual(internal('Under § 1983, a plaintiff may sue.'), [['section', '§ 1983']]);
+  assert.deepEqual(internal('Federal law requires it. 9 U.S.C. § 2.'), [
+    ['statute', '9 U.S.C. § 2'],
+  ]);
+  // "§§" and "§" share a key; a section list is kept whole.
+  assert.equal(citationKey(only('See §§ 4.2.')), citationKey(only('See § 4.2.')));
+  assert.equal(only('42 U.S.C. §§ 1981, 1983.').text, '42 U.S.C. §§ 1981, 1983');
+  assert.deepEqual(attached('Corvina distributes seafood. Agreement § 9.1.'), [
+    'Corvina distributes seafood. Agreement § 9.1.',
+  ]);
+});
+
+test('LT-13: statutes, regulations and session laws in their usual forms', () => {
+  const reg = only('76 Fed. Reg. 16,978, 16,981 (Mar. 25, 2011).');
+  assert.deepEqual(
+    [reg.type, reg.text, citationKey(reg)],
+    ['statute', '76 Fed. Reg. 16,978, 16,981 (Mar. 25, 2011)', '76Fed.Reg.16,978'],
+  );
+  const law = only('Pub. L. No. 110-325, § 2(b)(5), 122 Stat. 3553, 3554 (2008).');
+  assert.equal(law.text, 'Pub. L. No. 110-325, § 2(b)(5), 122 Stat. 3553, 3554 (2008)');
+  assert.equal(
+    citationKey(law),
+    citationKey(only('Pub. L. No. 110-325, § 2(b)(4), 122 Stat. at 3554.')),
+  );
+  for (const text of [
+    '29 C.F.R. pt. 1630, app. § 1630.9',
+    'Cal. Code Regs. tit. 2, § 11068(a) (2024)',
+    'N.Y. C.P.L.R. 3211(a)(7) (McKinney 2024)',
+    'Cal. Gov’t Code § 12940(m) (West 2024)',
+    'Tex. Lab. Code Ann. § 21.128 (West 2023)',
+    'Cal. Gov’t Code § 12940(m), (n)',
+    '42 U.S.C. § 12102(1)(A), (2)(B)',
+    'Cal. Bus. & Prof. Code § 17200',
+    'Tex. Civ. Prac. & Rem. Code Ann. § 16.003',
+    'Fla. R. Civ. P. 1.140(b)',
+    'Cal. R. Ct. 8.204(a)',
+    '9 U.S.C. § 1 et seq.',
+  ]) {
+    const cite = only(`See ${text}.`);
+    assert.deepEqual([cite.type, cite.text], ['statute', text]);
+  }
+  assert.equal(citationKey(only('Cal. Gov’t Code § 12940(m), (n).')), "Cal.Gov'tCode§12940");
+  const guidance = only(
+    'EEOC, Enforcement Guidance: Reasonable Accommodation and Undue Hardship Under the Americans with Disabilities Act, Question 34 (Oct. 17, 2002).',
+  );
+  assert.deepEqual(
+    [guidance.type, guidance.author, guidance.pin, guidance.year],
+    ['secondary', 'EEOC', 'Question 34', '2002'],
+  );
+  for (const text of [
+    'See Pub. L. No. 110-325, § 2(b)(4), 122 Stat. at 3554; H.R. Rep. No. 110-730, pt. 1, at 5 (2008).',
+    '29 C.F.R. § 1630.2(o)(3); see also 29 C.F.R. pt. 1630, app. § 1630.9.',
+    'See 29 C.F.R. § 1630.2(j)(3)(iii); 76 Fed. Reg. 16,978, 16,981 (Mar. 25, 2011).',
+  ])
+    assert.ok(isCitationSentence(text), text);
+});
+
+test('LT-14: law reviews, treatises, Restatements and their supras', () => {
+  const article = only('Jane Roe, Rethinking Essential Functions, 100 Harv. L. Rev. 1, 15 (1987).');
+  assert.deepEqual(
+    [
+      article.type,
+      article.author,
+      article.title,
+      article.volume,
+      article.reporter,
+      article.page,
+      article.pin,
+      article.year,
+    ],
+    [
+      'periodical',
+      'Jane Roe',
+      'Rethinking Essential Functions',
+      '100',
+      'Harv. L. Rev.',
+      '1',
+      '15',
+      '1987',
+    ],
+  );
+  assert.equal(citationKey(article), '100 Harv.L.Rev. 1');
+  const treatise = only(
+    'See also 1 Barbara T. Lindemann et al., Employment Discrimination Law § 13.03 (5th ed. 2012).',
+  );
+  assert.deepEqual(
+    [treatise.type, treatise.author, treatise.title, treatise.pin, treatise.year],
+    [
+      'secondary',
+      'Barbara T. Lindemann et al.',
+      'Employment Discrimination Law',
+      '§ 13.03',
+      '2012',
+    ],
+  );
+  assert.equal(
+    treatise.text,
+    '1 Barbara T. Lindemann et al., Employment Discrimination Law § 13.03 (5th ed. 2012)',
+  );
+  const wright = only(
+    '5B Charles Alan Wright & Arthur R. Miller, Federal Practice and Procedure § 1357 (3d ed. 2004).',
+  );
+  assert.equal(wright.title, 'Federal Practice and Procedure');
+  const restatement = only('Restatement (Second) of Torts § 402A (Am. L. Inst. 1965).');
+  assert.deepEqual(
+    [restatement.type, restatement.title, restatement.pin],
+    ['secondary', 'Restatement (Second) of Torts', '§ 402A'],
+  );
+  const supra = only('Lindemann et al., supra note 6, § 13.03.');
+  assert.deepEqual([supra.antecedent, supra.note, supra.pin], ['Lindemann et al.', '6', '§ 13.03']);
+  assert.deepEqual(
+    [only('Roe, supra note 4, at 22.').note, only('Roe, supra note 4, at 22.').pin],
+    ['4', '22'],
+  );
+  // A dictionary quoted inside an id.'s parenthetical is a nested source.
+  const [id, dictionary] = findCitations(
+    'Id. (quoting Webster’s New International Dictionary 1710 (2d ed. 1957)).',
+  );
+  assert.deepEqual(
+    [id.type, dictionary.type, dictionary.nested, dictionary.title],
+    ['id', 'secondary', true, 'Webster’s New International Dictionary'],
+  );
+  // An edition after prose is not a citation.
+  assert.deepEqual(findCitations('As explained in the textbook (3d ed. 2004), it works.'), []);
+  assert.ok(
+    isCitationSentence(
+      'Jane Roe, Rethinking Essential Functions, 100 Harv. L. Rev. 1, 15 (1987); see also 1 Barbara T. Lindemann et al., Employment Discrimination Law § 13.03 (5th ed. 2012).',
+    ),
+  );
+});
+
+test('LT-15: a bare No. N-N is a docket only with docket context; legislative history', () => {
+  assert.deepEqual(
+    findCitations(
+      'Customer shall pay the fees in Order Form No. 2023-014 within thirty (30) days.',
+    ),
+    [],
+  );
+  assert.deepEqual(findCitations('He wore No. 5 and later No. 12-3 for the team.'), []);
+  assert.deepEqual(findCitations('Order No. 4471-B shipped.'), []);
+  assert.equal(only('No. 1:26-cv-03317 (LGS)').type, 'docket-number');
+  assert.equal(only('Case No. 12-345 is pending.').type, 'docket-number');
+  assert.equal(only('Smith v. Jones, No. 13-114-J, (W.D. Pa. 2015).').type, 'docket');
+  const report = only('H.R. Rep. No. 110-730, pt. 1, at 5 (2008).');
+  assert.deepEqual([report.type, report.pin, report.year], ['legislative', '5', '2008']);
+  assert.equal(only('S. Rep. No. 101-116, at 20 (1989).').type, 'legislative');
+  const record = only('See 144 Cong. Rec. S3021 (1998) (statement of Sen. Leahy).');
+  assert.deepEqual(
+    [record.type, record.parentheticals],
+    ['legislative', ['statement of Sen. Leahy']],
+  );
+});
+
+test('LT-16: an unknown reporter needs a case name or a court', () => {
+  assert.deepEqual(findCitations('The pastor read from 1 Cor. 13 at the wedding.'), []);
+  assert.deepEqual(findCitations('She quoted 2 Tim. 4 often.'), []);
+  assert.equal(
+    only('See Entick v. Carrington, 95 Eng. Rep. 807 (C.P. 1765).').name,
+    'Entick v. Carrington',
+  );
+  assert.equal(only('95 Eng. Rep. 807 (C.P. 1765).').court, 'C.P.');
+  assert.equal(only('Smith v. Jones, 1 F.3d 2.').known, true);
+});
+
+test('LT-17: English and Canadian citations, with their courts and pins', () => {
+  const cases = [
+    [
+      'See Reckitt & Colman Products Ltd v Borden Inc [1990] 1 WLR 491 (HL) at 499.',
+      'Reckitt & Colman Products Ltd v Borden Inc',
+      '[1990] 1',
+      'WLR',
+      '491',
+      'HL',
+      '499',
+    ],
+    [
+      'Starbucks (HK) Ltd v British Sky Broadcasting Group plc [2015] UKSC 31 at [47].',
+      'Starbucks (HK) Ltd v British Sky Broadcasting Group plc',
+      '[2015]',
+      'UKSC',
+      '31',
+      'UKSC',
+      '[47]',
+    ],
+    [
+      'R v Smith [2004] EWCA Crim 631.',
+      'R v Smith',
+      '[2004]',
+      'EWCA Crim',
+      '631',
+      'EWCA Crim',
+      null,
+    ],
+    [
+      'Canada (Minister of Citizenship and Immigration) v Vavilov, 2019 SCC 65 at para 23.',
+      'Canada (Minister of Citizenship and Immigration) v Vavilov',
+      '2019',
+      'SCC',
+      '65',
+      'SCC',
+      'para 23',
+    ],
+    [
+      'Donoghue v Stevenson [1932] AC 562.',
+      'Donoghue v Stevenson',
+      '[1932]',
+      'AC',
+      '562',
+      null,
+      null,
+    ],
+    ['Hadley v Baxendale (1854) 9 Exch 341.', 'Hadley v Baxendale', '9', 'Exch', '341', null, null],
+    [
+      'Reckitt & Colman Prods. Ltd. v. Borden Inc., [1990] 1 W.L.R. 491, 499 (H.L.).',
+      'Reckitt & Colman Prods. Ltd. v. Borden Inc.',
+      '[1990] 1',
+      'W.L.R.',
+      '491',
+      'H.L.',
+      '499',
+    ],
+  ];
+  for (const [text, name, volume, reporter, page, court, pin] of cases) {
+    const cite = only(text);
+    assert.deepEqual(
+      [cite.type, cite.name, cite.volume, cite.reporter, cite.page, cite.court, cite.pin],
+      ['full', name, volume, reporter, page, court, pin],
+      text,
+    );
+    assert.ok(isCitationSentence(text), text);
+  }
+  const jordan = only('R. v. Jordan, 2016 SCC 27, [2016] 1 S.C.R. 631, at para. 5.');
+  assert.deepEqual(
+    [jordan.pin, jordan.parallel],
+    ['para. 5', [{ volume: '[2016] 1', reporter: 'S.C.R.', page: '631', pin: null }]],
+  );
+  assert.equal(only('[2019] UKSC 5 at [41]').year, '2019');
+  for (const statute of [
+    'Trademarks Act, RSC 1985, c T-13, s 19',
+    'Criminal Code, R.S.C. 1985, c. C-46, s. 348',
+    'Theft Act 1968, s 1(1)',
+  ])
+    assert.deepEqual([only(`${statute}.`).type, only(`${statute}.`).text], ['statute', statute]);
+  assert.deepEqual(
+    attached(
+      'Goodwill must be local. See Reckitt & Colman Products Ltd v Borden Inc [1990] 1 WLR 491 (HL) at 499.',
+    ).length,
+    1,
+  );
+});
+
+test('LT-18: id. takes parentheticals, and lowercase signals still make a citation sentence', () => {
+  for (const text of [
+    'Id. at 1207 (internal quotation marks omitted).',
+    'Id. at 5 (emphasis added).',
+    'Id. (citation omitted).',
+    'Id. (quoting Webster’s Third New International Dictionary 1710 (1961)).',
+    'Burlington, 548 U.S. at 69 (alteration in original).',
+  ])
+    assert.ok(isCitationSentence(text), text);
+  assert.deepEqual(only('Id. at 1207 (internal quotation marks omitted).').parentheticals, [
+    'internal quotation marks omitted',
+  ]);
+  for (const signal of ['but see', 'cf.', 'see also', 'but cf.', 'see, e.g.,']) {
+    const text = `A rule. Doe v. Roe, 100 F.3d 1, 5 (2d Cir. 1996); ${signal} Poe v. Moe, 101 F.3d 1, 5 (2d Cir. 1996).`;
+    assert.equal(attached(text).length, 1, signal);
+    assert.equal(findCitations(text)[1].signal, signal);
+  }
+  assert.equal(only('(See Reid v. Google, Inc. (2010) 50 Cal.4th 512, 535.)').signal, 'See');
+  assert.equal(only('They oversee Smith v. Jones, 1 F.3d 2.').signal, null);
+  assert.ok(isCitationSentence('Smith v. Jones, 1 F.3d 2 (2d Cir. 2000), aff’d, 5 U.S. 1 (2001).'));
+});
+
+test('LT-20: a statute’s key is the same with either apostrophe', () => {
+  assert.equal(
+    citationKey(only("Cal. Gov't Code § 12940(m).")),
+    citationKey(only('Cal. Gov’t Code § 12940(m).')),
+  );
+});
+
+test('LT-21: a lettered subsection after a period starts a sentence', () => {
+  assert.deepEqual(
+    attached('4.2 Termination. (a) Provider may not terminate. (b) Customer may terminate.'),
+    ['4.2 Termination.', '(a) Provider may not terminate.', '(b) Customer may terminate.'],
+  );
+  assert.deepEqual(attached('Provider shall comply. (iv) Customer shall pay.'), [
+    'Provider shall comply.',
+    '(iv) Customer shall pay.',
+  ]);
+  // After an abbreviation the period is not a sentence's.
+  assert.deepEqual(attached('The rule is in subd. (c) The court agreed.'), [
+    'The rule is in subd. (c) The court agreed.',
+  ]);
+});
+
+test('LT-22: a.m. and p.m. before a time zone', () => {
+  assert.deepEqual(
+    attached(
+      'Maintenance occurs between 10:00 p.m. and 4:00 a.m. U.S. Pacific Time. Provider shall notify Customer.',
+    ),
+    [
+      'Maintenance occurs between 10:00 p.m. and 4:00 a.m. U.S. Pacific Time.',
+      'Provider shall notify Customer.',
+    ],
+  );
+  assert.deepEqual(attached('The window ends at 5:00 p.m. Eastern Time. Next.'), [
+    'The window ends at 5:00 p.m. Eastern Time.',
+    'Next.',
+  ]);
+});
+
+test('LT-23: a Commonwealth section, s. 348', () => {
+  assert.deepEqual(attached('The offence is in s. 348. It carries a life term.'), [
+    'The offence is in s. 348.',
+    'It carries a life term.',
+  ]);
+  assert.deepEqual(attached('See r. 3.4 of the rules. Next.'), [
+    'See r. 3.4 of the rules.',
+    'Next.',
+  ]);
+});
+
+test('LT-24: U.S. before ordinary nouns, military titles, approx. before money', () => {
+  assert.deepEqual(attached('She lives in the U.S. Virgin Islands now.'), [
+    'She lives in the U.S. Virgin Islands now.',
+  ]);
+  assert.deepEqual(attached('Half of the U.S. Midwest wanted a pretzel.'), [
+    'Half of the U.S. Midwest wanted a pretzel.',
+  ]);
+  assert.deepEqual(attached('Gen. Patton arrived.'), ['Gen. Patton arrived.']);
+  assert.deepEqual(attached('The cost was approx. $40. That was cheap.'), [
+    'The cost was approx. $40.',
+    'That was cheap.',
+  ]);
+  assert.deepEqual(attached('He moved outside the U.S. He moved back.'), [
+    'He moved outside the U.S.',
+    'He moved back.',
+  ]);
+});
+
+test('LT-25: a quoted passage standing alone holds sentences of its own', () => {
+  assert.deepEqual(attached('She shrugs. "Is it? Ask me again when the loaf fails."'), [
+    'She shrugs.',
+    '"Is it?',
+    'Ask me again when the loaf fails."',
+  ]);
+  // A quotation with its citation after it is still one sentence.
+  assert.deepEqual(
+    attached('“First, we decide. Second, we determine.” Lakeside, 455 F.3d at 158.'),
+    ['“First, we decide. Second, we determine.” Lakeside, 455 F.3d at 158.'],
+  );
+});
+
+test('AN-13: the name a case goes by', () => {
+  const doc = [
+    'Bell Atl. Corp. v. Twombly, 550 U.S. 544, 570 (2007).',
+    'Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009).',
+    'Univ. of Tex. Sw. Med. Ctr. v. Nassar, 570 U.S. 338, 360 (2013).',
+    'Clark Cnty. Sch. Dist. v. Breeden, 532 U.S. 268, 273 (2001).',
+    'EEOC v. Ford Motor Co., 782 F.3d 753, 762 (6th Cir. 2015).',
+    'Henry Schein, Inc. v. Archer & White Sales, Inc., 139 S. Ct. 524, 529 (2019).',
+    'US Airways, Inc. v. Barnett, 535 U.S. 391, 401 (2002).',
+    'United States v. Columbus Country Club, 915 F.2d 877, 881 (3d Cir. 1990).',
+    'State Farm Mut. Auto. Ins. Co. v. Campbell, 538 U.S. 408, 419 (2003).',
+    'R v Smith [2004] EWCA Crim 631.',
+    'Starbucks (HK) Ltd v British Sky Broadcasting Group plc [2015] UKSC 31.',
+    '(Sargon Enterprises, Inc. v. University of Southern California (2012) 55 Cal.4th 747, 771 (Sargon).)',
+    'Twombly, 550 U.S. at 555.',
+  ].join(' ');
+  const cites = findCitations(doc);
+  const fulls = cites.filter(cite => cite.type === 'full');
+  assert.deepEqual(
+    fulls.map(cite => shortName(cite, cites)),
+    [
+      'Twombly',
+      'Ashcroft',
+      'Nassar',
+      'Breeden',
+      'Ford Motor',
+      'Henry Schein',
+      'Barnett',
+      'Columbus Country Club',
+      'State Farm',
+      'Smith',
+      'Starbucks',
+      'Sargon',
+    ],
+  );
+  // Without the document, Twombly goes by its plaintiff; a nameless cite by its book.
+  assert.equal(shortName(fulls[0]), 'Bell');
+  assert.equal(shortName(only('1 F.3d 2.')), '1 F.3d');
+  const names = referenceNames(cites);
+  for (const name of [
+    'Twombly',
+    'Iqbal',
+    'Ashcroft',
+    'Nassar',
+    'Breeden',
+    'Ford Motor',
+    'Henry Schein',
+    'Columbus Country Club',
+    'Columbus',
+    'Starbucks',
+    'Sargon',
+    'Smith',
+  ])
+    assert.ok(names.has(name), name);
+  // Not the agency, the institution, a given name, or a common word.
+  for (const name of [
+    'EEOC',
+    'Clark',
+    'Henry',
+    'Bell',
+    'Univ.',
+    'United',
+    'US Airways',
+    'In',
+    'State',
+  ])
+    assert.ok(!names.has(name), name);
+  const summers = findCitations(
+    'In Summers v. Altarum Inst., Corp., 740 F.3d 325, 329 (4th Cir. 2014), the court held X.',
+  );
+  assert.ok(referenceNames(summers).has('Summers'));
+});
+
+test('findCitations stays fast on long adversarial text', () => {
+  // Each of these took a tenth of a second or more before: a long run of parallel
+  // citations or Westlaw numbers was walked again from each, and a case name was read back
+  // through every word before it.
+  const fill = unit => unit.repeat(Math.ceil(20000 / unit.length)).slice(0, 20000);
+  for (const unit of [
+    '1 F.3d 2, ',
+    '1 F.3d at 2, ',
+    '2019 WL 1, ',
+    '1 CT 1, ',
+    '1 Harv. L. Rev. 1, ',
+    'Abc (5th ed. 2012) ',
+    '§ 1 ',
+    'No. 1-1 ',
+    'Abc Dep. ',
+    'EEOC, Abc, ',
+    'Abc Act 1999, s ',
+  ]) {
+    const text = fill(unit);
+    findCitations(text);
+    const at = performance.now();
+    findCitations(text);
+    assert.ok(performance.now() - at < 100, unit);
+  }
 });
