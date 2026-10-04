@@ -1132,50 +1132,50 @@ body[data-layout='sentences'] .toolbar .group:not(.history, .zoom-group) {
   }
 }
 
-/* Split: both views at once. The workspace must not be a scroll container, or
-   the list's pane could not stay in view. In a wide window the document scrolls
-   with the page and the list stays beside it in its own pane. */
+/* Split: the document and the list side by side, at any width. The document
+   scrolls with the page, and the list stays beside it in its own pane. The
+   workspace must not be a scroll container, or the pane could not stay in view. */
 body[data-layout='split'] .workspace {
   overflow: visible;
 }
-@media (min-width: 900px) {
-  body[data-layout='split'] .page-stack {
-    width: min(1500px, 100%);
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    column-gap: 20px;
-    align-items: start;
-  }
-  body[data-layout='split'] .layout-switch {
-    grid-column: 1 / -1;
-  }
-  body[data-layout='split'] #document-page {
-    grid-column: 1;
-    padding: 56px 52px;
-  }
-  body[data-layout='split'] .page-bottom {
-    grid-column: 1;
-  }
-  body[data-layout='split'] .sentence-view {
-    grid-column: 2;
-    grid-row: 2 / span 2;
-    position: sticky;
-    top: 16px;
-    min-height: 0;
-    max-height: calc(100vh - 32px);
-    overflow: auto;
-    overscroll-behavior: contain;
-    padding: 0 36px 36px;
-  }
-  body[data-layout='split'] .sv-header {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    padding-top: 28px;
-    background: #242529;
-  }
+body[data-layout='split'] .page-stack {
+  width: min(1500px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 20px;
+  align-items: start;
 }
-@media (min-width: 900px) and (max-width: 1199px) {
+body[data-layout='split'] .layout-switch {
+  grid-column: 1 / -1;
+}
+body[data-layout='split'] #document-page {
+  grid-column: 1;
+  padding: 56px 52px;
+}
+body[data-layout='split'] .page-bottom {
+  grid-column: 1;
+}
+body[data-layout='split'] .sentence-view {
+  grid-column: 2;
+  grid-row: 2 / span 2;
+  position: sticky;
+  top: 16px;
+  min-height: 0;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 36px 36px;
+}
+body[data-layout='split'] .sv-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex-direction: row;
+  padding-top: 28px;
+  background: #242529;
+}
+/* Narrower windows keep both columns and give them less padding. */
+@media (max-width: 1199px) {
   body[data-layout='split'] .workspace {
     padding-inline: 16px;
   }
@@ -1189,44 +1189,42 @@ body[data-layout='split'] .workspace {
     padding: 0 20px 24px;
   }
 }
-/* In a narrow window the list docks along the bottom, over the end of the
-   document, until the page scrolls down to where it sits. */
 @media (max-width: 899px) {
-  :root:has(body[data-layout='split']) {
-    scroll-padding-bottom: 46vh;
+  body[data-layout='split'] .workspace {
+    padding: 16px 8px 24px;
+  }
+  body[data-layout='split'] .page-stack {
+    column-gap: 8px;
+  }
+  body[data-layout='split'] #document-page {
+    min-height: 0;
+    padding: 24px 16px;
+  }
+  body[data-layout='split'] .document-body {
+    min-height: 60vh;
   }
   body[data-layout='split'] .sentence-view {
-    position: sticky;
-    bottom: 0;
-    z-index: 3;
-    min-height: 0;
-    max-height: 42vh;
-    margin-top: 12px;
-    overflow: auto;
-    overscroll-behavior: contain;
-    padding: 0 20px 16px;
-    border-top-color: #5d626d;
-    box-shadow: 0 -10px 28px #0008;
+    top: 8px;
+    max-height: calc(100vh - 16px);
+    padding: 0 10px 12px;
   }
   body[data-layout='split'] .sv-header {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    flex-direction: row;
     justify-content: flex-end;
     margin-bottom: 12px;
-    padding: 12px 0 10px;
-    background: #242529;
+    padding: 10px 0 8px;
   }
   body[data-layout='split'] .sv-hint {
     display: none;
   }
   body[data-layout='split'] .sv-list {
     gap: 8px;
+    font-size: 14px;
   }
-  /* Notices sit above the docked list. */
-  body[data-layout='split'] .notice {
-    bottom: calc(42vh + 12px);
+  body[data-layout='split'] .sv-sentence {
+    padding: 2px 7px;
+  }
+  body[data-layout='split'] .sv-block[data-kind='h1'] .sv-sentence {
+    font-size: 19px;
   }
 }
 

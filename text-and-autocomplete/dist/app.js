@@ -18,7 +18,7 @@ import { BridgeCompose } from './bridge-client.js?v=ae40474645ea';
 import { RealtimeCompose } from './realtime.js?v=f6a116bc6cb8';
 import { readSavedKey, saveKey, forgetKey } from './key-storage.js?v=d7465de288af';
 import { SelectionRewrite } from './selection-rewrite.js?v=65913731007c';
-import { SentenceView } from './sentence-view.js?v=01ca4903dac7';
+import { SentenceView } from './sentence-view.js?v=8bc2d84cbdee';
 
 const $ = id => document.getElementById(id);
 const editor = $('editor');
@@ -34,11 +34,9 @@ const intelligence = $('intelligence');
 const documentPage = $('document-page');
 const layoutButtons = [...document.querySelectorAll('.layout-switch button')];
 // The document shows as written ('document'), as sentences to rearrange
-// ('sentences'), or both at once ('split'). A split puts them side by side in a
-// wide window, and the list in a panel along the bottom in a narrow one.
+// ('sentences'), or both side by side ('split').
 const LAYOUTS = ['document', 'split', 'sentences'];
 const LAYOUT_KEY = 'text-and-autocomplete.layout';
-const wideWindow = matchMedia('(min-width: 900px)');
 let layout = 'split';
 // The layout on screen now.
 let shown = 'document';
@@ -1391,8 +1389,6 @@ function showLayout() {
   rewriter.paint();
 }
 for (const button of layoutButtons) button.onclick = () => setLayout(button.dataset.layout);
-// The split turns between columns and rows as the window crosses 900 pixels.
-wideWindow.addEventListener('change', () => combiner.relayout());
 window.addEventListener('hashchange', () => {
   const name = location.hash.slice(1);
   if (LAYOUTS.includes(name)) setLayout(name, { remember: false });
