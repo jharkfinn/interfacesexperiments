@@ -167,6 +167,8 @@ const SUPPORT_BADGES = {
   missing: 'No authority',
   unsourced: 'No fact source',
   record: 'Record',
+  // A citation in a form the app does not know: shown, never judged.
+  cited: 'Cited: form not recognized',
 };
 const CITE_STATES = {
   own: '',
