@@ -209,7 +209,9 @@ export function sourceChip(element, sentence, excerpt, targets) {
     for (const flag of flags) {
       const chip = el('span', 'src-flag', flag.text);
       chip.dataset.flag = flag.id;
-      if (flag.title) chip.title = flag.title;
+      // A form flag gathers several small problems; its title lists them.
+      const title = flag.title || flag.items?.map(item => item.text).join('; ');
+      if (title) chip.title = title;
       row.append(chip);
     }
     element.append(row);
@@ -217,6 +219,13 @@ export function sourceChip(element, sentence, excerpt, targets) {
 }
 
 const GROUP_NAMES = { cases: 'Cases', statutes: 'Statutes', other: 'Other' };
+const LEVEL_NAMES = {
+  supreme: 'Supreme Court',
+  circuit: 'Court of appeals',
+  district: 'District court',
+  statute: 'Statute',
+  unknown: 'Court not stated',
+};
 
 // Sourcing: the table of authorities, with a box per authority for the reader
 // to tick once they have read it, and the citations nothing resolves.
@@ -300,8 +309,13 @@ function authorityRow(authority, read, onRead, targets) {
     );
   } else name.textContent = authority.title;
   const meta = el('span', 'src-toa-meta');
-  const court = el('span', 'src-court', authority.levelName || authority.level || '');
+  const court = el(
+    'span',
+    'src-court',
+    authority.court || LEVEL_NAMES[authority.level] || LEVEL_NAMES.unknown,
+  );
   court.dataset.level = authority.level || 'unknown';
+  court.title = LEVEL_NAMES[authority.level] || LEVEL_NAMES.unknown;
   meta.append(court);
   if (authority.where) meta.append(el('span', 'src-toa-where', authority.where));
   meta.append(el('span', 'src-toa-count', plural(authority.count, 'mention')));
