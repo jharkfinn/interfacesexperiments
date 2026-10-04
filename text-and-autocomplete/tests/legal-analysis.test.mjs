@@ -830,7 +830,8 @@ test('short forms, id. and supra resolve through the document', () => {
     'Id. → § 1332/own',
     'Jones 4/own',
     'Id. → Jones/own',
-    'Jones, supra/own',
+    // A supra with a pin reads as a short form does.
+    'Jones 6/own',
     'Lee, supra, at 7/unresolved',
     // An id. after a case never cited in full means that case, so it is unresolved too.
     'Ray 3/unresolved',
@@ -1439,6 +1440,13 @@ test('a brief argues: no confidence ranks, and its umbrella need not state the r
   );
   // An Argument heading makes a brief too.
   assert.equal(analyzeLegal(blocks('TO: Partner', 'Argument'), null).type, 'brief');
+  // A memo may name the parties' roles on its RE line; a caption's party line starts with
+  // the party.
+  assert.equal(
+    analyzeLegal(blocks('TO: Partner\nRE: Jane Doe, Plaintiff, v. Acme Corp.', 'Discussion'), null)
+      .type,
+    'memo',
+  );
   // The same text as a memo ranks how sure it sounds and asks for the cited rule.
   const memo = analyzeLegal(blocks('TO: Partner', 'Discussion'), labels.slice(2));
   assert.equal(memo.type, 'memo');
@@ -1547,7 +1555,8 @@ test('the record supports facts but is no authority, and an id. after it is the 
     [
       ['direct', 'N.Y. Gen. Bus. Law § 349'],
       ['record', 'Compl. ¶ 12'],
-      ['record', 'Id. → Compl. ¶ 12'],
+      // The id. names the complaint, not ¶ 12, which is the earlier citation's pin.
+      ['record', 'Id. → Compl.'],
       ['record', 'Ex. D at 2'],
     ],
   );
@@ -1636,6 +1645,33 @@ test('a quotation needs a source when it states law or a fact the analysis rests
     tags('rule/law'),
   );
   assert.deepEqual(flagIds(contract.sentences[0]), ['quote']);
+});
+
+test('dialogue that carries on from a named speaker is attributed too', () => {
+  // A magazine profile read without labels: the second line of each exchange has no
+  // "she says" of its own, but it is the same speaker, as is the second sentence of one
+  // quotation. A plan that "calls for" something still needs its source.
+  const story = analyzeLegal(
+    doc([
+      [
+        'p',
+        '“I’ve had the No. 5 bun for six years,” Pruitt told me. “Don’t put that in the magazine.”',
+      ],
+      ['p', '“Is it ready yet?” a customer calls through the door at the bakery.'],
+      [
+        'p',
+        'When I ask whether all of this is overkill, she shrugs. “Is it? Ask me again when the loaf fails.”',
+      ],
+      ['p', 'Achterberg says the update cut errors. “The first version was a disaster at launch.”'],
+      ['p', 'The plan called for “rebalancing experienced leads across facilities” that spring.'],
+      ['p', 'He was moved in April. “The rule is strict in every single case.”'],
+    ]),
+    null,
+  );
+  assert.deepEqual(
+    story.sentences.map(item => flagIds(item).includes('quote-unsourced')),
+    [false, false, false, false, false, false, false, false, true, false, true],
+  );
 });
 
 test('an issue, a roadmap and a heading need no authority (AN-20)', () => {
@@ -1822,7 +1858,7 @@ test('parallel citations are one case, found by a short form in any of its repor
   );
   assert.deepEqual(
     reading.sentences.flatMap(item => item.cites.map(cite => cite.label + SUFFIX[cite.state])),
-    ['Twombly 570', 'Twombly 555', 'Twombly 1965', 'Aguilar 860', 'Aguilar, supra'],
+    ['Twombly 570', 'Twombly 555', 'Twombly 1965', 'Aguilar 860', 'Aguilar 856'],
   );
   assert.deepEqual(rows(reading), [
     'cases | Aguilar v. Atlantic Richfield Co. (2001) 25 Cal.4th 826 [107 Cal.Rptr.2d 841, 24 P.3d 493] | state-supreme',
@@ -1861,6 +1897,66 @@ test('unreported cases are named authorities with their dates', () => {
   assert.ok(reading.authorities.every(row => !row.warnings.length));
 });
 
+test('chips show the pin a citation gives, in any citation form', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'A store must inspect. (Ortega v. Kmart Corp. (2001) 26 Cal.4th 1200, 1205 [114 Cal.Rptr.2d 470] (Ortega).) Notice is required. (Ortega, supra, 26 Cal.4th at p. 1206.) Timing is for the jury. (Ortega, supra.)',
+      ],
+      [
+        'p',
+        'Corvina ships seafood. Compl. ¶ 12. It sued in May. Id. ¶¶ 30–31. He testified. Alvarez Dep. 8:2-11. He said so again. Id. at 14:3-9. The log is clear. (2 CT 371 [Ostrander depo. at 44:3-19].) It was skipped. (Id. at 372.) It was filed. ECF No. 12, at 3. It was served. Id. at 4.',
+      ],
+      [
+        'p',
+        'Summary judgment needs no triable issue. (Code Civ. Proc., § 437c, subd. (c).) FEHA bars both. Cal. Gov’t Code § 12940(m), (n). The Act reaches it. 42 U.S.C. § 1983 (a).',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(
+    reading.sentences.flatMap(item => item.cites.map(cite => cite.label)),
+    [
+      'Ortega 1205',
+      // A supra with a pin reads as the Bluebook short form does; one without stays a supra.
+      'Ortega 1206',
+      'Ortega, supra',
+      // An id. of the record names the record document, not the earlier citation's pin.
+      'Compl. ¶ 12',
+      'Id. → Compl.',
+      'Alvarez Dep. 8:2-11',
+      'Id. → Alvarez Dep.',
+      '2 CT 371 [Ostrander depo. at 44:3-19]',
+      'Id. → 2 CT',
+      'ECF No. 12, at 3',
+      'Id. → ECF No. 12',
+      // A subsection closes up to its section, but "subd. (c)" and "(m), (n)" keep their spaces.
+      'Code Civ. Proc., § 437c, subd. (c)',
+      'Cal. Gov’t Code § 12940(m), (n)',
+      '§ 1983(a)',
+    ],
+  );
+});
+
+test('a neutral citation’s number is not shown as a page', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'The letter relied on R v Smith [2004] EWCA Crim 631. Review is for reasonableness. Canada v Vavilov, 2019 SCC 65. It cited [2019] UKSC 5. Goodwill must be local. Starbucks (HK) Ltd v British Sky Broadcasting Group plc [2015] UKSC 31 at [47]. A case reported in a volume. Smith v. Jones, 9 F.3d 1 (2d Cir. 2001).',
+      ],
+    ]),
+    null,
+  );
+  // Without a pin a chip gives a reported case's first page, but "631" in "[2004] EWCA
+  // Crim 631" numbers the case.
+  assert.deepEqual(
+    reading.sentences.flatMap(item => item.cites.map(cite => cite.label)),
+    ['Smith', 'Vavilov', '[2019] UKSC 5', 'Starbucks [47]', 'Smith 1'],
+  );
+});
+
 test('articles, books, guidance and legislative history are other authorities', () => {
   const reading = analyzeLegal(
     doc([
@@ -1879,7 +1975,7 @@ test('articles, books, guidance and legislative history are other authorities', 
   const roe = reading.authorities.find(row => row.name === 'Roe');
   assert.equal(roe.title.slice(...roe.italic), 'Rethinking Essential Functions');
   assert.equal(roe.count, 2);
-  assert.deepEqual(chips(3, reading), ['Roe, supra']);
+  assert.deepEqual(chips(3, reading), ['Roe 22']);
 });
 
 test('a contract’s sections are never statutes', () => {
@@ -1937,4 +2033,87 @@ test('reproduced document text is its own source and no analysis (LC-1)', () => 
   // The excerpt is not analysis, and its text is no client fact.
   assert.deepEqual(shape(reading), ['caption Caption', 'sub-issue Analysis', 'other Part 1']);
   assert.ok(!reading.checks.some(check => check.id === 'facts-section'));
+});
+
+test('session laws, the Statutes at Large and the Federal Register are titled without pins', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'Congress amended the Act. Pub. L. No. 110-325, § 2(b)(5), 122 Stat. 3553, 3554 (2008). It meant it. See Pub. L. No. 110-325, § 2(b)(4), 122 Stat. at 3554. The agency agreed. 76 Fed. Reg. 16,978, 16,981 (Mar. 25, 2011). Congress also acted later. 123 Stat. 1200, 1205 (2009).',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(
+    reading.authorities.map(row => [row.name, row.title]),
+    [
+      ['76 Fed. Reg. 16,978', '76 Fed. Reg. 16,978 (Mar. 25, 2011)'],
+      ['123 Stat. 1200', '123 Stat. 1200 (2009)'],
+      ['Pub. L. No. 110-325', 'Pub. L. No. 110-325, 122 Stat. 3553 (2008)'],
+    ],
+  );
+  // A session law's chip names the section cited, not every page of it.
+  assert.deepEqual(
+    [1, 2].flatMap(n => chips(n, reading)),
+    ['Pub. L. No. 110-325, § 2(b)(5)', 'Pub. L. No. 110-325, § 2(b)(4)'],
+  );
+  // A report's part makes it a report of its own, so its name keeps it.
+  const report = analyzeLegal(
+    doc([['p', 'Congress meant it. H.R. Rep. No. 110-730, pt. 1, at 5 (2008).']]),
+    null,
+  );
+  assert.equal(report.authorities[0].name, 'H.R. Rep. No. 110-730, pt. 1');
+});
+
+test('a cross-reference in a contract’s own clauses is no source, while the analysis rests on the clause it names', () => {
+  const reading = analyzeLegal(
+    doc([
+      ['h2', 'Email'],
+      [
+        'p',
+        'Whether Kestrel may leave. Separately, § 4.3 allows termination for cause. So Kestrel may leave.',
+      ],
+      ['h2', 'Excerpt'],
+      ['h3', '4. Termination'],
+      ['p', 'Either party may terminate under this Section 4.3 on notice. See also § 7.4.'],
+    ]),
+    tags(
+      'heading/framing issue/framing facts/client-fact conclusion/conclusion heading/framing heading/framing facts/client-fact',
+    ),
+  );
+  assert.deepEqual(supports(reading), ['n/a', 'n/a', 'record', 'n/a', 'n/a', 'n/a', 'n/a']);
+  assert.equal(reading.attentionCount, 0);
+});
+
+test('no two sections share a tag when headings number some of them', () => {
+  assert.deepEqual(
+    sectionsOf(
+      doc([
+        ['h2', 'Email to Dana'],
+        ['p', 'Here is my view.'],
+        ['h2', 'Excerpt'],
+        ['h3', '2. Definitions'],
+        ['p', 'Terms mean what they say.'],
+        ['h3', '3. Fees'],
+        ['p', 'Fees are due monthly.'],
+      ]),
+    ).map(section => section.tag),
+    ['Part 1', 'Part 4', 'Part 2', 'Part 3'],
+  );
+});
+
+test('a case cited only by its neutral citation is named by all of it', () => {
+  const reading = analyzeLegal(
+    doc([['p', 'The letter leaned on [2019] UKSC 5 at [41]. It cited [2019] UKSC 5 again.']]),
+    null,
+  );
+  assert.deepEqual(
+    reading.authorities.map(row => [row.name, row.title, row.level]),
+    [['[2019] UKSC 5', '[2019] UKSC 5', 'supreme']],
+  );
+  assert.deepEqual(
+    [1, 2].flatMap(n => chips(n, reading)),
+    ['[2019] UKSC 5 [41]', '[2019] UKSC 5'],
+  );
 });

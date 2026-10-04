@@ -758,6 +758,30 @@ test('LT-9: case names never start with the sentence’s words', () => {
   assert.ok(NOT_NAME.has('Under'));
 });
 
+test('a declaration’s name ends at the end of its sentence, and keeps its initials', () => {
+  assert.deepEqual(
+    findCitations('The plan was signed. Decl. of Tomas Reyes. He then left. Id. ¶ 4.').map(cite => [
+      cite.type,
+      cite.text,
+    ]),
+    [
+      ['record', 'Decl. of Tomas Reyes'],
+      ['id', 'Id. ¶ 4'],
+    ],
+  );
+  for (const record of [
+    'Decl. of Tomas R. Reyes ¶ 3',
+    'Aff. of J. Smith at 4',
+    'Decl. of Ann Lee, Jr. ¶ 2',
+    'Dep. of Mary Jones 4:2-9',
+  ])
+    assert.equal(only(`Signed. ${record}. Then the Court ruled.`).text, record);
+  assert.deepEqual(attached('It was signed. Decl. of Tomas Reyes. He then left.'), [
+    'It was signed. Decl. of Tomas Reyes.',
+    'He then left.',
+  ]);
+});
+
 test('LT-10: a curly possessive does not cut the case name', () => {
   assert.equal(
     only(

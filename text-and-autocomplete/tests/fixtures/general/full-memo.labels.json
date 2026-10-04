@@ -1,0 +1,221 @@
+{
+  "MEMORANDUM": ["heading", "framing"],
+  "TO: Dana Whitfield, Supervising Partner": ["other", "framing"],
+  "FROM: Associate": ["other", "framing"],
+  "DATE: October 1, 2026": ["other", "framing"],
+  "RE: Marisol Alvarez; Title VII retaliation claim against Brightwater Logistics, Inc.": [
+    "other",
+    "framing"
+  ],
+  "QUESTION PRESENTED": ["heading", "framing"],
+  "Under Title VII’s anti-retaliation provision, can Marisol Alvarez establish a prima facie case of retaliation against Brightwater Logistics, Inc., where she complained in writing to human resources about her supervisor’s sexist remarks and, five weeks later, was moved from the day shift to an overnight shift at a distant warehouse at the same pay?": [
+    "issue",
+    "law"
+  ],
+  "BRIEF ANSWER": ["heading", "framing"],
+  "Probably yes.": ["conclusion", "conclusion"],
+  "Alvarez’s written complaint is protected activity, and a reasonable worker could well be dissuaded from complaining by a forced move to overnight work.": [
+    "conclusion",
+    "conclusion"
+  ],
+  "Causation is the closest question, because Brightwater will argue that the transfer was planned before she complained, but the five-week gap and the supervisor’s role in the decision should be enough to make out a prima facie case.": [
+    "conclusion",
+    "conclusion"
+  ],
+  "STATEMENT OF FACTS": ["heading", "framing"],
+  "Alvarez has worked as a shift lead at Brightwater’s Elmhurst distribution center since 2019. Alvarez Dep. 8:2-11.": [
+    "facts",
+    "client-fact"
+  ],
+  "Her supervisor, Grant Hollis, repeatedly told her in front of her crew that “women don’t belong on the loading dock.” Id. at 14:3-9.": [
+    "facts",
+    "client-fact"
+  ],
+  "On March 3, 2025, Alvarez submitted a written complaint to Brightwater’s human resources department describing Hollis’s remarks. Ex. A at 1.": [
+    "facts",
+    "client-fact"
+  ],
+  "Hollis learned of the complaint on March 6, when the HR manager interviewed him. Hollis Dep. 22:15-23:4.": [
+    "facts",
+    "client-fact"
+  ],
+  "On April 7, 2025, Brightwater transferred Alvarez to the overnight shift at its Joliet facility, forty miles from her home, at the same hourly rate. Ex. B at 3.": [
+    "facts",
+    "client-fact"
+  ],
+  "Hollis recommended the transfer in an email to the regional director. Ex. D at 2.": [
+    "facts",
+    "client-fact"
+  ],
+  "Brightwater’s operations plan, dated February 10, 2025, called for “rebalancing experienced leads across facilities,” but it did not name Alvarez or any other employee. Ex. C at 4.": [
+    "facts",
+    "client-fact"
+  ],
+  "Alvarez, a single parent of two school-age children, told us that the overnight schedule has left her without child care.": [
+    "facts",
+    "client-fact"
+  ],
+  "(Need to confirm with client whether she has records of the added child-care costs.)": [
+    "other",
+    "framing"
+  ],
+  "DISCUSSION": ["heading", "framing"],
+  "Alvarez can likely establish a prima facie case of retaliation under Title VII.": [
+    "conclusion",
+    "conclusion"
+  ],
+  "Title VII makes it unlawful for an employer to discriminate against an employee “because he has opposed any practice made an unlawful employment practice by this subchapter.” 42 U.S.C. § 2000e-3(a).": [
+    "rule",
+    "law"
+  ],
+  "To make out a prima facie case, a plaintiff must show (1) that she engaged in protected activity, (2) that the employer knew of that activity, (3) that she suffered a materially adverse action, and (4) that a causal connection exists between the protected activity and the adverse action. Hicks v. Baines, 593 F.3d 159, 164 (2d Cir. 2010).": [
+    "rule",
+    "law"
+  ],
+  "Brightwater does not dispute that it knew of the complaint, so this memo does not address the second element.": [
+    "roadmap",
+    "framing"
+  ],
+  "The memo first addresses protected activity briefly, then whether the transfer was materially adverse, and finally causation, which presents the closest question.": [
+    "roadmap",
+    "framing"
+  ],
+  "A. Alvarez’s written complaint to human resources is protected activity.": [
+    "heading",
+    "conclusion"
+  ],
+  "An employee’s internal complaint about conduct she reasonably believes violates Title VII is protected activity under the statute’s opposition clause. See Crawford v. Metro. Gov’t of Nashville & Davidson Cnty., 555 U.S. 271, 276 (2009).": [
+    "rule",
+    "law"
+  ],
+  "In Crawford, the Supreme Court held that an employee who described a supervisor’s harassment in answer to an internal investigator’s questions had “opposed” the practice, because to oppose means “to resist or antagonize . . . ; to contend against; to confront; resist; withstand.” Id. (quoting Webster’s New International Dictionary 1710 (2d ed. 1957)).": [
+    "explanation",
+    "precedent"
+  ],
+  "The employee need not prove that the conduct was actually unlawful, only that she held a good-faith, reasonable belief that it was. Kwan v. Andalex Grp. LLC, 737 F.3d 834, 843 (2d Cir. 2013).": [
+    "rule",
+    "law"
+  ],
+  "Here, Alvarez went further than the employee in Crawford: she started the complaint herself, in writing, rather than answering an investigator’s questions. Ex. A at 1.": [
+    "application",
+    "application"
+  ],
+  "Hollis’s repeated statement that women do not belong on the loading dock is the kind of sex-based remark that a reasonable employee could believe violates Title VII.": [
+    "application",
+    "application"
+  ],
+  "A court would therefore almost certainly find that Alvarez engaged in protected activity.": [
+    "conclusion",
+    "conclusion"
+  ],
+  "B. The transfer to an overnight shift at a distant facility is likely a materially adverse action.": [
+    "heading",
+    "conclusion"
+  ],
+  "An action is materially adverse if it “well might have dissuaded a reasonable worker from making or supporting a charge of discrimination.” Burlington N. & Santa Fe Ry. Co. v. White, 548 U.S. 53, 68 (2006) (internal quotation marks omitted).": [
+    "rule",
+    "law"
+  ],
+  "The standard is objective, but “context matters,” and a change that is trivial for one employee may matter greatly to another. Id. at 69.": [
+    "rule",
+    "law"
+  ],
+  "The Court gave as its example a schedule change that “may make little difference to many workers, but may matter enormously to a young mother with school-age children.” Id.": [
+    "explanation",
+    "precedent"
+  ],
+  "In Burlington Northern itself, the Court held that reassigning a forklift operator to dirtier and more arduous track-laborer duties was materially adverse even though both jobs fell within the same job description and paid the same. Id. at 70-71.": [
+    "explanation",
+    "precedent"
+  ],
+  "Here, Brightwater moved Alvarez from days to overnights and added a forty-mile commute. Ex. B at 3.": [
+    "application",
+    "client-fact"
+  ],
+  "Like the reassignment in Burlington Northern, the transfer kept her pay the same but made her job materially worse, and Alvarez is precisely the parent of school-age children that the Court described.": [
+    "application",
+    "application"
+  ],
+  "Brightwater may argue that a lateral transfer at equal pay is not adverse. See Galabya v. N.Y.C. Bd. of Educ., 202 F.3d 636, 640 (2d Cir. 2000).": [
+    "counter",
+    "application"
+  ],
+  "But Galabya applied the stricter standard for discrimination claims, which Burlington Northern rejected for retaliation claims. 548 U.S. at 64.": [
+    "counter",
+    "precedent"
+  ],
+  "The transfer is therefore likely a materially adverse action.": ["conclusion", "conclusion"],
+  "C. Alvarez can likely show causation, although Brightwater’s earlier staffing plan makes this the closest question.": [
+    "heading",
+    "conclusion"
+  ],
+  "A retaliation plaintiff must ultimately prove that her protected activity was a but-for cause of the adverse action. Univ. of Tex. Sw. Med. Ctr. v. Nassar, 570 U.S. 338, 360 (2013).": [
+    "rule",
+    "law"
+  ],
+  "At the prima facie stage, however, she may show causation indirectly, by showing that the protected activity was followed closely in time by the adverse action. Gorzynski v. JetBlue Airways Corp., 596 F.3d 93, 110 (2d Cir. 2010).": [
+    "rule",
+    "law"
+  ],
+  "The Supreme Court has said that temporal proximity alone suffices only when it is “very close,” and it held that a twenty-month gap showed no causality at all. Clark Cnty. Sch. Dist. v. Breeden, 532 U.S. 268, 273-74 (2001) (per curiam).": [
+    "explanation",
+    "precedent"
+  ],
+  "Courts in this Circuit have not drawn a bright line, but they have treated gaps of a few weeks as sufficient. See Kwan, 737 F.3d at 845 (three weeks); Gorzynski, 596 F.3d at 110.": [
+    "rule",
+    "law"
+  ],
+  "An employer that proceeds “along lines previously contemplated” before it learns of a complaint, however, offers no evidence of causality. Breeden, 532 U.S. at 272.": [
+    "rule",
+    "law"
+  ],
+  "Here, Brightwater transferred Alvarez five weeks after her complaint and about four and a half weeks after Hollis learned of it. Ex. B at 3; Hollis Dep. 22:15-23:4.": [
+    "application",
+    "client-fact"
+  ],
+  "That gap is close to the three weeks found sufficient in Kwan and far shorter than the twenty months rejected in Breeden.": [
+    "application",
+    "application"
+  ],
+  "Hollis, the subject of the complaint, also recommended the transfer himself. Ex. D at 2.": [
+    "application",
+    "client-fact"
+  ],
+  "Brightwater will argue that its February operations plan shows that the transfer was “previously contemplated,” so the timing proves nothing. Breeden, 532 U.S. at 272; Ex. C at 4.": [
+    "counter",
+    "application"
+  ],
+  "That argument is weaker than it looks, because the plan spoke only of “rebalancing experienced leads” and never selected Alvarez.": [
+    "counter",
+    "application"
+  ],
+  "Unlike the transfer in Breeden, the decision to move Alvarez in particular was made only after Hollis learned of her complaint. Ex. D at 2.": [
+    "counter",
+    "application"
+  ],
+  "Even so, a court could read the plan as evidence that a move was already under way, so this element is closer than the others.": [
+    "counter",
+    "application"
+  ],
+  "On balance, a court will probably find causation sufficiently shown at the prima facie stage.": [
+    "conclusion",
+    "conclusion"
+  ],
+  "CONCLUSION": ["heading", "framing"],
+  "Alvarez can likely establish a prima facie case of Title VII retaliation.": [
+    "conclusion",
+    "conclusion"
+  ],
+  "Her written complaint is protected activity, and a transfer to overnight work at a distant facility would dissuade a reasonable worker from complaining.": [
+    "conclusion",
+    "conclusion"
+  ],
+  "Causation is the weakest element because of Brightwater’s February plan, but the short gap and Hollis’s role in the transfer should probably carry it at the prima facie stage.": [
+    "conclusion",
+    "conclusion"
+  ],
+  "We should obtain Brightwater’s internal communications about the operations plan before advising Alvarez on whether to file a charge with the EEOC.": [
+    "other",
+    "framing"
+  ]
+}

@@ -1,0 +1,206 @@
+{
+  "UNITED STATES DISTRICT COURT": ["other", "framing"],
+  "SOUTHERN DISTRICT OF NEW YORK": ["other", "framing"],
+  "CORVINA FOODS, LLC, Plaintiff,": ["other", "framing"],
+  "v.": ["other", "framing"],
+  "HALVORSEN LOGISTICS, INC., Defendant.": ["other", "framing"],
+  "No. 1:26-cv-03317 (KQV)": ["other", "framing"],
+  "MEMORANDUM OF POINTS AND AUTHORITIES IN SUPPORT OF DEFENDANT’S MOTION TO DISMISS": [
+    "heading",
+    "framing"
+  ],
+  "INTRODUCTION": ["heading", "framing"],
+  "Defendant Halvorsen Logistics, Inc. (“Halvorsen”) respectfully submits this memorandum in support of its motion to dismiss the Complaint of Plaintiff Corvina Foods, LLC (“Corvina”) under Fed. R. Civ. P. 12(b)(6) and 9(b).": [
+    "other",
+    "framing"
+  ],
+  "This is a contract dispute dressed up as a fraud case.": ["conclusion", "conclusion"],
+  "Corvina alleges that a refrigerated trailer failed during a single shipment in August 2025 and that Halvorsen must therefore have lied when it described its “temperature-controlled fleet” months earlier.": [
+    "facts",
+    "client-fact"
+  ],
+  "Those allegations do not state a claim for fraud, and they fall well short of the particularity that Rule 9(b) demands.": [
+    "conclusion",
+    "conclusion"
+  ],
+  "Nor can Corvina recast a private commercial dispute as a consumer-protection claim under N.Y. Gen. Bus. Law § 349.": [
+    "conclusion",
+    "conclusion"
+  ],
+  "The Court should dismiss Counts II and III with prejudice.": ["conclusion", "conclusion"],
+  "BACKGROUND": ["heading", "framing"],
+  "Corvina distributes fresh seafood to restaurants in the New York metropolitan area. Compl. ¶ 6.": [
+    "facts",
+    "client-fact"
+  ],
+  "On March 3, 2025, Corvina and Halvorsen signed a Master Transportation Agreement (the “Agreement”) under which Halvorsen agreed to haul Corvina’s product between Portland, Maine and the Bronx. Id. ¶¶ 12–14; see also Decl. of Tomas Reyes, ECF No. 12, Ex. A.": [
+    "facts",
+    "client-fact"
+  ],
+  "The Agreement requires Halvorsen to keep each load between 32 and 38 degrees Fahrenheit and caps Halvorsen’s liability for spoiled cargo at $25,000 per shipment. Agreement §§ 4.2, 9.1.": [
+    "facts",
+    "client-fact"
+  ],
+  "According to the Complaint, a Halvorsen sales representative told Corvina’s owner in early 2025 that Halvorsen operated “a fully temperature-controlled fleet with real-time monitoring on every trailer.” (Compl. ¶ 9.)": [
+    "facts",
+    "client-fact"
+  ],
+  "On August 14, 2025, a trailer carrying 11,000 pounds of Corvina’s product lost refrigeration near Hartford, Connecticut, and the load spoiled. (Id. ¶¶ 21–23.)": [
+    "facts",
+    "client-fact"
+  ],
+  "Corvina alleges that Halvorsen knew some of its older trailers lacked monitoring units. (Id. ¶ 27.)": [
+    "facts",
+    "client-fact"
+  ],
+  "The Complaint does not name the representative, give the date or place of the conversation, or allege any fact suggesting that the statement was false when it was made.": [
+    "facts",
+    "client-fact"
+  ],
+  "Corvina asserts three claims: breach of contract (Count I), fraudulent inducement (Count II), and deceptive business practices under N.Y. Gen. Bus. Law § 349 (Count III). (Compl. ¶¶ 34–58.)": [
+    "facts",
+    "client-fact"
+  ],
+  "Halvorsen moves to dismiss Counts II and III only.": ["facts", "client-fact"],
+  "LEGAL STANDARD": ["heading", "framing"],
+  "To survive a motion to dismiss under Fed. R. Civ. P. 12(b)(6), a complaint must plead “enough facts to state a claim to relief that is plausible on its face.” Bell Atl. Corp. v. Twombly, 550 U.S. 544, 570, 127 S. Ct. 1955, 167 L. Ed. 2d 929 (2007).": [
+    "rule",
+    "law"
+  ],
+  "The Supreme Court has explained the standard this way:": ["other", "framing"],
+  "A claim has facial plausibility when the plaintiff pleads factual content that allows the court to draw the reasonable inference that the defendant is liable for the misconduct alleged.": [
+    "rule",
+    "law"
+  ],
+  "The plausibility standard is not akin to a “probability requirement,” but it asks for more than a sheer possibility that a defendant has acted unlawfully.": [
+    "rule",
+    "law"
+  ],
+  "Ashcroft v. Iqbal, 556 U.S. 662, 678, 129 S. Ct. 1937, 173 L. Ed. 2d 868 (2009) (citation omitted).": [
+    "rule",
+    "law"
+  ],
+  "The Court accepts well-pleaded factual allegations as true, but it does not credit “[t]hreadbare recitals of the elements of a cause of action, supported by mere conclusory statements.” Id.": [
+    "rule",
+    "law"
+  ],
+  "In Iqbal, the Court applied that standard to dismiss a complaint whose allegations of discriminatory purpose were conclusory.": [
+    "explanation",
+    "precedent"
+  ],
+  "The Court may also consider documents incorporated by reference in the complaint or integral to it, such as the Agreement. Chambers v. Time Warner, Inc., 282 F.3d 147, 152–53 (2d Cir. 2002).": [
+    "rule",
+    "law"
+  ],
+  "ARGUMENT": ["heading", "framing"],
+  "Corvina’s fraud and Section 349 claims fail for independent reasons.": [
+    "conclusion",
+    "conclusion"
+  ],
+  "Point I shows that the fraud claim is not pleaded with particularity and in any event duplicates the contract claim.": [
+    "roadmap",
+    "framing"
+  ],
+  "Point II shows that the Section 349 claim concerns a private contract, not conduct aimed at consumers.": [
+    "roadmap",
+    "framing"
+  ],
+  "I. THE FRAUDULENT INDUCEMENT CLAIM (COUNT II) SHOULD BE DISMISSED": ["heading", "conclusion"],
+  "Count II fails for two independent reasons.": ["conclusion", "conclusion"],
+  "A. Corvina Does Not Plead Fraud with the Particularity Rule 9(b) Requires": [
+    "heading",
+    "conclusion"
+  ],
+  "A party alleging fraud “must state with particularity the circumstances constituting fraud.” Fed. R. Civ. P. 9(b).": [
+    "rule",
+    "law"
+  ],
+  "To satisfy the rule, a complaint must “(1) specify the statements that the plaintiff contends were fraudulent, (2) identify the speaker, (3) state where and when the statements were made, and (4) explain why the statements were fraudulent.” Lerner v. Fleet Bank, N.A., 459 F.3d 273, 290 (2d Cir. 2006) (internal quotation marks omitted).": [
+    "rule",
+    "law"
+  ],
+  "Courts in this District routinely dismiss fraud claims that attribute a statement to an unnamed “representative” on an unspecified date. See Meridian Produce Co. v. Talbot Freight Sys., Inc., No. 18-cv-7702 (TZW), 2019 WL 1234567, at *3 (S.D.N.Y. Mar. 5, 2019) (dismissing fraud claim against carrier where shipper alleged only that “a salesperson” promised refrigerated service “in or around 2017”); see also Rombach v. Chang, 355 F.3d 164, 170 (2d Cir. 2004) (applying Rule 9(b) to any claim that “sounds in fraud”). But see Kessler v. Northgate Cold Storage, LLC, 2021 WL 4410382, at *6 (S.D.N.Y. Sept. 27, 2021) (sustaining fraud claim where the plaintiff identified the speaker by title and the statement by month).": [
+    "explanation",
+    "law"
+  ],
+  "Corvina’s allegations fail each of these requirements.": ["application", "application"],
+  "The Complaint attributes the “fully temperature-controlled fleet” statement to an unnamed “sales representative” and places it only “in early 2025.” (Compl. ¶ 9.)": [
+    "application",
+    "client-fact"
+  ],
+  "Like the shipper in Meridian Produce, Corvina does not say who spoke, when, or where. Meridian Produce, 2019 WL 1234567, at *3.": [
+    "application",
+    "application"
+  ],
+  "Unlike the plaintiff in Kessler, Corvina does not even give the speaker’s title.": [
+    "counter",
+    "application"
+  ],
+  "Its allegation that Halvorsen “knew” some trailers lacked monitoring units is a bare assertion of the kind Iqbal disregards. See Iqbal, 556 U.S. at 678; Twombly, 550 U.S. at 555.": [
+    "application",
+    "application"
+  ],
+  "And it pleads no facts suggesting the statement was false when made: a single refrigeration failure months later says nothing about the state of Halvorsen’s fleet in early 2025. Cf. Arista Records, LLC v. Doe 3, 604 F.3d 110, 120 (2d Cir. 2010) (noting that pleading on information and belief is permitted only where the facts are peculiarly within the defendant’s possession).": [
+    "application",
+    "application"
+  ],
+  "The fraud claim should therefore be dismissed.": ["conclusion", "conclusion"],
+  "B. The Fraud Claim Duplicates the Breach of Contract Claim": ["heading", "conclusion"],
+  "Under New York law, a fraud claim that arises from the same facts as a contract claim must be dismissed unless the plaintiff shows a legal duty separate from the contract, a fraudulent misrepresentation collateral or extraneous to the contract, or special damages not recoverable in contract. Bridgestone/Firestone, Inc. v. Recovery Credit Servs., Inc., 98 F.3d 13, 20 (2d Cir. 1996).": [
+    "rule",
+    "law"
+  ],
+  "Here, the alleged misrepresentation concerns the very performance the Agreement promises: refrigerated carriage between 32 and 38 degrees. Agreement § 4.2.": [
+    "application",
+    "application"
+  ],
+  "The damages Corvina seeks, the value of the spoiled load, are the same damages it seeks for breach. (Compl. ¶¶ 41, 49.)": [
+    "application",
+    "client-fact"
+  ],
+  "Corvina may respond that the representative described a present fact rather than a future promise.": [
+    "counter",
+    "application"
+  ],
+  "That distinction does not help it, because the Agreement itself warrants the same capability, so the statement is not collateral to the contract. See Bridgestone/Firestone, 98 F.3d at 20.": [
+    "counter",
+    "application"
+  ],
+  "Corvina’s fraud claim is thus the contract claim under another name, and it should be dismissed for this reason as well.": [
+    "conclusion",
+    "conclusion"
+  ],
+  "II. THE SECTION 349 CLAIM (COUNT III) FAILS BECAUSE THE CONDUCT ALLEGED IS NOT CONSUMER-ORIENTED": [
+    "heading",
+    "conclusion"
+  ],
+  "Section 349 prohibits “[d]eceptive acts or practices in the conduct of any business, trade or commerce.” N.Y. Gen. Bus. Law § 349(a).": [
+    "rule",
+    "law"
+  ],
+  "A plaintiff must show, as a threshold matter, that the challenged conduct was “consumer-oriented.” Oswego Laborers’ Local 214 Pension Fund v. Marine Midland Bank, N.A., 85 N.Y.2d 20, 25, 647 N.E.2d 741, 623 N.Y.S.2d 529 (1995).": [
+    "rule",
+    "law"
+  ],
+  "Private contract disputes unique to the parties do not fall within the statute. Id.": [
+    "rule",
+    "law"
+  ],
+  "Corvina alleges a negotiated, multi-year freight agreement between two businesses, with its own price schedule and liability cap. (Compl. ¶¶ 12–15.)": [
+    "application",
+    "client-fact"
+  ],
+  "That is the paradigm of a private dispute, and Count III should be dismissed.": [
+    "conclusion",
+    "conclusion"
+  ],
+  "CONCLUSION": ["heading", "framing"],
+  "For the foregoing reasons, Halvorsen respectfully requests that the Court dismiss Counts II and III of the Complaint with prejudice.": [
+    "conclusion",
+    "conclusion"
+  ],
+  "Because Corvina already had the benefit of Halvorsen’s pre-motion letter, ECF No. 9, and chose not to amend, leave to amend would be futile.": [
+    "conclusion",
+    "conclusion"
+  ]
+}

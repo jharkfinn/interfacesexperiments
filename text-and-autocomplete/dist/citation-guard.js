@@ -134,10 +134,35 @@ const CITATION_TAIL = new RegExp(
     String.raw`\b\d{4}\s+(?:WL|U\.S\.\s?Dist\.\s?LEXIS)`,
     String.raw`\bat\s+pp?\.`,
     String.raw`\bsupra,?(?:\s+note(?:\s+\d+)?,?)?(?:\s+at)?`,
+    String.raw`\bsupra,\s*\d{1,4}`,
     String.raw`${NOT_AFTER_ARTICLE}\b(?:v|vs)\.?\s[^()\n]{1,80}\(\d{4}\)`,
     String.raw`\bIn re\s[^()\n]{1,80}\(\d{4}\)`,
     String.raw`\bNos?\.\s+[\w:–-]{1,20}(?:\s*\([A-Z]{2,5}\))+,`,
-    String.raw`${NOT_AFTER_ARTICLE}\b(?:v|vs)\.?\s+[A-Z][\w.'’&-]*(?:,?\s+(?:[A-Z][\w.'’&-]*|of|the|and|&|for|on|de|ex\s+rel\.)){0,10},`,
+    // A case name and the volume after it: "Kessler v. Northgate Cold Storage, LLC, ",
+    // "Bell Atl. Corp. v. Twombly, 550 ", and "In re Marriage of", which is one throughout.
+    String.raw`${NOT_AFTER_ARTICLE}\b(?:v|vs)\.?\s+[A-Z][\w.'’&-]*(?:,?\s+(?:[A-Z][\w.'’&-]*|of|the|and|&|for|on|de|ex\s+rel\.)){0,10},(?:\s*\d{1,4})?`,
+    String.raw`\bIn re(?:,?\s+(?:[A-Z][\w.'’&-]*|of|the|and|&|for)){0,10}(?:,\s*\d{0,4})?`,
+    // A court or a date still open in its parenthesis: "(S.D.N.Y. ", "(D. Del. Jan. ", "(2d
+    // Cir. 20", "(Oct. 17, ", and "Question 34 (Oct. ". One abbreviation alone ("(Dr. ",
+    // "(St. ") is prose.
+    String.raw`\((?:(?:[A-Z]\.){2,}\s?|(?:[A-Z][a-z'’]*\.\s?){2,4}|\d{1,2}(?:st|nd|rd|th|d)\s+Cir\.\s?)(?:[A-Z][a-z'’]*\.\s?){0,3}(?:${MONTH}\.?\s*(?:\d{1,2},?\s*)?)?\d{0,4}`,
+    String.raw`\((?:[^()\n]{0,40}?\s)?${MONTH}\.?\s+\d{1,2},`,
+    String.raw`\((?<=[\d\]]\s?\()${MONTH}\.?`,
+    // English and Canadian citations: "[2015] UKSC ", "[1990] 1 WLR ", "[2004] EWCA Crim ",
+    // "(1854) 9 Exch ", the California "(2001) 25 ", "2019 SCC " and "Donoghue v".
+    String.raw`\[\d{4}\](?:\s+\d{1,3})?(?:\s+[A-Z][A-Za-z]{0,5}\.?){0,2}`,
+    String.raw`\(\d{4}\)\s+\d{1,3}(?:\s+[A-Z][\w.]{0,10})?`,
+    String.raw`\b\d{4}\s+(?:UKSC|UKPC|UKHL|EWCA|EWHC|CSIH|CSOH|NICA|IESC|SCC|FCA|FC|ONCA|BCCA|ABCA|QCCA|NSCA|ONSC|BCSC|ABQB)(?:\s+[A-Z][a-z]{1,5})?`,
+    String.raw`\b[A-Z](?<!\b(?:[Tt]he|[Aa]n?)\s+[A-Z])[\w'’&-]*\s+v`,
+    // Their statutes: "Theft Act 1968, s ", "RSC 1985, c T-13, s ".
+    String.raw`\bAct\s+\d{4},(?:\s*ss?\.?)?`,
+    String.raw`\bRS[A-Z]{1,2}\s+\d{4},(?:\s*c\.?(?:\s+[\w-]{1,10},?(?:\s*ss?\.?)?)?)?`,
+    // Public laws, the Restatement, authors and the record: "Pub. L. No. ", "Restatement
+    // (Second) of ", "Lindemann et al., ", "R. at ".
+    String.raw`\bPub\.\s?L\.(?:\s?Nos?\.)?`,
+    String.raw`\bRestatement(?:\s+\((?:First|Second|Third|Fourth)\))?(?:\s+of(?:\s+(?:the|and|[A-Z][\w'’]*)){0,4})?`,
+    String.raw`\b[A-Z][\w'’-]*\s+et(?:\s+al\.,?)?`,
+    String.raw`\bR\.\s+at`,
     String.raw`(?:\b(?:Am\.\s+)?Compl|\bDecl|\bAff|\bDepo?|\bExh?|\bExs|\bTr)\.`,
     String.raw`\bECF(?:\s+No\.)?`,
     String.raw`\bDkt\.(?:\s+No\.)?`,
@@ -148,12 +173,17 @@ const CITATION_TAIL = new RegExp(
   ].join('|')})\s*$`,
   'g',
 );
-// Words only the name of a code, rule or report uses ("Code", "Proc.", "Rep.", "amend.").
+// Words only the name of a code, rule or report uses ("Code", "Proc.", "Rep.", "amend.",
+// "Cong.", the "Law" of "N.Y. Gen. Bus. Law").
 const CODE_WORD =
-  /^(?:Code|Const\.|amend\.|app\.|pt\.|art\.|tit\.|subd\.|Ann\.|Stat\.|Regs?\.|Rep\.|Doc\.|Rec\.|U\.S\.C\.|C\.F\.R\.|Civ\.|Crim\.|Proc\.|Evid\.|Pen\.|Lab\.|Fam\.|Veh\.|Welf\.|Gov['’]t)$/;
+  /^(?:Code|Law|C\.P\.L\.R\.|Cong\.|Const\.|amend\.|app\.|pt\.|art\.|tit\.|subd\.|Ann\.|Stat\.|Regs?\.|Rep\.|Doc\.|Rec\.|U\.S\.C\.|C\.F\.R\.|Civ\.|Crim\.|Proc\.|Evid\.|Pen\.|Lab\.|Fam\.|Veh\.|Welf\.|Gov['’]t)$/;
+// Words that go on with the citation just before them: a pin ("Id. at", "Ex. A at", "2019
+// WL 1234567, at", "65 at para"), a part or a note ("pt.", "n."), "et seq." and "slip op.".
+const CONTINUES =
+  /(?:,\s*)?\b(?:at(?:\s+(?:pp?\.|paras?\.?|¶¶?|n\.))?|pt\.|paras?\.?|n\.|note|et|slip(?:\s+op\.(?:\s+at)?)?)$/;
 // A signal left at the end of an insertion once the citation after it is cut ("…, see").
 const TRAILING_SIGNAL =
-  /(?:^|[\s(])(?:see(?:,?\s+e\.g\.,?|\s+also|\s+generally)?|cf\.|but\s+(?:see|cf\.)|accord|contra|compare|e\.g\.,?|quoting|citing)$/i;
+  /(?:^|[\s(])(?:see(?:,?\s+e\.g\.,?|\s+also|\s+generally)?|cf\.|but\s+(?:see|cf\.)|accord|contra|compare|e\.g\.,?|quoting|citing)$/gi;
 // The signal written right before a citation: "See", "but see", "See, e.g.,", "cf.".
 const SIGNAL_BEFORE =
   /(?:^|[\s;,(\[])((?:but\s+)?(?:see(?:\s+also|\s+generally|,\s*e\.g\.,)?|cf\.)|compare|accord|contra|e\.g\.,)\s+$/i;
@@ -186,15 +216,23 @@ const CITATION_DATE = new RegExp(
   String.raw`\((?:(?:[A-Z][\w.'’&]*\.|[A-Z]{2,}|\d+(?:st|nd|rd|th|d)|ed\.|West|McKinney|Lexis|Deering|Vernon|en\s+banc)\s+){1,6}(?:${MONTH}\.?\s+\d{1,2},\s+)?(?:1[6-9]|20)\d\d\)|(?<=[\d\]]\s?)\(${MONTH}\.?\s+\d{1,2},\s+(?:1[6-9]|20)\d\d\)|\([A-Z][^()\n]{0,80}?\b(?:1[6-9]|20)\d\d\)(?=[.;])`,
   'g',
 );
-// Number words, so "sixty (60)" may become "60" and "forty miles" "40 miles".
+// Number words, so "sixty (60)" may become "60", "forty miles" "40 miles" and "two
+// hundred" "200".
 const SMALL_NUMBERS =
   'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen'.split(
     ' ',
   );
 const TENS = 'twenty thirty forty fifty sixty seventy eighty ninety'.split(' ');
 const NUMBER = new RegExp(
-  String.raw`\d+(?:[.,:]\d+)*|\b(?:(${TENS.join('|')})(?:[-\s](${SMALL_NUMBERS.slice(1, 10).join('|')}))?|(${SMALL_NUMBERS.join('|')}))\b`,
+  String.raw`\d+(?:[.,:]\d+)*|\b(?:(${TENS.join('|')})(?:[-\s](${SMALL_NUMBERS.slice(1, 10).join('|')}))?|(${SMALL_NUMBERS.join('|')}))(?:\s+(hundred|thousand))?\b`,
   'gi',
+);
+// Month and weekday names, so a rewrite may not move "April 7" to "May 7" or "Monday" to
+// "Tuesday". "Mar." and "March" are the same month. "May" counts only beside a day or a
+// year, since it is also a verb.
+const DATE_WORD = new RegExp(
+  String.raw`(?<![\w.])(?:(?:January|February|March|April|June|July|August|September|October|November|December|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)(?![\w'’])|(?:Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)\.|May(?=,?\s+\d)|(?<=\d\s)May(?![\w'’]))`,
+  'g',
 );
 
 const count = (text, re) => (text.match(re) || []).length;
@@ -349,31 +387,39 @@ function nameSpans(text, cites, names) {
   });
 }
 // The case names in `text`, sorted, for comparing two texts. `cites` are its citations.
+// A possessive is the same name: "in Burlington Northern" may become "Burlington
+// Northern’s".
 const namesIn = (text, cites, names) =>
   nameSpans(text, cites, names)
-    .map(([s, e]) => text.slice(s, e))
+    .map(([s, e]) => text.slice(s, e).replace(/['’]s$/, ''))
     .sort()
     .join('\n');
 
-// The numbers in `text`, as values: "16,978" is 16978, and "sixty" is 60. A number word
-// below `least` is skipped, since "one" is often not a number at all ("the one who").
+// The numbers in `text`, as values: "16,978" is 16978, "sixty" is 60 and "two hundred"
+// 200, and its months and weekdays, by name ("month:Mar"). A number word below `least` is
+// skipped, since "one" is often not a number at all ("the one who").
 function numbersIn(text, least) {
   const values = [];
   for (const m of text.matchAll(NUMBER)) {
     let value;
     if (/^\d/.test(m[0])) value = m[0].replace(/,(?=\d{3}(?!\d))/g, '');
-    else if (m[1])
-      value =
-        (TENS.indexOf(m[1].toLowerCase()) + 2) * 10 +
-        (m[2] ? SMALL_NUMBERS.indexOf(m[2].toLowerCase()) : 0);
-    else value = SMALL_NUMBERS.indexOf(m[3].toLowerCase());
+    else {
+      value = m[1]
+        ? (TENS.indexOf(m[1].toLowerCase()) + 2) * 10 +
+          (m[2] ? SMALL_NUMBERS.indexOf(m[2].toLowerCase()) : 0)
+        : SMALL_NUMBERS.indexOf(m[3].toLowerCase());
+      if (m[4]) value *= /^h/i.test(m[4]) ? 100 : 1000;
+    }
     if (typeof value === 'string' || value >= least) values.push(String(value));
   }
+  for (const m of text.matchAll(DATE_WORD))
+    values.push(`${/day$/.test(m[0]) ? 'day' : 'month'}:${m[0].slice(0, 3)}`);
   return values;
 }
 // Whether `text` has a number or date `original` does not: each number it writes, as
-// digits or as a word from "two" up, must be one `original` has, as many times. A rewrite
-// may drop one ("(1) … (2) …" becoming a sentence), but not change or add one.
+// digits or as a word from "two" up, and each month or weekday it names, must be one
+// `original` has, as many times. A rewrite may drop one ("(1) … (2) …" becoming a
+// sentence), but not change or add one.
 function newNumber(original, text) {
   const left = new Map();
   for (const value of numbersIn(original, 0)) left.set(value, (left.get(value) || 0) + 1);
@@ -488,28 +534,33 @@ function openParentheses(text) {
   return opens;
 }
 
-// Where a run of code, rule or report words ends `text` ("Cal. Gov’t Code", "Code Civ.
-// Proc.,", "Bus. & Prof. Code", "H.R. Rep.", "U.S. Const. amend.", "29 C.F.R. pt. 1630,
-// app."), or -1. A run needs two words, one of them a word only such names use, so "the
-// Penal Code" and "Acme Inc." are prose.
+// Where a run of code, rule or report words ends `text` ("Cal. Gov’t Code", "(Civ. Code,",
+// "Code Civ. Proc.,", "Bus. & Prof. Code", "N.Y. Gen. Bus. Law", "H.R. Rep.", "U.S. Const.
+// amend. XIV,", "29 C.F.R. pt. 1630, app."), or -1. A run needs two words, one of them a
+// word only such names use, so "the Penal Code" and "Acme Inc." are prose.
 function codeRun(text) {
   const from = Math.max(0, text.length - 160);
   const words = [...text.slice(from).matchAll(/\S+/g)];
   let k = words.length;
   let code = false;
   for (; k > 0; k--) {
-    const word = words[k - 1][0].replace(/[,;]$/, '');
-    if (!/^\d{1,5}$|^Code$|^Gov['’]t$|^&$/.test(word) && !isAbbreviation(word)) break;
+    const word = words[k - 1][0].replace(/[,;]$/, '').replace(/^[(\[]/, '');
+    // A roman numeral counts only as the number of an article or amendment ("art. VI").
+    const numeral =
+      /^[IVXL]+$/.test(word) && /^(?:art|amend|tit|ch|pt)\.$/.test(words[k - 2]?.[0] ?? '');
+    if (!/^\d{1,5}$|^Code$|^Law$|^Gov['’]t$|^&$/.test(word) && !numeral && !isAbbreviation(word))
+      break;
     code ||= CODE_WORD.test(word);
   }
   return code && words.length - k >= 2 ? from + words[k].index : -1;
 }
 
 // Where a citation that `text` stops partway into begins, or -1: CITATION_TAIL's forms, a
-// run of code words, a citation that ends where the text does or at a page before a final
-// comma ("550 U.S. 544, 570,"), and an explanatory parenthetical still open after a
-// citation ("(2d Cir. 2004) (applying Rule 9(b) to"). `cites` are the citations of `text`,
-// or of a longer text that begins with it, and `opens` its open parentheses.
+// run of code words, a citation that ends where the text does, at a page before a final
+// comma ("550 U.S. 544, 570,") or before a word that goes on with it ("Id. at"), and an
+// explanatory parenthetical still open after a citation ("(2d Cir. 2004) (applying Rule
+// 9(b) to"). `cites` are the citations of `text`, or of a longer text that begins with
+// it, and `opens` its open parentheses.
 function partialCitation(text, cites, opens = openParentheses(text)) {
   const tail = tailMatch(
     CITATION_TAIL,
@@ -526,7 +577,9 @@ function partialCitation(text, cites, opens = openParentheses(text)) {
   if (run >= 0) return run;
   const end = trimmed.length;
   const page = /[\d*]\s*,$/.test(trimmed) ? end - 1 : -1;
-  const ended = cites.find(c => !c.nested && (c.end === end || c.end === page));
+  const more = trimmed.slice(-30).match(CONTINUES);
+  const pin = more ? trimmed.slice(0, end - more[0].length).trimEnd().length : -1;
+  const ended = cites.find(c => !c.nested && (c.end === end || c.end === page || c.end === pin));
   if (ended) return ended.start;
   const paren = opens[text.length];
   const before =
@@ -591,15 +644,83 @@ function nameStart(name) {
   return start;
 }
 
+// A signal, in any case, that may lead into a citation through an author or a title.
+const LEAD_SIGNAL = /(?<![\w.'’-])(?:but\s+)?(?:see|cf\.|compare)(?![\w'’-])/gi;
+// A word of an author, a title or a name: capitalized or a number, or a word that joins them.
+const LEAD_WORD =
+  /^(?:[A-Z\d][\w.'’&/-]*,?|\([A-Z]\w*\),?|&|of|the|and|for|on|et|al\.,?|vs?\.?|e\.g\.,?|also|generally)$/;
+// The name before a citation that names no case: "Vavilov, " of "Vavilov, 2019 SCC 65",
+// "In Starbucks " of "In Starbucks [2015] UKSC 31".
+const NAME_BEFORE =
+  /(?<![\w.'’&-])(?:[A-Z][\w'’&.-]*|\([A-Z]\w*\))(?:\s+(?:[A-Z][\w'’&.-]*|of|the|and|&|vs?\.?|\([A-Z]\w*\))){0,6},?\s*$/;
+// The name of a code right before its section: "California Civil Code " of "California
+// Civil Code § 1714", "Title VII " of "Title VII § 704".
+const CODE_NAME_BEFORE =
+  /(?<![\w.'’&-])[A-Z][\w'’&.-]*(?:\s+(?:[A-Z][\w'’&.-]*|of|and|&)){0,5}\s+$/;
+const CASE_TYPES = new Set(['full', 'short', 'docket', 'database']);
+
+// Where the words that lead into the citation at `cut` begin, if the insertion (from
+// `offset`) has them, else `cut`: a signal and the author or title after it ("see 5
+// Charles Alan Wright & Arthur R. Miller, Federal Practice and Procedure § 1357"), the name
+// before a citation that names no case ("Vavilov, 2019 SCC 65"), or the name of a code
+// before its section ("California Civil Code § 1714"). Left behind, they would be a piece
+// of the citation.
+function citationLead(text, cut, offset, cites) {
+  if (/[„“‘"]/.test(text[cut])) return cut;
+  const lead = text.slice(offset, cut);
+  let signal = null;
+  for (const m of lead.matchAll(LEAD_SIGNAL)) signal = m;
+  if (signal) {
+    const words = lead
+      .slice(signal.index + signal[0].length)
+      .split(/\s+/)
+      .filter(Boolean);
+    const leads = word =>
+      LEAD_WORD.test(word) &&
+      (!/[.!?]$/.test(word) || isAbbreviation(word) || /^[A-Z]\.$/.test(word));
+    if (words.length <= 16 && words.every(leads)) return offset + signal.index;
+  }
+  const cite = cites.find(c => c.start === cut && !c.nested);
+  const from = Math.max(0, lead.length - 120);
+  const named =
+    cite && CASE_TYPES.has(cite.type) && !cite.name && !cite.antecedent
+      ? lead.slice(from).match(NAME_BEFORE)
+      : cite && (cite.type === 'statute' || cite.type === 'section')
+        ? lead.slice(from).match(CODE_NAME_BEFORE)
+        : null;
+  return named ? offset + from + named.index : cut;
+}
+
+// "Kessler v. Northgate": a paragraph that stops partway into a case name, after its "v."
+// and at least one word of the other party's name. "The Cardinals v. Cubs" is a game.
+const NAME_OPEN = new RegExp(
+  String.raw`(?<!\b(?:[Tt]he|[Aa]n?)\s+)\b[A-Z][\w.'’&-]*,?\s+vs?\.?((?:\s+(?:[A-Z][\w.'’&-]*,?|of|the|and|&|for)){1,8})\s?$`,
+);
+const STARTS_MATCHUP = new RegExp(String.raw`^\s*${MATCHUP}`);
+// Whether `insertion` goes on with a case name that `paragraphBefore` is writing:
+// "Kessler v. Northgate" + " Cold Storage", + "s" or + " & Co.", but not + " held that",
+// + " and the cases after it" or a new sentence after "Twombly.".
+function continuesName(paragraphBefore, insertion) {
+  const open = paragraphBefore.slice(-160).match(NAME_OPEN);
+  if (!open || !/^(?:[\w'’-]|\s?(?:[A-Z(]|(?:of|and|for|the|&)\s+[A-Z])|,\s*[A-Z])/.test(insertion))
+    return false;
+  const last = open[1].trim().split(/\s+/).at(-1);
+  if (/[.!?]$/.test(last) && !isAbbreviation(last)) return false;
+  return !STARTS_MATCHUP.test(open[1] + insertion.slice(0, 80));
+}
+
 // An autocomplete insertion cut just before the first citation, signal or quotation it
-// would start, or that it stops partway into ("Lakeside, 455 F.3d at"). A case name goes
-// with its citation, and a signal, an unclosed parenthesis ("(the") or the name of a code
-// ("Cal. Gov’t Code") left at the end goes too. What is left may be empty. `doc`, the
-// document, tells a signal before one of its case names ("See Lakeside") from one before
-// ordinary words ("See Halvorsen on Saturdays").
+// would start, or that it stops partway into ("Lakeside, 455 F.3d at"). A case name, and
+// the signal, author or title that leads into a citation, go with it, and a signal, an
+// unclosed parenthesis ("(the"), the name of a code ("Cal. Gov’t Code") or an article left
+// at the end goes too. An insertion that goes on with a case name the paragraph is
+// writing ("Kessler v. Northgate" + " Cold Storage") is cut whole. What is left may be
+// empty. `doc`, the document, tells a signal before one of its case names ("See
+// Lakeside") from one before ordinary words ("See Halvorsen on Saturdays").
 export function cutAtCitation(paragraphBefore, insertion, doc = '') {
   const offset = paragraphBefore.length;
   const text = plain(paragraphBefore + insertion);
+  if (continuesName(text.slice(0, offset), text.slice(offset))) return '';
   const names = doc ? namesOf(plain(doc)) : new Map();
   let cut = text.length;
   for (const m of text.matchAll(CITATION_START)) {
@@ -629,13 +750,24 @@ export function cutAtCitation(paragraphBefore, insertion, doc = '') {
     }
   }
   if (cut === text.length) return insertion;
-  let kept = insertion.slice(0, Math.max(0, cut - offset));
+  if (cut > offset) cut = citationLead(text, cut, offset, cites);
+  return withoutDangling(insertion.slice(0, Math.max(0, cut - offset)));
+}
+
+// What a cut leaves dangling at the end of `kept`: punctuation, a signal, an article.
+const DANGLING = [/[\s,;:(]+$/g, TRAILING_SIGNAL, /\s(?:the|a|an)$/g];
+// `kept` without what would dangle once the citation after it is cut: those, an unclosed
+// parenthesis ("(the"), and the name of a code ("Cal. Gov’t Code"), until none is left.
+// Each step reads only the end of the text, and all unclosed parentheses go at once, so a
+// long run of them ("(the (the …") is not read again from every position.
+function withoutDangling(kept) {
   for (let last; last !== kept; ) {
     last = kept;
-    kept = kept
-      .replace(/[\s,;:(]+$/, '')
-      .replace(TRAILING_SIGNAL, '')
-      .replace(/\s*\([^()]*$/, '');
+    for (const re of DANGLING)
+      for (let m; (m = tailMatch(re, kept, 60)); ) kept = kept.slice(0, m.index);
+    // Every parenthesis opened after the last one closed is still open.
+    const open = kept.indexOf('(', kept.lastIndexOf(')') + 1);
+    if (open >= 0) kept = kept.slice(0, open).trimEnd();
     const run = codeRun(kept);
     if (run >= 0) kept = kept.slice(0, run);
   }

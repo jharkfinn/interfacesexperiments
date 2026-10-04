@@ -1,0 +1,139 @@
+{
+  "The Sourdough Professor of St. Louis": ["heading", "framing"],
+  "Dr. Ingrid Halvorsen at her bench on Cherokee St., 6:15 a.m.": ["other", "framing"],
+  "Photograph by T. J. Okafor for Crumb Quarterly, Vol. 3, No. 2": ["other", "framing"],
+  "An Early Start": ["heading", "framing"],
+  "At 5:40 a.m. on a Tuesday in March, Dr. Ingrid Halvorsen is already elbow-deep in rye.": [
+    "facts",
+    "client-fact"
+  ],
+  "She earned her Ph.D. in chemistry at Washington University in St. Louis, spent nine years at a U.S. Department of Agriculture lab, and quit in 2019 to open a twelve-seat bakery called Halvorsen & Daughters.": [
+    "facts",
+    "client-fact"
+  ],
+  "\"People think it's romantic,\" she says.": ["facts", "client-fact"],
+  "\"It's mostly dishes.\"": ["facts", "client-fact"],
+  "Her partner, Mr. Desmond Achterberg, handles the books; i.e., he is the one who noticed that the bakery's margins grew by 3.5 percent last year while flour prices rose.": [
+    "facts",
+    "client-fact"
+  ],
+  "Achterberg grew up outside the U.S.": ["facts", "client-fact"],
+  "He moved to Missouri at nineteen.": ["facts", "client-fact"],
+  "The shop sits between a tattoo parlor and a church that still lists its Mass times as 7 a.m. and 9:30 a.m. on a hand-painted sign.": [
+    "facts",
+    "client-fact"
+  ],
+  "It opens at 7 a.m.": ["facts", "client-fact"],
+  "The line starts earlier.": ["facts", "client-fact"],
+  "Regulars include a retired umpire, a nurse from St. Mary's, and Jonah Pruitt, who wore No. 5 for the minor-league River Otters and still orders a cardamom bun every morning at 7:15.": [
+    "facts",
+    "client-fact"
+  ],
+  "\"I've had the No. 5 bun for six years,\" Pruitt told me.": ["facts", "client-fact"],
+  "\"Don't put that in the magazine.\"": ["facts", "client-fact"],
+  "(I did.)": ["other", "framing"],
+  "\"Is it ready yet?\" a customer calls through the door at 6:58.": ["facts", "client-fact"],
+  "Nobody answers.": ["facts", "client-fact"],
+  "Halvorsen's approach is unapologetically empirical.": ["facts", "client-fact"],
+  "She logs every bake in a spreadsheet she calls \"Vol. 3\" because the first two volumes, kept in notebooks, were lost in a 2021 basement flood.": [
+    "facts",
+    "client-fact"
+  ],
+  "The current file runs to roughly 14,000 rows.": ["facts", "client-fact"],
+  "She tracks hydration (e.g., 78 percent for the house loaf), ambient temperature, and the age of the starter, which she named Gus after her late uncle, Gustav Halvorsen Jr.": [
+    "facts",
+    "client-fact"
+  ],
+  "When I ask whether all of this is overkill, she shrugs.": ["facts", "client-fact"],
+  "\"Is it?": ["facts", "client-fact"],
+  "Ask me again when the loaf fails.\"": ["facts", "client-fact"],
+  "Version 2.0": ["heading", "framing"],
+  "The bakery's ordering app, now on version 2.0, was built by her nephew over a winter break.": [
+    "facts",
+    "client-fact"
+  ],
+  "It crashed twice during the Cardinals v. Cubs home opener, when what felt like half of the U.S. Midwest wanted a pretzel.": [
+    "facts",
+    "client-fact"
+  ],
+  "Achterberg says the update cut errors by roughly 40 percent.": ["facts", "client-fact"],
+  "\"The first version was a disaster. This one is merely bad.\"": ["facts", "client-fact"],
+  "He laughs, then checks the order queue again.": ["facts", "client-fact"],
+  "A 2023 profile on p. 14 of the Post-Dispatch food section called the app \"charmingly broken.\"": [
+    "facts",
+    "client-fact"
+  ],
+  "Not everything is data.": ["other", "framing"],
+  "Halvorsen keeps a framed letter from a customer in St. Paul, Minn., who drove six hours for a loaf in 2022.": [
+    "facts",
+    "client-fact"
+  ],
+  "She also keeps, in a drawer, a cease-and-desist letter from a London firm, which is where this story takes an unexpected turn.": [
+    "facts",
+    "client-fact"
+  ],
+  "The Recipe": ["heading", "framing"],
+  "Halvorsen agreed to share a simplified version of the house cardamom bun.": [
+    "facts",
+    "client-fact"
+  ],
+  "It makes about twelve buns.": ["facts", "client-fact"],
+  "500 g (approx. 4 cups) bread flour, plus extra for dusting.": ["other", "framing"],
+  "1 tbsp. ground cardamom, freshly ground if possible.": ["other", "framing"],
+  "2 1/4 tsp. instant yeast and 75 g sugar.": ["other", "framing"],
+  "300 ml whole milk, warmed to about 37 °C (i.e., body temperature).": ["other", "framing"],
+  "Knead for 10 min.": ["other", "framing"],
+  "Rest the dough for 1 hr. at room temperature.": ["other", "framing"],
+  "Bake at 200 °C for 12–15 min. until deep golden.": ["other", "framing"],
+  "\"Don't skimp on the cardamom,\" she warns.": ["facts", "client-fact"],
+  "\"The U.S. stuff in jars is mostly dust.\"": ["facts", "client-fact"],
+  "A Brief Detour into Law": ["heading", "framing"],
+  "The London letter came from solicitors for Halvorsen Bakeries Ltd., an unrelated English company that claims the family name as a trade mark.": [
+    "facts",
+    "client-fact"
+  ],
+  "Halvorsen's lawyer, Priya Ramaswamy of Ramaswamy Legal LLC, was unimpressed.": [
+    "facts",
+    "client-fact"
+  ],
+  "English courts protect an unregistered name through the tort of passing off, which requires goodwill, a misrepresentation, and damage. See Reckitt & Colman Products Ltd v Borden Inc [1990] 1 WLR 491 (HL) at 499.": [
+    "rule",
+    "law"
+  ],
+  "The UK Supreme Court has since held that the goodwill must be among customers in the jurisdiction, not merely a reputation there. Starbucks (HK) Ltd v British Sky Broadcasting Group plc [2015] UKSC 31 at [47].": [
+    "explanation",
+    "precedent"
+  ],
+  "The letter leaned instead on [2019] UKSC 5 at [41] and on R v Smith [2004] EWCA Crim 631, a criminal appeal Ramaswamy called \"beside the point.\"": [
+    "counter",
+    "client-fact"
+  ],
+  "Here, Ramaswamy says, the English company is unlikely to succeed, because Halvorsen sells nothing in England and has no plans to.": [
+    "conclusion",
+    "conclusion",
+    "application"
+  ],
+  "A Canadian claim would run under the Trademarks Act, RSC 1985, c T-13, s 19, and an appeal from the registrar would get the reasonableness review described in Canada (Minister of Citizenship and Immigration) v Vavilov, 2019 SCC 65 at para 23.": [
+    "rule",
+    "law"
+  ],
+  "In the U.S., the closest analogue is the Lanham Act, 15 U.S.C. § 1125(a).": ["rule", "law"],
+  "\"They have no goodwill to protect here, and we have none there,\" she said.": [
+    "application",
+    "application"
+  ],
+  "As of this writing, the firm has not replied.": ["facts", "client-fact"],
+  "Last Bake": ["heading", "framing"],
+  "By 11 a.m. the cases are nearly empty.": ["facts", "client-fact"],
+  "Halvorsen wipes the bench, checks on Gus, and types the day's numbers into Vol. 3 of the spreadsheet.": [
+    "facts",
+    "client-fact"
+  ],
+  "Tomorrow's plan is 79 percent hydration, i.e., wetter dough and a longer bake.": [
+    "facts",
+    "client-fact"
+  ],
+  "\"If it works, that's version 2.1,\" she says.": ["facts", "client-fact"],
+  "\"If it doesn't, it's a lesson.\"": ["facts", "client-fact"],
+  "The pretzels, for the record, are excellent.": ["other", "framing"]
+}

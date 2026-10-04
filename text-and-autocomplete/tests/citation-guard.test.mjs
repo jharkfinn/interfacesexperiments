@@ -1216,6 +1216,213 @@ test('citationContext is inside a citation partway into any form of one (GD-12)'
   );
 });
 
+test('no one-character change to any citation in the other documents gets through (GD-4)', () => {
+  // Every citation the parser reads, of every type, in all six documents: a changed digit
+  // or letter, the citation dropped, or a selection that takes part of it is refused.
+  const types = new Set();
+  for (const doc of [
+    CSM_BRIEF,
+    BLUEBOOK_BRIEF,
+    MOTION,
+    RETALIATION_MEMO,
+    STATUTORY_MEMO,
+    EMAIL,
+    ARTICLE,
+  ])
+    for (const paragraph of doc.split('\n')) {
+      const at = doc.indexOf(paragraph);
+      for (const { text: sentence } of sentencesIn(paragraph, 'en')) {
+        const start = at + paragraph.indexOf(sentence);
+        for (const c of findCitations(sentence).filter(c => !c.nested)) {
+          types.add(c.type);
+          const swap = (i, by) => sentence.slice(0, i) + by + sentence.slice(i + 1);
+          const digit = c.text.search(/\d/);
+          if (digit >= 0) {
+            const i = c.start + digit;
+            assert.ok(
+              guardReplacement(doc, sentence, swap(i, String((+sentence[i] + 1) % 10))),
+              c.text,
+            );
+          }
+          const letter = c.text.search(/[A-Za-z]/);
+          if (letter >= 0)
+            assert.ok(guardReplacement(doc, sentence, swap(c.start + letter, '~')), c.text);
+          const dropped = sentence.slice(0, c.start) + sentence.slice(c.end);
+          assert.ok(guardReplacement(doc, sentence, dropped), c.text);
+          const half = start + c.start + Math.ceil(c.text.length / 2);
+          if (/\S\S/.test(doc.slice(half - 1, half + 1)))
+            assert.ok(
+              selectionRefusal(doc.slice(0, start), doc.slice(start, half), doc.slice(half), true),
+              c.text,
+            );
+        }
+      }
+    }
+  for (const type of [
+    'full',
+    'short',
+    'id',
+    'supra',
+    'statute',
+    'section',
+    'internal',
+    'record',
+    'docket',
+    'legislative',
+    'secondary',
+    'periodical',
+  ])
+    assert.ok(types.has(type), type);
+});
+
+test('a rewrite may not move a date to another month or weekday (GD-3)', () => {
+  const memo = `${RETALIATION_MEMO}\nHollis called her on Monday and again in March.`;
+  const call = 'Hollis called her on Monday and again in March.';
+  for (const [from, to] of [
+    ['on Monday', 'on Tuesday'],
+    ['in March', 'in April'],
+  ])
+    assert.equal(guardReplacement(memo, call, call.replace(from, to)), 'new-number', to);
+  assert.equal(rewrite(RETALIATION_MEMO, 'On April 7, 2025', 'April 7', 'May 7'), 'new-number');
+  // An abbreviation is the same month, a weekday or month may be dropped, and "May" the
+  // verb is no month.
+  assert.equal(rewrite(RETALIATION_MEMO, 'On April 7, 2025', 'April 7', 'Apr. 7'), null);
+  assert.equal(guardReplacement(memo, call, 'Hollis called her twice.'), null);
+  assert.equal(
+    rewrite(RETALIATION_MEMO, 'Brightwater may argue', 'Brightwater may argue', 'It may argue'),
+    null,
+  );
+  // "Two hundred" may become "200", but not "300".
+  const hours = 'The platform was down for two hundred hours.';
+  assert.equal(guardReplacement(hours, hours, 'The platform was down for 200 hours.'), null);
+  assert.equal(
+    guardReplacement(hours, hours, 'The platform was down for 300 hours.'),
+    'new-number',
+  );
+});
+
+test('a case name may become its possessive in a rewrite (GD-2)', () => {
+  const like = sentenceWith(RETALIATION_MEMO, 'Like the reassignment in Burlington Northern');
+  assert.equal(
+    guardReplacement(
+      RETALIATION_MEMO,
+      like,
+      like.replace(
+        'Like the reassignment in Burlington Northern',
+        'Like Burlington Northern’s reassignment',
+      ),
+    ),
+    null,
+  );
+  assert.equal(
+    guardReplacement(
+      RETALIATION_MEMO,
+      like,
+      like.replace('Like the reassignment in Burlington Northern', 'Like Galabya’s reassignment'),
+    ),
+    'citation-changed',
+  );
+});
+
+test('citationContext is inside a citation before its pin, court, part or section (GD-12)', () => {
+  for (const before of [
+    // A citation and the word that goes on with it.
+    'The rule. Id. at',
+    'The rule. Id. at ',
+    '…of time.” (Id. at ',
+    'The transfer was lateral. Ex. A at ',
+    'Like the shipper here. Meridian Produce, 2019 WL 1234567, at ',
+    'See H.R. Rep. No. 110-730, pt. 1, at ',
+    'Review is deferential. 2019 SCC 65 at para ',
+    'Goodwill must be local. [2015] UKSC 31 at ',
+    'See 9 U.S.C. § 1 et ',
+    // A court or a date still open in its parenthesis.
+    'See Kessler v. Northgate Cold Storage, LLC, 2021 WL 4410382, at *6 (S.D.N.Y. ',
+    'Smith v. Jones, No. 1:20-cv-1234, slip op. at 3 (D. Del. Jan. ',
+    'Rombach v. Chang, 355 F.3d 164, 170 (2d Cir. 20',
+    'EEOC, Enforcement Guidance: Reasonable Accommodation, Question 34 (Oct. ',
+    // English and Canadian citations and statutes.
+    'Goodwill must be local. [2015] UKSC ',
+    'See Reckitt & Colman Products Ltd v Borden Inc [1990] 1 WLR ',
+    'The letter cited R v Smith [2004] EWCA Crim ',
+    'The rule is old. (1854) 9 Exch ',
+    'Review is deferential. Vavilov, 2019 SCC ',
+    'The rule is old. Donoghue v',
+    'It is an offence under the Theft Act 1968, s ',
+    'A claim would run under the Trademarks Act, RSC 1985, c T-13, s ',
+    // Names, codes and authors partway through.
+    'To survive, Bell Atl. Corp. v. Twombly, 550 ',
+    'The court applied In re ',
+    'The court applied In re Marriage of ',
+    'See Pub. L. No. ',
+    'See Restatement (Second) of ',
+    'Commentators agree. Lindemann et al., ',
+    'The record shows it. R. at ',
+    '…correct it. (Ortega, supra, 26 ',
+    'Owners must take care. (Civ. Code, ',
+    'Jurisdiction is limited. (Cal. Const., art. VI, ',
+    'It protects speech. U.S. Const. amend. XIV, ',
+    'It is deceptive under N.Y. Gen. Bus. Law ',
+    'The motion is timely. N.Y. C.P.L.R. ',
+    'Congress agreed. 154 Cong. ',
+  ])
+    assert.equal(citationContext(before), 'inside-citation', before);
+  for (const before of [
+    'We met at',
+    'Bring the kids at ',
+    'She lives near the shop (Dr. ',
+    'She grew up in Missouri (St. ',
+    'He studied at Harvard Law ',
+    'It crashed during the Cardinals v',
+    'The bakery opened in 2019, ',
+    'Her uncle, Gustav Halvorsen Jr. ',
+    'The meeting is on Monday at ',
+  ])
+    assert.equal(citationContext(before), null, before);
+});
+
+test('autocomplete leaves no author, short name or code name before a cut citation (GD-9)', () => {
+  for (const [before, insertion, kept] of [
+    // A signal governs the author and title that lead into its citation.
+    [
+      'Dismissal is common',
+      ', see 5 Charles Alan Wright & Arthur R. Miller, Federal Practice and Procedure § 1357 (3d ed. 2004).',
+      '',
+    ],
+    // The name before a citation that names no case.
+    ['Review is deferential', ' under Vavilov, 2019 SCC 65 at para 23.', ' under'],
+    ['Review is deferential.', ' In Vavilov, 2019 SCC 65 at para 23, the Court agreed.', ''],
+    // The name of a code before its section, and an article left at the end.
+    ['Owners must take care', ' under California Civil Code § 1714.', ' under'],
+    ['Owners must take care', ' under the California Civil Code § 1714.', ' under'],
+    ['The court', ' called it the “safe harbor.”', ' called it'],
+  ])
+    assert.equal(cutAtCitation(before, insertion), kept, insertion);
+  // "see" as an ordinary verb stays.
+  assert.equal(
+    cutAtCitation('Bring', ' your appetite and see the bakery.'),
+    ' your appetite and see the bakery.',
+  );
+});
+
+test('autocomplete does not finish a case name being written (GD-9)', () => {
+  for (const [before, insertion] of [
+    ['as held in Kessler v. Northgate', ' Cold Storage, the court'],
+    ['as held in Kessler v. Northga', 'te Cold Storage'],
+    ['The rule comes from Smith v. Bank of', ' America'],
+  ])
+    assert.equal(cutAtCitation(before, insertion), '', insertion);
+  // What follows a finished name, a new sentence, or a game is prose.
+  for (const [before, insertion] of [
+    ['Smith v. Jones', ' is the leading case.'],
+    ['The rule comes from Smith v. Jones', ' and the cases after it.'],
+    ['The rule is settled. Twombly.', ' The court agreed.'],
+    ['It crashed during the Cardinals v. Cubs', ' Opening Day game.'],
+    ['Cardinals v. Cubs', ' Opening Day game drew a crowd.'],
+  ])
+    assert.equal(cutAtCitation(before, insertion), insertion, insertion);
+});
+
 test('an email and a magazine article pass the guards untouched', () => {
   let checked = 0;
   for (const doc of [EMAIL, ARTICLE])
@@ -1255,6 +1462,18 @@ test('an email and a magazine article pass the guards untouched', () => {
   assert.ok(checked > 500);
 });
 
+test('a cut stays fast before a citation that ends a long insertion', () => {
+  // Each unclosed parenthesis or article left before the citation was stripped in a pass
+  // over the whole insertion: half a second for 20,000 characters.
+  for (const unit of ['(the ', '(A. B. ', 'the ', ', ', 'see ']) {
+    const insertion = `${unit.repeat(Math.ceil(20000 / unit.length)).slice(0, 20000)} 455 F.3d 154.`;
+    cutAtCitation('x', insertion);
+    const at = performance.now();
+    cutAtCitation('x', insertion);
+    assert.ok(performance.now() - at < 50, `${unit}: ${performance.now() - at} ms`);
+  }
+});
+
 test('the guards stay fast on long adversarial text', () => {
   // A cut that stepped back one "v." at a time took over half a second on 20,000
   // characters; every call now takes a few milliseconds, the parser's time included.
@@ -1275,6 +1494,17 @@ test('the guards stay fast on long adversarial text', () => {
     'sixty ',
     'A. ',
     'Case No. ',
+    ' ',
+    '(S.D.N.Y. ',
+    '[2015] ',
+    'Theft Act 1968, ',
+    'Id. at ',
+    'Kessler v. Northgate ',
+    'see 5 Charles ',
+    'Vavilov, ',
+    'California Civil Code ',
+    'January 3, ',
+    'two hundred ',
   ]) {
     const text = unit.repeat(Math.ceil(20000 / unit.length)).slice(0, 20000);
     for (const [name, call, limit] of [

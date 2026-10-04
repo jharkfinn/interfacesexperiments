@@ -400,14 +400,18 @@ test('reproduced document text has a kind of its own (LC-1)', () => {
       [2, 'rule', 'document_text'],
       [3, null, 'clause'],
       [4, 'explanation', 'provision'],
+      // A quotation is most often a court's words, so "quoted text" is not a document's:
+      // the role's usual kind stands in for it.
+      [5, 'rule', 'quoted text'],
     ]),
-    [{ kind: 'p', sentences: ['One.', 'Two.', 'Three.', 'Four.'] }],
+    [{ kind: 'p', sentences: ['One.', 'Two.', 'Three.', 'Four.', 'Five.'] }],
   );
   assert.deepEqual(pairs(parsed.tags), [
     ['facts', 'document-text'],
     ['rule', 'document-text'],
     ['other', 'document-text'],
     ['explanation', 'document-text'],
+    ['rule', 'law'],
   ]);
   // Stored labels with the new kind are kept.
   const stored = { tags: [{ text: 'One.', role: 'other', kind: 'document-text' }] };

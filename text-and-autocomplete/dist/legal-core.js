@@ -214,7 +214,6 @@ const KIND_SYNONYMS = {
   'contract text': 'document-text',
   'contract language': 'document-text',
   'reproduced text': 'document-text',
-  'quoted text': 'document-text',
   excerpt: 'document-text',
   clause: 'document-text',
   provision: 'document-text',

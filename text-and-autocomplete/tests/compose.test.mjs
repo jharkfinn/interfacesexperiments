@@ -350,6 +350,32 @@ test('autocomplete stops in other citation forms and leaves prose whole (GD-9, G
     ' JAMS.',
   );
 });
+test('autocomplete leaves no piece of a citation or case name behind (GD-9)', () => {
+  // A reply that finishes a case name being written is not offered.
+  const name = 'As held in Kessler v. Northgate';
+  assert.deepEqual(
+    inspectCompletion(completionAnchor(name) + ' Cold Storage, the court agreed.', name, ''),
+    { text: '', reason: 'citation-cut' },
+  );
+  // The author and title after a signal, a short name before a neutral citation, and the
+  // name of a code go with the citation they lead into.
+  for (const [before, reply, kept] of [
+    [
+      'Dismissal is common',
+      ', see 5 Charles Alan Wright & Arthur R. Miller, Federal Practice and Procedure § 1357 (3d ed. 2004).',
+      '',
+    ],
+    ['Review is deferential', ' under Vavilov, 2019 SCC 65 at para 23.', ' under'],
+    ['Owners must take care', ' under the California Civil Code § 1714.', ' under'],
+  ])
+    assert.equal(cleanCompletion(completionAnchor(before) + reply, before, ''), kept, reply);
+  // A finished name followed by prose is kept.
+  const cited = 'The rule comes from Smith v. Jones';
+  assert.equal(
+    cleanCompletion(completionAnchor(cited) + ' and the cases after it.', cited, ''),
+    ' and the cases after it.',
+  );
+});
 test('the context window keeps the paragraphs nearest the caret', () => {
   const short = { before: 'One.\nTwo three. ', after: ' four\nFive.' };
   assert.deepEqual(contextWindow(short), short);

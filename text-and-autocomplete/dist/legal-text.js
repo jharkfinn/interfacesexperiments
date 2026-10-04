@@ -1181,11 +1181,16 @@ const LEGISLATIVE = [
 // Record citations: the complaint, depositions, declarations, transcripts, exhibits,
 // the record and the docket. Each needs its paragraph, page or line, or a name.
 const RECORD_PIN = String.raw`(?:¶¶?\s*${NUMBERS}|at\s+(?:pp?\.\s*)?(?:${LINES}|${NUMBERS})|${LINES}|pp?\.\s*${NUMBERS})`;
+// A declarant's name: words and initials ("Tomas R. Reyes", "Ann Lee Jr."). A word's
+// period ends the sentence unless the word is an initial, so "Decl. of Tomas Reyes. He
+// then left." is the declaration alone.
+const NAME_PART = String.raw`(?:[JS]r\.|[A-Z]\.|[A-Z][\w'’-]*)`;
+const DECLARANT = String.raw`${NAME_PART}(?:\s+${NAME_PART}){0,3}(?:,\s+[JS]r\.)?`;
 const RECORD = new RegExp(
   [
     String.raw`(?:Am\.\s+|First\s+Am\.\s+|Second\s+Am\.\s+)?Compl\.\s*${RECORD_PIN}`,
     String.raw`(?:[A-Z][\w'’-]*\s+){0,3}(?:[Dd]epo?|Decl|Aff|Tr|Hr['’]g\s+Tr|Trial\s+Tr)\.,?\s*(?:${RECORD_PIN}|${NUMBERS})`,
-    String.raw`(?:Decl|Aff|[Dd]epo?)\.\s+of\s+[A-Z][\w'’.-]*(?:\s+[A-Z][\w'’.-]*){0,3}(?:,?\s*${RECORD_PIN})?`,
+    String.raw`(?:Decl|Aff|[Dd]epo?)\.\s+of\s+${DECLARANT}(?:,?\s*${RECORD_PIN})?`,
     String.raw`Exh?s?\.\s*[A-Z0-9]{1,4}(?:[-.]\d{1,3})?(?!\w)(?:,?\s+at\s+(?:pp?\.\s*)?(?:${LINES}|${NUMBERS}))?`,
     String.raw`(?:(?:Pls?|Defs?|Resp|Pet|Appellants?|Appellees?)\.?['’]s?\s+)?(?:Mot\.|Br\.|Mem\.|Opp['’]n|Reply|Ans\.)(?:\s+(?:to|for|in|of)\s+[A-Z][\w.'’]*(?:\s+[A-Z][\w.'’]*){0,3})?\s+at\s+${NUMBERS}`,
     String.raw`R\.\s+at\s+${NUMBERS}`,
