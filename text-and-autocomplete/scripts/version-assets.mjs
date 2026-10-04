@@ -8,21 +8,34 @@ const hash = file =>
     .digest('hex')
     .slice(0, 12);
 for (const [file, dependencies] of [
-  ['combine-core.js', ['compose-core.js']],
+  // Dependencies come before the files that import them, so each hash covers
+  // the hashes inside it.
+  ['legal-text.js', []],
+  ['citation-guard.js', ['legal-text.js']],
+  ['compose-core.js', ['citation-guard.js', 'legal-text.js']],
+  ['doc-model.js', ['legal-text.js']],
+  ['combine-core.js', ['compose-core.js', 'legal-text.js']],
   ['segment-core.js', ['compose-core.js']],
-  ['segments.js', ['segment-core.js']],
-  ['view-specs.js', ['segment-core.js']],
+  ['legal-core.js', ['compose-core.js', 'segment-core.js']],
+  ['segments.js', ['segment-core.js', 'legal-core.js']],
+  ['view-specs.js', ['segment-core.js', 'legal-core.js']],
+  ['legal-analysis.js', ['legal-text.js', 'legal-core.js']],
+  ['legal-index.js', ['legal-analysis.js']],
+  ['legal-view.js', ['legal-core.js']],
   ['doc-edits.js', ['doc-model.js', 'combine-core.js']],
-  ['operations.js', ['combine-core.js', 'doc-edits.js']],
+  ['operations.js', ['combine-core.js', 'doc-edits.js', 'citation-guard.js']],
   ['document-marks.js', ['rewrite-preview.js']],
-  ['piece-view.js', ['doc-model.js', 'segments.js']],
+  ['piece-view.js', ['doc-model.js', 'segments.js', 'legal-view.js', 'legal-core.js']],
   ['document-view.js', ['document-marks.js', 'piece-view.js']],
   ['rewrite-core.js', ['compose-core.js']],
-  ['selection-rewrite.js', ['rewrite-core.js', 'rewrite-preview.js']],
-  ['realtime.js', ['compose-core.js', 'rewrite-core.js', 'combine-core.js', 'segment-core.js']],
+  ['selection-rewrite.js', ['rewrite-core.js', 'rewrite-preview.js', 'citation-guard.js']],
+  [
+    'realtime.js',
+    ['compose-core.js', 'rewrite-core.js', 'combine-core.js', 'segment-core.js', 'legal-core.js'],
+  ],
   [
     'sample-client.js',
-    ['compose-core.js', 'rewrite-core.js', 'combine-core.js', 'segment-core.js'],
+    ['compose-core.js', 'rewrite-core.js', 'combine-core.js', 'segment-core.js', 'legal-core.js'],
   ],
   [
     'app.js',
@@ -42,6 +55,8 @@ for (const [file, dependencies] of [
       'panes.js',
       'view-specs.js',
       'segments.js',
+      'legal-index.js',
+      'citation-guard.js',
       'diagnostics.js',
     ],
   ],
