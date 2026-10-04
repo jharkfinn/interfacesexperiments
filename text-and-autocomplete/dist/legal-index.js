@@ -38,7 +38,9 @@ export class LegalIndex {
     if (!this.checked) {
       try {
         const saved = JSON.parse(this.storage?.getItem(READ_KEY) || '[]');
-        this.checked = new Set(Array.isArray(saved) ? saved.filter(key => typeof key === 'string') : []);
+        this.checked = new Set(
+          Array.isArray(saved) ? saved.filter(key => typeof key === 'string') : [],
+        );
       } catch {
         this.checked = new Set();
       }

@@ -1,9 +1,12 @@
 import { overlaps } from './doc-model.js?v=014942255fc1';
-import { topicFor } from './segments.js?v=b2f577a60210';
+import { topicFor, usesClaude } from './segments.js?v=b2f577a60210';
+import { checksPanel, sectionName, roleChip, sourceChip, authoritiesPanel } from './legal-view.js';
+import { STRUCTURE_CHECKS } from './legal-core.js';
 
 // A declared view: the document's pieces (sentences, paragraphs, pieces Claude
-// chose for the view's purpose, or one level of Claude's tree of the goals the
-// text pursues), arranged as its declaration says, with
+// chose for the view's purpose, one level of Claude's tree of the goals the
+// text pursues, or runs of sentences that do one job in a legal analysis),
+// arranged as its declaration says, with
 // gestures that run the operations it names. It shows the shared links (hover,
 // focus, drag, pending combine, flash) on its pieces, sets them from its own
 // pieces, and scrolls with the other panes.
@@ -55,7 +58,15 @@ export function hintFor(spec) {
   if (spec.on['drop-on'] === 'combine') drag.push('onto another to combine them');
   if (spec.on['drop-between'] === 'move') drag.push('between two to move it');
   const parts = [];
-  if (spec.unit === 'claude') {
+  if (spec.unit === 'role') {
+    parts.push(
+      'Claude labels each sentence’s job in the analysis; the app groups the labels by the document’s headings and checks the structure. A hollow letter is a part a section lacks.',
+    );
+  } else if (spec.show === 'sources') {
+    parts.push(
+      'The app finds citations and quotations itself; Claude only says what each sentence asserts. Nothing here checks that a case exists, that a quotation is exact, or that a source supports the sentence.',
+    );
+  } else if (spec.unit === 'claude') {
     parts.push(`Claude divides the document for this view: “${spec.purpose}”`);
   } else if (spec.unit === 'level') {
     parts.push(
@@ -73,8 +84,21 @@ export function hintFor(spec) {
 }
 
 // What the view says while Claude's pieces are not current. Level views share
-// one map of the text's goals.
-export function statusText(status, carried, levels = false) {
+// one map of the text's goals (`map` true or 'levels'); the legal views share
+// Claude's labels for each sentence's job (`map` 'legal').
+export function statusText(status, carried, map = false) {
+  if (map === 'legal') {
+    const kept = carried
+      ? 'The last labels stand in until then.'
+      : 'Citations, quotations, and headings show until then.';
+    return {
+      waiting: `Claude is labeling each sentence’s job. ${kept}`,
+      updating:
+        'Claude is updating the labels after your changes. Changed sentences keep the label before them until then.',
+      offline: `Connect to let Claude label each sentence’s job. ${kept}`,
+    }[status];
+  }
+  const levels = Boolean(map);
   const stand = carried
     ? 'The last pieces stand in until then.'
     : 'Paragraphs stand in until then.';
@@ -109,11 +133,12 @@ export function destination(pieces, index, source, firstStart, blockCount) {
 }
 
 export class PieceView {
-  constructor({ id, spec, model, ops, links, segments }) {
-    Object.assign(this, { id, spec, model, ops, links, segments });
+  constructor({ id, spec, model, ops, links, segments, legal = null }) {
+    Object.assign(this, { id, spec, model, ops, links, segments, legal });
     this.sentences = spec.unit === 'sentence';
-    // Pieces Claude chose, for a purpose or as a level of goals.
-    this.topic = spec.unit === 'claude' || spec.unit === 'level' ? topicFor(spec) : null;
+    // Pieces Claude chose, for a purpose or as a level of goals, or the legal
+    // labels the IRAC and Sourcing views share.
+    this.topic = usesClaude(spec) ? topicFor(spec) : null;
     this.vertical = spec.layout === 'list' || spec.layout === 'bars';
     this.root = document.createElement('section');
     this.root.className = `piece-view page layout-${spec.layout} unit-${spec.unit}`;
@@ -126,7 +151,15 @@ export class PieceView {
     this.status.setAttribute('role', 'status');
     this.list = document.createElement('div');
     this.list.className = 'pv-list';
-    this.root.append(hint, this.status, this.list);
+    // A panel above the pieces: structure checks, or a table of authorities.
+    this.header = document.createElement('div');
+    this.header.className = 'pv-header';
+    this.root.append(hint, this.status, this.header, this.list);
+    // What header rows and citation chips point at, by `data-target`.
+    this.targets = [];
+    this.stepping = null;
+    this.headerOpen = true;
+    this.attentionOnly = false;
     this.scroller = null;
     this.pieces = new Map();
     this.order = [];
@@ -159,13 +192,27 @@ export class PieceView {
       target.addEventListener(type, handler, options);
       this.cleanup.push(() => target.removeEventListener(type, handler, options));
     };
-    listen(this.list, 'pointerover', event => {
+    const hoverAt = element => {
       if (this.press || this.drag) return;
-      const piece = this.pieceOf(event.target);
+      const pointed = this.targetOf(element);
+      if (pointed) {
+        this.links.set('hover', pointed);
+        return;
+      }
+      const piece = this.pieceOf(element);
       this.links.set('hover', piece ? { range: this.model.range(piece), origin: this.id } : null);
-    });
-    listen(this.list, 'pointerleave', () => {
+    };
+    const leave = () => {
       if (this.links.get('hover')?.origin === this.id) this.links.set('hover', null);
+    };
+    listen(this.list, 'pointerover', event => hoverAt(event.target));
+    listen(this.list, 'pointerleave', leave);
+    listen(this.header, 'pointerover', event => hoverAt(event.target));
+    listen(this.header, 'pointerleave', leave);
+    listen(this.header, 'click', event => {
+      if (event.target.closest('input, button, summary')) return;
+      const node = event.target.closest('[data-target]');
+      if (node) this.focusTarget(node);
     });
     // A fast pointer can leave the list before a drag starts, so moves and
     // releases are heard on the whole document.
@@ -193,6 +240,12 @@ export class PieceView {
     });
     listen(window, 'blur', () => this.endDrag());
     listen(this.list, 'click', event => {
+      // A citation or a letter points at its own text.
+      const node = event.target.closest('[data-target]');
+      if (node && this.list.contains(node)) {
+        this.focusTarget(node);
+        return;
+      }
       const piece = this.pieceOf(event.target);
       if (piece) this.choose(piece);
     });
@@ -221,10 +274,53 @@ export class PieceView {
     }
   }
   // The view's pieces now, and the state of Claude's division for them. A level
-  // view also gets the pieces of the level above, which its pieces fit inside.
+  // view also gets the pieces of the level above, which its pieces fit inside;
+  // the legal views get the legal reading, and IRAC its sections.
   source() {
+    const spec = this.spec;
+    if (spec.unit === 'role' || spec.show === 'sources') {
+      const reading = this.legal.read();
+      const pieces =
+        spec.unit === 'role'
+          ? this.model.runs(reading.runs, 'role')
+          : this.model.pieces('sentence');
+      return {
+        pieces,
+        above: spec.unit === 'role' ? reading.sections : null,
+        reading,
+        status: reading.status,
+        message: reading.message,
+      };
+    }
     if (this.topic) return this.segments.view(this.topic, (this.spec.level || 1) - 1);
     return { pieces: this.model.pieces(this.spec.unit), status: 'ready' };
+  }
+  // A header row, a rail letter, or a citation chip: the hover link for the text
+  // it points at, or null.
+  targetOf(element) {
+    const node = element?.closest?.('[data-target]');
+    if (!node || !this.root.contains(node)) return null;
+    const ranges = this.rangesOf(node);
+    if (!ranges.length) return null;
+    return ranges.length > 1
+      ? { range: ranges[0], ranges, origin: this.id }
+      : { range: ranges[0], origin: this.id };
+  }
+  rangesOf(node) {
+    return (this.targets[Number(node.dataset.target)] || [])
+      .map(span => this.model.range(span))
+      .filter(Boolean);
+  }
+  // Chooses the text a header row points at; each further click on the same
+  // row steps to its next mention.
+  focusTarget(node) {
+    const ranges = this.rangesOf(node);
+    if (!ranges.length) return;
+    const key = node.dataset.target + (node.dataset.key || node.textContent);
+    const at = this.stepping?.key === key ? (this.stepping.at + 1) % ranges.length : 0;
+    this.stepping = { key, at };
+    this.wantFocus = false;
+    this.links.set('focus', { range: ranges[at], origin: this.id });
   }
   pieceOf(element) {
     const chip = element?.closest?.('.pv-piece');
@@ -244,16 +340,29 @@ export class PieceView {
     const { blocks, version } = this.model.read();
     this.version = version;
     this.stale = false;
-    const { pieces, above, status, message } = this.source();
+    const { pieces, above, reading, status, message } = this.source();
     this.pieces = new Map(pieces.map(piece => [piece.id, piece]));
     this.order = pieces;
-    const carried = Boolean(this.topic) && pieces.some(piece => piece.label);
+    const carried = reading
+      ? reading.labeled
+      : Boolean(this.topic) && pieces.some(piece => piece.label);
     const note =
       status === 'failed'
-        ? `${message} The last pieces stand in.`
-        : statusText(status, carried, spec.unit === 'level');
+        ? `${message} The last ${reading ? 'labels' : 'pieces'} stand in.`
+        : reading?.partial && status === 'ready'
+          ? 'Claude labeled only part of the document; the other sentences keep the label of the sentence before them.'
+          : statusText(status, carried, reading ? 'legal' : spec.unit === 'level');
     this.status.textContent = note || '';
     this.status.hidden = !note;
+    this.targets = [];
+    this.renderHeader(reading);
+    // Sourcing reads each sentence's support by its place in the document.
+    const support = new Map(
+      (reading && spec.show === 'sources' ? reading.sentences : []).map(sentence => [
+        `${sentence.block}.${sentence.index}`,
+        sentence,
+      ]),
+    );
     const longest = Math.max(1, ...pieces.map(piece => words(piece.text)));
     const gap = (at, block) => {
       const element = document.createElement('span');
@@ -272,6 +381,20 @@ export class PieceView {
       element.dataset.id = piece.id;
       element.dataset.index = index;
       element.dataset.kind = blocks[piece.block].kind;
+      if (spec.show === 'role') {
+        roleChip(element, piece, opening(piece.text, EXCERPT_CHARS));
+        return element;
+      }
+      if (spec.show === 'sources') {
+        const sentence = support.get(`${piece.block}.${piece.index}`);
+        sourceChip(
+          element,
+          sentence,
+          opening(sentence?.lead || piece.text, EXCERPT_CHARS),
+          this.targets,
+        );
+        return element;
+      }
       const text =
         spec.show === 'start'
           ? opening(
@@ -332,7 +455,9 @@ export class PieceView {
           // starts with a piece.
           const unit = document.createElement('span');
           unit.className = 'pv-unit';
-          unit.append(chip(piece, i), gap(i + 1, block.index));
+          const element = chip(piece, i);
+          if ('attention' in element.dataset) unit.dataset.attention = '';
+          unit.append(element, gap(i + 1, block.index));
           row.append(unit);
         });
         if (!own.length) row.classList.add('pv-empty');
@@ -342,7 +467,7 @@ export class PieceView {
       // One gap between each two pieces, and one at each end. Grouped by the
       // goal above, each goal's steps form a row under its name; the gap at the
       // end of one row is the place before the next row's first piece.
-      const byParent = spec.group === 'parent' && above;
+      const byParent = (spec.group === 'parent' || spec.group === 'section') && above;
       let row = null;
       pieces.forEach((piece, index) => {
         if (!row || (byParent && piece.parent !== pieces[index - 1].parent)) {
@@ -350,8 +475,13 @@ export class PieceView {
           row.className = 'pv-row';
           const goal = byParent ? above[piece.parent] : null;
           const own = pieces.filter(other => other.parent === piece.parent);
-          // A goal reached in one step needs no name over that step.
-          if (goal?.label && !(own.length === 1 && own[0].label === goal.label)) {
+          if (spec.group === 'section' && goal) {
+            // A section of the memo, with its rail of IRAC letters.
+            row.classList.add('pv-group', 'irac-section');
+            row.dataset.part = goal.part;
+            row.append(sectionName(goal, own, this.targets));
+          } else if (goal?.label && !(own.length === 1 && own[0].label === goal.label)) {
+            // A goal reached in one step needs no name over that step.
             row.classList.add('pv-group');
             const name = document.createElement('p');
             name.className = 'pv-group-label';
@@ -382,6 +512,38 @@ export class PieceView {
     this.list.replaceChildren(...rows);
     this.paintLinks({ focus: hadFocus });
   }
+  // The panel above the pieces, as the declaration names it.
+  renderHeader(reading) {
+    const header = this.spec.header;
+    let panel = null;
+    if (reading && header === 'checks') {
+      panel = checksPanel(reading, this.spec.checks || STRUCTURE_CHECKS, this.targets);
+    } else if (reading && header === 'authorities') {
+      panel = authoritiesPanel(
+        reading,
+        this.legal.readSet(),
+        (key, on) => {
+          this.legal.setRead(key, on);
+          this.render();
+        },
+        on => {
+          this.attentionOnly = on;
+          this.root.classList.toggle('pv-attention-only', on);
+          this.render();
+        },
+        this.attentionOnly,
+        this.targets,
+      );
+    }
+    if (panel) {
+      // A panel the reader closed stays closed while the view updates.
+      panel.open = this.headerOpen;
+      panel.addEventListener('toggle', () => {
+        this.headerOpen = panel.open;
+      });
+      this.header.replaceChildren(panel);
+    } else this.header.replaceChildren();
+  }
   // Marks every link on the pieces it touches.
   paintLinks({ focus = false } = {}) {
     for (const element of this.list.querySelectorAll('.pv-piece, .pv-gap')) {
@@ -400,7 +562,8 @@ export class PieceView {
       return chips;
     };
     const hover = this.links.get('hover');
-    if (hover && !this.drag) mark(hover.range, 'pv-hover');
+    if (hover && !this.drag)
+      for (const range of hover.ranges || [hover.range]) mark(range, 'pv-hover');
     const current = mark(this.links.get('focus')?.range, 'pv-current');
     for (const chip of this.list.querySelectorAll('.pv-piece')) chip.tabIndex = -1;
     const stop = current[0] || this.list.querySelector('.pv-piece');

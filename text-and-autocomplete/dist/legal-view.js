@@ -255,7 +255,11 @@ export function authoritiesPanel(reading, read, onRead, onAttention, attentionOn
     panel.append(list);
   }
   const bar = el('div', 'src-summary');
-  const toggle = el('button', 'src-attention', `Only what needs attention (${reading.attentionCount})`);
+  const toggle = el(
+    'button',
+    'src-attention',
+    `Only what needs attention (${reading.attentionCount})`,
+  );
   toggle.type = 'button';
   toggle.setAttribute('aria-pressed', String(attentionOnly));
   toggle.onclick = () => onAttention(!attentionOnly);

@@ -231,7 +231,8 @@ function plainText(node) {
   if (node.nodeName === 'BR') return '\n';
   let text = '';
   for (const child of node.childNodes) {
-    if (/^(P|DIV|H[1-6]|LI|BLOCKQUOTE)$/.test(child.nodeName) && text && !text.endsWith('\n')) text += '\n';
+    if (/^(P|DIV|H[1-6]|LI|BLOCKQUOTE)$/.test(child.nodeName) && text && !text.endsWith('\n'))
+      text += '\n';
     text += plainText(child);
   }
   return text;

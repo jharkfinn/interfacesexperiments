@@ -4,7 +4,7 @@ UI/UX experiments for new interactions. Each prototype lives in its own folder.
 
 ## Prototypes
 
-- **[Text and Autocomplete](text-and-autocomplete/README.md)** — a document editor prototype with AI autocomplete, drag-to-resize, rephrasing, and sentence combining.
+- **[Text and Autocomplete](text-and-autocomplete/README.md)** — a document editor prototype set up for legal writing, with IRAC and sourcing views beside the draft, AI autocomplete, drag-to-resize, rephrasing, and sentence combining.
 - **[Gmail Smart Compose](gmail-smart-compose/README.md)** — a recreation of Gmail's inline Smart Compose suggestions in a dark compose window, with no model or key needed.
 
 ## Run locally
