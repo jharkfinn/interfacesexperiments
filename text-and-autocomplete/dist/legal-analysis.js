@@ -202,7 +202,8 @@ function labelsFor(entry, { labeled, heading, caption }) {
 
 // Runs of sentences that share a role, within each section: a run stays inside
 // one paragraph, except that whole paragraphs in a row with the same role make
-// one run. Without labels every paragraph is a run of its own.
+// one run. Without labels every paragraph is a run of its own. `sentences` are
+// the analysis's, with n, block, section and the labels.
 export function roleRuns(sections, sentences) {
   const runs = [];
   for (const section of sections) {
@@ -256,8 +257,7 @@ export function railOf(section, runs, sentences) {
     const firstApplying = roles.findIndex(role => APPLYING.includes(role));
     const lastApplying = roles.findLastIndex(role => APPLYING.includes(role));
     const firstRule = roles.indexOf('rule');
-    const issue =
-      roles.includes('issue') || roles.includes('heading') || roles[0] === 'conclusion';
+    const issue = roles.includes('issue') || roles.includes('heading') || roles[0] === 'conclusion';
     const rule =
       firstRule < 0 ? 'missing' : firstApplying >= 0 && firstRule > firstApplying ? 'order' : 'ok';
     const closes = roles.some((role, i) => role === 'conclusion' && i > lastApplying);
@@ -289,7 +289,9 @@ export function railOf(section, runs, sentences) {
         (sentence.role === 'rule' || sentence.also === 'rule') &&
         (sentence.support === 'direct' || sentence.support === 'inferential'),
     );
-    const roadmap = mine.some(sentence => sentence.role === 'roadmap' || sentence.also === 'roadmap');
+    const roadmap = mine.some(
+      sentence => sentence.role === 'roadmap' || sentence.also === 'roadmap',
+    );
     return [
       step(
         'P',
@@ -388,11 +390,15 @@ function readBlock(text) {
   return read;
 }
 
-const CASE_TYPES = new Set(['full', 'short', 'id', 'supra', 'docket', 'docket-number']);
 const GOVERNMENT = /^(?:United States|State|People|Commonwealth)\b/;
 const FULL_DATE =
   /\b(?:Jan|Feb|Mar|Apr|May|June?|July?|Aug|Sept?|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},\s+\d{4}\)/;
 const STATUTE_FORM = /\bU\.S\. Code\b|§\s*\d[\w.]*\s+\(/;
+const SUBSECTIONS = /(?:\s?\((?!\d{4}\))[0-9a-zA-Z]{1,4}\))+/;
+// The code's edition after a statute: "(2018)".
+const YEAR_AFTER = /\s*\([^()]*\d{4}\)$/;
+const SIGNAL_START =
+  /^(?:See(?:,? e\.g\.,| also| generally)?|Cf\.|But see|But cf\.|Compare|Accord|Contra|E\.g\.,)\s+/;
 const STRENGTHS = ['direct', 'inferential', 'indirect', 'background'];
 
 // How strongly a signal says the source supports the sentence.
@@ -407,15 +413,27 @@ function strengthOf(signal) {
 
 // The short name a case goes by: the plaintiff's first word ("Lakeside"), or
 // the defendant when the government sues ("Columbus Country Club").
+// A docket citation has a name but no parties of its own, so they are read from it.
 function shortName(cite) {
-  const { plaintiff, defendant } = cite;
+  const [plaintiff, defendant] =
+    cite.plaintiff || cite.defendant
+      ? [cite.plaintiff, cite.defendant]
+      : (cite.name || '').split(/\s+v\.\s+/);
   if (plaintiff && !GOVERNMENT.test(plaintiff) && !/^In re\b/.test(plaintiff)) {
     const first = plaintiff.split(/[\s,]+/)[0];
     return first.length > 2 ? first : plaintiff.replace(/,.*$/, '');
   }
   if (defendant) return defendant.replace(/,.*$/, '');
-  return (cite.name || cite.antecedent || cite.docket || cite.text).replace(/,\s*$/, '');
+  if (cite.name || cite.antecedent) return (cite.name || cite.antecedent).replace(/,\s*$/, '');
+  return cite.volume ? `${cite.volume} ${cite.reporter}` : cite.docket || cite.text;
 }
+
+// A statute's name in chips and messages: its section, without subsections ("§ 3602").
+const sectionName = cite =>
+  cite.text
+    .slice(Math.max(0, cite.text.indexOf('§')))
+    .replace(YEAR_AFTER, '')
+    .replace(SUBSECTIONS, '');
 
 const pinOf = cite => (cite.pin || '').replace(/^at\s+/, '');
 const hasPin = cite => {
@@ -461,20 +479,27 @@ function chipLabel(cite) {
       return authority && !authority.nameless ? `${id} → ${authority.name}` : id;
     }
     case 'supra':
-      return authority ? `${authority.name}, supra` : cite.text;
+      return authority ? `${authority.name}, supra` : cite.text.replace(SIGNAL_START, '');
     case 'statute':
     case 'section':
-      return cite.text.slice(Math.max(0, cite.text.indexOf('§'))).replace(/\s+\(/g, '(');
+      return cite.text
+        .slice(Math.max(0, cite.text.indexOf('§')))
+        .replace(YEAR_AFTER, '')
+        .replace(/\s+\(/g, '(');
     default:
       return cite.text;
   }
 }
 
+// Citations an id. can point back to.
+const CITABLE = new Set(['full', 'docket', 'short', 'supra', 'statute', 'section']);
+
 // The authorities the citations point at, keyed as legal-text's citationKey keys
 // them. Full citations, dockets and statutes name their own; a short form
 // resolves to a full citation of the same volume and reporter anywhere in the
 // document, or else stands for a case never cited in full ("Hovsons"); id.
-// resolves to the last authority the writer cited, not one inside a quotation.
+// resolves to the last authority the writer cited, not one inside a quotation or
+// a parenthetical.
 function resolve(all) {
   const byKey = new Map();
   const authority = (key, make) => {
@@ -488,9 +513,15 @@ function resolve(all) {
         name: shortName(cite),
       }));
     } else if (cite.type === 'statute' || cite.type === 'section') {
-      cite.authority = authority(citationKey(cite), () => ({ group: 'statutes', name: null }));
+      cite.authority = authority(citationKey(cite), () => ({
+        group: 'statutes',
+        name: sectionName(cite),
+      }));
     } else if (cite.type === 'docket-number' || cite.type === 'database') {
-      cite.authority = authority(cite.docket || cite.text, () => ({ group: 'other', name: null }));
+      cite.authority = authority(cite.docket || cite.text, () => ({
+        group: 'other',
+        name: cite.text,
+      }));
     }
   }
   let last = null;
@@ -509,18 +540,21 @@ function resolve(all) {
         }));
       }
     } else if (cite.type === 'supra') {
-      const full = all.find(other => other.type === 'full' && other.name?.includes(cite.antecedent));
+      // The supra pattern can take a signal into the name: "See Jones, supra".
+      const name = cite.antecedent.replace(SIGNAL_START, '');
+      const full = all.find(other => other.type === 'full' && other.name?.includes(name));
       cite.authority = full ? full.authority : null;
     } else if (cite.type === 'id') {
       cite.authority = cite.quoted ? null : last;
     }
-    const usable = cite.authority && !cite.authority.nameless && cite.type !== 'id';
-    if (usable && !cite.quoted && !cite.nested && CITABLE.has(cite.type)) last = cite.authority;
+    // A short form for a case never cited in full still names the case an id. after
+    // it means, so it counts; the id. then shows as unresolved, as the short form does.
+    const usable = cite.authority && !cite.quoted && !cite.nested && CITABLE.has(cite.type);
+    if (usable) last = cite.authority;
     cite.authority?.cites.push(cite);
   }
   return byKey;
 }
-const CITABLE = new Set(['full', 'docket', 'short', 'supra', 'statute', 'section']);
 
 // ---------------------------------------------------------------------------
 // Support and flags
@@ -634,7 +668,9 @@ function flagsOf(sentence, context) {
     add('needs-parenthetical', 'Add a parenthetical saying how it supports this', true);
   }
   if (kind === 'application' && !own.length) {
-    for (const { name } of cases) add('see-suggested', `Relies on ${name}: consider a See cite`, false);
+    for (const { name } of cases) {
+      add('see-suggested', `Relies on ${name}: consider a See cite`, false);
+    }
   }
   const items = FORM.filter(([, , test]) => test({ sentence, own, cites, text })).map(
     ([id, label]) => ({ id, text: label }),
@@ -653,7 +689,8 @@ function flagsOf(sentence, context) {
 
 // Whether a full citation comes after a sentence.
 const later = (cite, sentence) =>
-  cite && (cite.block > sentence.block || (cite.block === sentence.block && cite.start >= sentence.end));
+  cite &&
+  (cite.block > sentence.block || (cite.block === sentence.block && cite.start >= sentence.end));
 
 // ---------------------------------------------------------------------------
 // The analysis
@@ -748,9 +785,7 @@ export function analyzeLegal(blocks, labels) {
       block.kind === 'blockquote' ||
       read[sentence.block].quotes.some(
         ([start, end]) =>
-          start < sentence.end &&
-          end > sentence.start &&
-          words(block.text.slice(start, end)) >= 4,
+          start < sentence.end && end > sentence.start && words(block.text.slice(start, end)) >= 4,
       );
     sentence.support = supportOf(sentence, {
       heading,
@@ -777,11 +812,14 @@ export function analyzeLegal(blocks, labels) {
       text: cite.text,
     }));
     const lead = own.length
-      ? block.text.slice(sentence.start, own[0].start).trimEnd().replace(SIGNAL_BEFORE, '').trimEnd()
+      ? block.text
+          .slice(sentence.start, own[0].start)
+          .trimEnd()
+          .replace(SIGNAL_BEFORE, '')
+          .trimEnd()
       : '';
     sentence.lead = lead || sentence.text;
-    sentence.attention =
-      WEAK.has(sentence.support) || sentence.flags.some(flag => flag.attention);
+    sentence.attention = WEAK.has(sentence.support) || sentence.flags.some(flag => flag.attention);
   }
 
   const runs = roleRuns(sections, sentences);
@@ -791,8 +829,9 @@ export function analyzeLegal(blocks, labels) {
     section.phrase = confidence?.phrase ?? null;
     section.rail = labeled ? railOf(section, runs, sentences) : null;
   }
-  const context = { sections, sentences, runs, blocks, read, citesOf, ownOf, tagOf };
-  const checks = labeled ? checksOf(context) : [];
+  const checks = labeled
+    ? checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf })
+    : [];
 
   return {
     labeled,
@@ -823,7 +862,7 @@ export function clientNames(blocks) {
   return [];
 }
 
-function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf, tagOf }) {
+function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf }) {
   const checks = [];
   const span = n => {
     const { block, start, end } = sentences[n - 1];
@@ -864,7 +903,9 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf, tag
     if (count < 2) return;
     const umbrella = sections[i - 1]?.part === 'umbrella' ? sections[i - 1] : null;
     if (!umbrella) {
-      add('umbrella', 'warn', 'There is no umbrella before the sub-issues.', section, [section.first]);
+      add('umbrella', 'warn', 'There is no umbrella before the sub-issues.', section, [
+        section.first,
+      ]);
       return;
     }
     const lacks = [
@@ -891,10 +932,13 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf, tag
     if (rule === 'order') {
       const applying = own.find(run => APPLYING.includes(run.role));
       const first = own.find(run => run.role === 'rule');
-      add('rule-before-application', 'warn', `${tag} applies the law before stating a rule.`, section, [
-        applying.first,
-        first.first,
-      ]);
+      add(
+        'rule-before-application',
+        'warn',
+        `${tag} applies the law before stating a rule.`,
+        section,
+        [applying.first, first.first],
+      );
     } else if (rule === 'missing') {
       add('rule-before-application', 'warn', `${tag} states no rule.`, section, [section.first]);
     }
@@ -969,9 +1013,7 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf, tag
   for (const sentence of sentences) {
     if (sentence.kind !== 'law' && sentence.kind !== 'precedent') continue;
     if (!/\bcourts\b/i.test(sentence.text.split(/\s+/).slice(0, 4).join(' '))) continue;
-    const rest = sentences.filter(
-      other => other.block === sentence.block && other.n >= sentence.n,
-    );
+    const rest = sentences.filter(other => other.block === sentence.block && other.n >= sentence.n);
     const cited = new Map();
     for (const other of rest) {
       for (const cite of ownOf(other.n)) {
@@ -1099,10 +1141,9 @@ function levelOf(authority) {
 
 // A statute's title from its first mention in Bluebook form, with every
 // subsection the document cites: "42 U.S.C. § 3602(b), (c)".
-const SUBSECTIONS = /(?:\s?\((?!\d{4}\))[0-9a-zA-Z]{1,4}\))+/;
 function statuteTitle(cites) {
   const base = cites[0].text
-    .replace(/\s*\([^()]*\d{4}\)$/, '')
+    .replace(YEAR_AFTER, '')
     .replace(SUBSECTIONS, '')
     .replace(/U\.\s?S\.\s?Code\b/, 'U.S.C.')
     .trim();
@@ -1125,11 +1166,11 @@ function titleOf(authority) {
     rest = `, ${[full.docket, full.database].filter(Boolean).join(', ')}`;
     if (court(full)) rest += ` (${court(full)})`;
   } else {
-    name = full.name || authority.name;
-    rest = `, ${full.volume} ${full.reporter} ${full.page}`;
+    name = full.name || '';
+    rest = `${name ? ', ' : ''}${full.volume} ${full.reporter} ${full.page}`;
     if (court(full)) rest += ` (${court(full)})`;
   }
-  return { title: name + rest, italic: [0, name.length] };
+  return { title: name + rest, italic: name ? [0, name.length] : null };
 }
 
 function warningsOf(authority) {
@@ -1147,7 +1188,8 @@ function warningsOf(authority) {
     } else if (!cites.some(hasPin)) warnings.push('No pin cite');
   }
   if (authority.group === 'statutes') {
-    for (const text of new Set(cites.map(cite => cite.text))) {
+    const texts = cites.filter(cite => cite.type !== 'id').map(cite => cite.text);
+    for (const text of new Set(texts)) {
       if (STATUTE_FORM.test(text)) warnings.push(`Not in Bluebook form: ${text}`);
     }
   }
@@ -1182,7 +1224,7 @@ function tableOf(authorities, tagOf) {
       court: authority.full?.court || null,
       level: levelOf(authority),
       mentions,
-      where: [...new Set(mentions.map(mention => mention.section))].join(' · '),
+      where: [...new Set(mentions.map(mention => mention.section).filter(Boolean))].join(' · '),
       warnings: warningsOf(authority),
       count: mentions.length,
     };
@@ -1197,7 +1239,7 @@ function unresolvedOf(all, tagOf) {
   const items = [];
   for (const cite of all) {
     if (cite.authority || !['id', 'supra', 'short'].includes(cite.type)) continue;
-    const where = `${cite.text} in ${tagOf(cite.block)}`;
+    const where = `${cite.text.replace(SIGNAL_START, '')} in ${tagOf(cite.block)}`;
     const why =
       cite.type === 'id'
         ? cite.quoted
