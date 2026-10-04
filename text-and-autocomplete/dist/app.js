@@ -18,7 +18,7 @@ import { BridgeCompose } from './bridge-client.js?v=ae40474645ea';
 import { RealtimeCompose } from './realtime.js?v=f6a116bc6cb8';
 import { readSavedKey, saveKey, forgetKey } from './key-storage.js?v=d7465de288af';
 import { SelectionRewrite } from './selection-rewrite.js?v=65913731007c';
-import { SelectionCombine } from './selection-combine.js?v=fb918998d8d3';
+import { SentenceView } from './sentence-view.js?v=3f9ce1eda613';
 
 const $ = id => document.getElementById(id);
 const editor = $('editor');
@@ -30,8 +30,11 @@ const paragraph = $('paragraph');
 const styleTabs = $('style-tabs');
 const resize = $('resize');
 const rephrase = $('rephrase');
-const combine = $('combine');
 const intelligence = $('intelligence');
+const documentPage = $('document-page');
+const viewTabs = [$('tab-document'), $('tab-sentences')];
+// 'document' or 'sentences': which view of the document is showing.
+let view = 'document';
 const dialog = $('key-dialog');
 const keyInput = $('api-key');
 let completion = '';
@@ -406,7 +409,7 @@ function paintSuggestion() {
   }
 }
 function updateCount() {
-  const words = wordCount(editor.innerText);
+  const words = wordCount(withDocument(() => editor.innerText));
   $('word-limit').textContent = `${words} / ${MAX_WORDS}`;
   $('word-limit').dataset.full = String(words >= MAX_WORDS);
 }
@@ -811,7 +814,9 @@ for (const button of document.querySelectorAll('[data-command]')) {
   button.addEventListener('mousedown', e => e.preventDefault());
   button.onclick = () => command(button.dataset.command);
 }
-for (const action of ['undo', 'redo']) $(action).onclick = () => command(action);
+for (const action of ['undo', 'redo']) {
+  $(action).onclick = () => (view === 'sentences' ? combiner[action]() : command(action));
+}
 $('style').onchange = e => command('formatBlock', e.target.value);
 $('font').onchange = e => command('fontName', e.target.value);
 $('size').onchange = e => {
@@ -896,7 +901,7 @@ async function connectKey(key, automatic = false) {
     await client.connect(key);
     if (attempt !== connectionAttempt) return;
     let message =
-      'Connected. Type for suggestions, select text and drag its handle, double-click it to rephrase, or drag it onto another sentence to combine them.';
+      'Connected. Type for suggestions, select text and drag its handle, or double-click it to rephrase. Open Sentences to move and combine sentences.';
     try {
       if (planMode) localStorage.setItem(`${CONSENT_KEY}.${client.session?.provider}`, '1');
       else saveKey(key);
@@ -1150,10 +1155,6 @@ intelligence.addEventListener('keydown', event => {
     intelligence.querySelector('summary').focus();
   }
 });
-combine.onchange = () => {
-  trace('combine-toggled', { enabled: combine.checked });
-  cancelWork();
-};
 rephrase.onchange = () => {
   trace('rephrase-toggled', { enabled: rephrase.checked });
   cancelWork();
@@ -1251,19 +1252,127 @@ const rewriteOptions = {
   },
 };
 rewriter = new SelectionRewrite(rewriteOptions);
-combiner = new SelectionCombine({
-  ...rewriteOptions,
+// Hidden, the editor has no layout: innerText loses its line breaks and editing
+// commands fail. The view shows it for the length of `run` and hides it again
+// before the browser paints, so the reader never sees it.
+function withDocument(run) {
+  if (!documentPage.hidden) return run();
+  const focused = document.activeElement;
+  const scroll = [scrollX, scrollY];
+  documentPage.hidden = false;
+  try {
+    return run();
+  } finally {
+    documentPage.hidden = true;
+    scrollTo(...scroll);
+    if (focused?.isConnected) focused.focus({ preventScroll: true });
+  }
+}
+// The Sentences view is a second view of the same document. Its changes go
+// through the editor, so both views always show the same text.
+combiner = new SentenceView({
+  editor,
+  root: $('sentence-view'),
+  client,
   contextOf,
-  canCombine: () => combine.checked,
-  flash: range => rewriter.flash(range),
-  hideHandle: () => rewriter.hideControls(),
-  idle: () => rewriter.update(),
+  edit: run => {
+    withDocument(() => {
+      editor.focus({ preventScroll: true });
+      run();
+      validHTML = editor.innerHTML;
+      beforeEdit = null;
+      updateCount();
+    });
+    disarm('sentence-edit');
+  },
+  onJump: () => showView('document'),
+  notify: showNotice,
+  connect: openSettings,
+  locale: document.documentElement.lang,
+});
+// The caret goes to the end of the sentence the Sentences view had chosen,
+// which flashes, so the reader keeps their place across views.
+function showInDocument(range) {
+  documentPage.hidden = false;
+  editor.focus({ preventScroll: true });
+  const fallback = savedRange && editor.contains(savedRange.startContainer) ? savedRange : null;
+  const caret = (range || fallback)?.cloneRange();
+  if (!caret) {
+    placeAtEnd();
+    return;
+  }
+  caret.collapse(false);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(caret);
+  if (!range) return;
+  const rect = range.getBoundingClientRect();
+  if (rect.top < 120 || rect.bottom > innerHeight - 60) {
+    const smooth = !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    scrollBy({
+      top: rect.top + rect.height / 2 - innerHeight / 2,
+      behavior: smooth ? 'smooth' : 'auto',
+    });
+  }
+  rewriter.flash(range);
+}
+function showView(name, { focusTab = false } = {}) {
+  if (name === view) return;
+  const sentences = name === 'sentences';
+  view = name;
+  trace('view-changed', { view: name });
+  cancelWork();
+  endCycle('view-changed');
+  disarm('view-changed');
+  rewriter.hideControls();
+  document.body.dataset.view = name;
+  for (const tab of viewTabs) {
+    const selected = tab.dataset.view === name;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  }
+  // Formatting acts on a selection in the editor, which the Sentences view hides.
+  for (const control of document.querySelectorAll(
+    '.toolbar .group:not(.history, .zoom-group) :is(button, select)',
+  )) {
+    control.disabled = sentences;
+  }
+  if (sentences) {
+    const at = savedRange && editor.contains(savedRange.startContainer) ? savedRange : null;
+    documentPage.hidden = true;
+    combiner.show(at && { node: at.startContainer, offset: at.startOffset }, {
+      focus: !focusTab,
+    });
+  } else showInDocument(combiner.hide());
+  if (focusTab) viewTabs.find(tab => tab.dataset.view === name).focus();
+  try {
+    history.replaceState(
+      null,
+      '',
+      location.pathname + location.search + (sentences ? '#sentences' : ''),
+    );
+  } catch {}
+}
+for (const tab of viewTabs) {
+  tab.onclick = () => showView(tab.dataset.view);
+  tab.addEventListener('keydown', event => {
+    const next = { ArrowLeft: 0, Home: 0, ArrowRight: 1, End: 1 }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    showView(viewTabs[next].dataset.view, { focusTab: true });
+  });
+}
+window.addEventListener('hashchange', () => {
+  if (location.hash === '#sentences') showView('sentences');
+  else if (!location.hash || location.hash === '#document') showView('document');
 });
 // On claude.ai, a republish of this page keeps the document being written.
 function restoreDocument(data) {
   if (typeof data?.html !== 'string' || !data.html) return;
   editor.innerHTML = data.html;
   validHTML = editor.innerHTML;
+  combiner.forget();
+  if (view === 'sentences') combiner.render();
   if (typeof data.title === 'string') {
     title.value = data.title;
     title.dispatchEvent(new Event('input'));
@@ -1284,6 +1393,7 @@ editor.focus();
 window.getSelection().removeAllRanges();
 window.getSelection().addRange(initialRange);
 savedRange = initialRange;
+if (location.hash === '#sentences') showView('sentences');
 if (planMode) setupBridge();
 gate();
 if (planMode) {
@@ -1335,6 +1445,8 @@ if (document.modelContext?.registerTool) {
             }
             validHTML = editor.innerHTML;
             savedRange = null;
+            combiner.forget();
+            if (view === 'sentences') combiner.render();
             updateCount();
             return { updated: true, words: wordCount(input.text) };
           },

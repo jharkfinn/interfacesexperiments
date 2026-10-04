@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Pancakes for Dinner — Text and Autocomplete</title>
     <meta name="description" content="A quiet document editor with inline writing suggestions.">
-    <link rel="stylesheet" href="style.css?v=6f2716ca811f">
+    <link rel="stylesheet" href="style.css?v=697545a04386">
   </head>
   <body>
     <header class="app-header">
@@ -17,11 +17,11 @@
     </header>
 
     <nav class="toolbar" aria-label="Document formatting">
-      <div class="group">
+      <div class="group history">
         <button id="undo" aria-label="Undo" title="Undo"><svg viewBox="0 0 24 24"><path d="m8 5-5 5 5 5M3 10h10a7 7 0 0 1 7 7"/></svg></button>
         <button id="redo" aria-label="Redo" title="Redo"><svg viewBox="0 0 24 24"><path d="m16 5 5 5-5 5m5-5H11a7 7 0 0 0-7 7"/></svg></button>
       </div>
-      <div class="group">
+      <div class="group zoom-group">
         <select id="zoom" aria-label="Zoom">
           <option value=".8">80%</option>
           <option value="1" selected>100%</option>
@@ -64,7 +64,6 @@
         <div class="intelligence-menu" role="group" aria-label="Intelligence features">
           <label><input type="checkbox" id="resize" checked> Drag to expand or shorten</label>
           <label><input type="checkbox" id="rephrase" checked> Double-click to rephrase</label>
-          <label><input type="checkbox" id="combine" checked> Drag onto a sentence to combine</label>
           <label><input type="checkbox" id="smart"> Tab autocomplete</label>
           <label><input type="checkbox" id="multi" checked> Multiple tab autocomplete</label>
           <label><input type="checkbox" id="paragraph" checked> Suggested paragraph</label>
@@ -76,7 +75,11 @@
 
     <main class="workspace">
       <div class="page-stack">
-        <article class="page">
+        <div class="view-tabs" role="tablist" aria-label="Views of the document">
+          <button id="tab-document" role="tab" aria-selected="true" aria-controls="document-page" data-view="document">Document</button>
+          <button id="tab-sentences" role="tab" aria-selected="false" aria-controls="sentence-view" data-view="sentences" tabindex="-1">Sentences</button>
+        </div>
+        <article id="document-page" class="page" role="tabpanel" aria-labelledby="tab-document">
           <div class="editor-surface">
             <!-- The document itself: whitespace here is document text, so keep it on one line. -->
             <div id="editor" class="document-body" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Document body" spellcheck="true"><h1>Pancakes for Dinner</h1><p>Pancakes are too good to stay stuck at breakfast. They take ten minutes, use things you already have in the kitchen, and nobody at the table ever complains. You can go sweet with syrup and berries, or savory with cheese, bacon, and a fried egg on top. After a long day, a warm stack feels like a small party on a plate. Dinner should be easy and fun, and pancakes are both.</p></div>
@@ -84,6 +87,17 @@
           <span id="suggestion" aria-hidden="true" hidden></span>
           <div id="style-tabs" aria-hidden="true" hidden></div>
         </article>
+        <section id="sentence-view" class="page sentence-view" role="tabpanel" aria-labelledby="tab-sentences" hidden>
+          <div class="sv-header">
+            <p class="sv-hint">Drag a sentence onto another to combine them, or between two to move it. Double-click a sentence to open it in the document.</p>
+            <div class="sv-actions">
+              <button class="sv-undo" type="button">Undo</button>
+              <button class="sv-redo" type="button">Redo</button>
+            </div>
+          </div>
+          <p id="sv-keys" class="sr-only">Enter opens this sentence in the document. Alt and an arrow key move it. Alt, Shift, and an arrow key combine it with the sentence beside it.</p>
+          <div class="sv-list"></div>
+        </section>
         <div class="page-bottom">
           <button id="save-debug-log" title="Save recent suggestion diagnostics from this tab, including short text snippets">Save debug log</button>
           <span>1 of 1</span>
@@ -141,6 +155,6 @@
       </section>
     </dialog>
 
-    <script type="module" src="app.js?v=01ff09f4c8ed"></script>
+    <script type="module" src="app.js?v=dc89f59643c0"></script>
   </body>
 </html>

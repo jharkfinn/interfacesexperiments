@@ -4,15 +4,23 @@ A document editor prototype from [Interfaces that think](https://tareqistyping.c
 
 ## What you can do
 
-Each feature can be turned on or off from the **Intelligence** menu.
+The document has two views, chosen with the tabs above the page: **Document**, where you write, and **Sentences**, where you rearrange. Both show the same text, and a change in one shows in the other. Switching views keeps your place: the sentence at the caret is chosen in Sentences, and the sentence chosen there gets the caret when you go back. Open the page at `#sentences` to start in the Sentences view.
+
+Each feature in the Document view can be turned on or off from the **Intelligence** menu.
 
 - **Autocomplete.** Pause at the end of a paragraph to see a suggestion. Press Tab to accept it or Escape to dismiss it. With **Multiple tab autocomplete** (the default), press Tab again right after accepting to swap in the next of three alternatives.
 - **Suggested paragraph.** In an empty paragraph, the editor drafts a paragraph in three writing styles. Press Tab to accept it, then Tab again to switch styles.
 - **Drag to resize.** Select text and drag the handle at the end of the selection right or down to expand it, or left or up to shorten it (35–250%). The rewrite previews in place and is kept when you release. With the handle focused, arrow keys adjust, Enter keeps, Home returns to the original length, and Escape cancels.
 - **Double-click to rephrase.** Double-click a selection for new wording. Keep double-clicking to step through alternatives, like a thesaurus.
-- **Drag to combine.** Drag a selection onto another sentence to merge the two into one sentence. This works with a mouse only.
 
-AI edits go through the browser's undo, so Undo restores the original. Documents are limited to 500 words and are not saved between visits.
+In the **Sentences** view, each sentence is a piece you can drag with a mouse, a pen, or a finger (hold a finger on a sentence for a moment before you drag it).
+
+- **Move.** Drop a sentence between two others, or within 14 pixels of a sentence's left or right edge, to move it there. A paragraph or list item that loses its last sentence is removed.
+- **Combine.** Drop a sentence on the middle of another to merge the two into one sentence. Escape cancels a combine that is still running.
+- **Open in the document.** Double-click a sentence, or press Enter, to show it in the Document view.
+- **Keyboard.** Arrow keys choose a sentence. Alt and an arrow key move it one place. Alt, Shift, and an arrow key combine it with the sentence beside it.
+
+AI edits and Sentences edits go through the browser's undo, so Undo restores the original, in either view. In the Sentences view, one Undo takes back a whole move or combine. In the Document view, Undo goes one step at a time, and a change that spans two paragraphs is two or three steps. Documents are limited to 500 words and are not saved between visits.
 
 ## How it works
 
@@ -29,7 +37,7 @@ Language models can't count characters reliably, so when resizing, the app measu
 | `rewrite-core.js` | Resize and rephrase prompts, and the length-measuring loop |
 | `combine-core.js` | Combine prompt and sentence handling |
 | `selection-rewrite.js`, `rewrite-preview.js` | Resize handle and in-place previews |
-| `selection-combine.js` | Drag-to-combine interaction |
+| `sentence-view.js` | Sentences view: moving and combining sentences |
 | `realtime.js` | WebSocket connection to OpenAI |
 | `bridge-client.js` | Connection to the local bridge, for plan mode |
 | `sample-client.js` | Connection to Claude when the editor is a claude.ai page |
