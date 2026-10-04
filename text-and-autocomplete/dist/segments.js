@@ -62,6 +62,10 @@ function answer(topic, raw, paragraphs) {
 const SAVED_KEY = 'text-and-autocomplete.segments';
 const SAVED_LIMIT = 30;
 const RETRY_MS = 1500;
+// One topic asks at a time, so a request that never answers would hold every
+// view back. claude.ai sets no time limit of its own; the slower model tiers
+// think first, so the limit is generous.
+const ANSWER_MS = 120000;
 // How long typing must stop before Claude is asked again. A legal request
 // sends the whole document, so it waits longer.
 export const idleFor = topic => (topic === LEGAL ? 5000 : 2500);
@@ -351,7 +355,7 @@ export class Segments {
       paragraphs: paragraphs.length,
     });
     try {
-      const raw = await request(this.client, topic, paragraphs, state);
+      const raw = await this.answered(request(this.client, topic, paragraphs, state));
       const division = answer(topic, raw, paragraphs);
       if (!division) {
         throw new Error(
@@ -376,5 +380,18 @@ export class Segments {
     this.notify(topic);
     // The text may have changed while Claude worked.
     this.check(topic);
+  }
+  // A request's answer, or a failure once it has taken longer than ANSWER_MS.
+  // On a client of its own, the request is then stopped; a shared client is
+  // left alone, because its pending request may be autocomplete's.
+  answered(asked) {
+    let timer = 0;
+    return new Promise((resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error('Claude took too long to answer. Change the text to try again.'));
+        if (!this.shared) this.client.cancel?.();
+      }, ANSWER_MS);
+      asked.then(resolve, reject);
+    }).finally(() => clearTimeout(timer));
   }
 }

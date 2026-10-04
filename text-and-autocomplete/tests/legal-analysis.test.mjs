@@ -569,8 +569,8 @@ test('structure checks on the memo', () => {
         'Conclusion',
         'The conclusion says “highly likely”, but II says only “most likely”. The conclusion also calls a part “more uncertain”. If every part must be met, the whole is no surer than its weakest part.',
       ],
-      // The spec expected 48%, worked out when the client's building was
-      // "Cityspace", one word; "Residence Co." is two, so I is 154 of 328 words.
+      // I is 154 of 328 words. The sample names the building "Residence Co.",
+      // two words, which is why this is not the 48% a one-word name gives.
       ['quotation-share', 'I', 'I is 47% quotation.'],
       [
         'alternating',

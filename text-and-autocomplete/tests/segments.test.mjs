@@ -6,7 +6,7 @@ import { BridgeCompose } from '../dist/bridge-client.js';
 
 // A heading and two paragraphs, as DocumentModel.paragraphs() gives them.
 const PARAGRAPHS = [
-  { kind: 'h1', block: 0, sentences: ['Jones and the FHA'] },
+  { kind: 'h1', block: 0, sentences: ['Doe and the FHA'] },
   { kind: 'p', block: 1, sentences: ['The question is whether it is a dwelling.', 'It is.'] },
   { kind: 'p', block: 2, sentences: ['A club is not.', 'Ours is a home.'] },
 ];
@@ -146,7 +146,7 @@ test('legal labels arrive once, carry prior labels, and wait 5 s after typing', 
   assert.deepEqual(
     first.tags.map(tag => [tag.text, tag.role, tag.kind]),
     [
-      ['Jones and the FHA', 'heading', 'framing'],
+      ['Doe and the FHA', 'heading', 'framing'],
       ['The question is whether it is a dwelling.', 'issue', 'law'],
       ['It is.', 'conclusion', 'conclusion'],
       ['A club is not.', 'rule', 'law'],
@@ -303,6 +303,29 @@ test('a legal reply with no usable label fails with a message', async t => {
   assert.equal(result.status, 'failed');
   assert.equal(result.message, 'Claude gave no labels this view can use.');
   assert.equal(result.tags, null);
+});
+
+test('a request that never answers fails after two minutes and frees the other views', async t => {
+  t.after(() => mock.timers.reset());
+  // A delay longer than the limit stands for a request that never answers.
+  const { segments, client } = setup({ delay: 10 * 60 * 1000, replies: { legal: LABELS } });
+  let cancelled = 0;
+  client.cancel = () => {
+    cancelled++;
+    client.abort();
+  };
+  segments.watch(LEGAL, () => {});
+  segments.watch('purpose:Claims', () => {});
+  await advance(119000, 1000);
+  assert.equal(segments.legal().status, 'waiting');
+  await advance(2000, 1000);
+  const result = segments.legal();
+  assert.equal(result.status, 'failed');
+  assert.equal(result.message, 'Claude took too long to answer. Change the text to try again.');
+  assert.equal(cancelled, 1);
+  // The purpose view asks next instead of waiting behind the lost request.
+  await advance(3000, 1000);
+  assert.equal(client.sends.at(-1).operation, 'segment');
 });
 
 test('saved labels come back without asking, and offline labels still show', async t => {

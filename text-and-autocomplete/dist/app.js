@@ -282,6 +282,8 @@ function ineligibleReason(ctx) {
   // those words are the author's evidence.
   const inside = citationContext(ctx.before.slice(ctx.before.lastIndexOf('\n') + 1));
   if (inside) return inside;
+  // A block quotation is quoted text even with no quotation marks.
+  if (block.nodeName === 'BLOCKQUOTE') return 'inside-quotation';
   if (!smart.checked && !multi.checked) return 'smart-compose-off';
   return /\S/.test(ctx.before.split('\n').at(-1) || '') ? null : 'empty-paragraph';
 }
