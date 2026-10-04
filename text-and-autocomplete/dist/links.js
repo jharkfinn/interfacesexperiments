@@ -1,6 +1,7 @@
 // What the views point at, shared so every view can mark it in its own way.
 //
-//   hover    the piece under the pointer           { range, origin }
+//   hover    the piece under the pointer           { range, ranges?, origin }
+//            (ranges: every place a hovered authority is cited)
 //   focus    the chosen piece, or the caret's      { range, origin }
 //   drag     a drag in progress                    { source, target, insert, origin }
 //   pending  a combine waiting for its sentence    { source, target }
@@ -23,6 +24,12 @@ const sameRange = (a, b) =>
     a.endContainer === b.endContainer &&
     a.endOffset === b.endOffset);
 
+const sameRanges = (a, b) =>
+  Array.isArray(a) &&
+  Array.isArray(b) &&
+  a.length === b.length &&
+  a.every((range, index) => sameRange(range, b[index]));
+
 export function sameLink(a, b) {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -32,6 +39,8 @@ export function sameLink(a, b) {
     const y = b[key];
     if (isRange(x) || isRange(y)) {
       if (!sameRange(x, y)) return false;
+    } else if (Array.isArray(x) || Array.isArray(y)) {
+      if (!sameRanges(x, y)) return false;
     } else if (x !== y) return false;
   }
   return true;

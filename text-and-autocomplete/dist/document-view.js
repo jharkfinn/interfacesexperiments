@@ -131,7 +131,8 @@ export class DocumentView {
       'current',
       focus && focus.origin !== this.id && !drag && !pending ? focus.range : null,
     );
-    this.marks.set('hover', drag || pending ? null : link('hover')?.range);
+    const hover = link('hover');
+    this.marks.set('hover', drag || pending ? null : hover?.ranges || hover?.range);
     this.marks.set('source', drag?.source || pending?.source);
     this.marks.set('target', drag?.target || pending?.target);
     this.marks.set('insert', drag?.insert);

@@ -1,7 +1,11 @@
 // Builds dist/ as a claude.ai page, where the editor asks Claude on the viewer's
 // own account (the `sample` capability) instead of using an API key.
 //
-//   node scripts/build-artifact.mjs <output folder>
+//   node scripts/build-artifact.mjs <output folder> [--sample <file.html>] [--title <text>]
+//
+// --sample replaces the sample document with the HTML in a file, and --title
+// replaces the document title, so a private page can open on a document that
+// must not be committed to the repository.
 //
 // claude.ai wraps the page in its own document, so the page keeps only its title,
 // styles, and body. Each script and stylesheet is published under a name with
@@ -15,9 +19,25 @@ import { join, relative, sep, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
-const output = process.argv[2];
-if (!output) {
-  console.error('Usage: node scripts/build-artifact.mjs <output folder>');
+const args = process.argv.slice(2);
+const option = name => {
+  const at = args.indexOf(name);
+  if (at < 0) return null;
+  const value = args[at + 1];
+  args.splice(at, 2);
+  if (value === undefined) {
+    console.error(`${name} needs a value.`);
+    process.exit(2);
+  }
+  return value;
+};
+const sampleFile = option('--sample');
+const titleText = option('--title');
+const output = args[0];
+if (!output || args.length > 1) {
+  console.error(
+    'Usage: node scripts/build-artifact.mjs <output folder> [--sample <file.html>] [--title <text>]',
+  );
   process.exit(2);
 }
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
@@ -72,7 +92,25 @@ for (const text of [
     }
   }
 }
-const page = rename(html);
+let page = rename(html);
+if (sampleFile) {
+  // The editor's contents are one line of blocks, with no div inside.
+  const sample = readFileSync(sampleFile, 'utf8').trim();
+  if (/<\/?div\b|<script\b|\son\w+=/i.test(sample)) {
+    console.error(`${sampleFile} must hold only document blocks: no div, script, or event attributes.`);
+    process.exit(1);
+  }
+  const editor = /(<div id="editor"[^>]*>)[\s\S]*?(<\/div>)/;
+  if (!editor.test(page)) {
+    console.error('Could not find the editor in index.html.');
+    process.exit(1);
+  }
+  page = page.replace(editor, (_, open, close) => open + sample + close);
+}
+if (titleText !== null) {
+  const attribute = titleText.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  page = page.replace(/(<input id="title"[^>]*\svalue=")[^"]*(")/, (_, open, close) => open + attribute + close);
+}
 const body = /<body>([\s\S]*)<\/body>/.exec(page)[1];
 const stylesheet = /<link rel="stylesheet" href="([^"]+)">/.exec(page)[1];
 writeFileSync(

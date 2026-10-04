@@ -20,19 +20,19 @@ export class DocumentMarks {
     if (!layer.isConnected) this.surface.append(layer);
     return layer;
   }
-  // Draws `kind` over a Range, or over a list of viewport rects. A collapsed
-  // range draws a bar where text would go in. Without a target, or while the
-  // editor is hidden, the mark is removed.
+  // Draws `kind` over a Range, or over a list of Ranges or viewport rects. A
+  // collapsed range draws a bar where text would go in. Without a target, or
+  // while the editor is hidden, the mark is removed.
   set(kind, target) {
     if (!target || !this.editor.getClientRects().length) {
       this.layers.get(kind)?.replaceChildren();
       return;
     }
+    const rectsOf = range =>
+      range.collapsed ? caretRects(range) : selectionRects(this.editor, range);
     const rects = Array.isArray(target)
-      ? target
-      : target.collapsed
-        ? caretRects(target)
-        : selectionRects(this.editor, target);
+      ? target.flatMap(item => ('startContainer' in item ? rectsOf(item) : [item]))
+      : rectsOf(target);
     const { place } = surfacePlacement(this.surface);
     this.layer(kind).replaceChildren(
       ...rects.map(rect => {

@@ -6,7 +6,7 @@ import { removalSpan } from './combine-core.js?v=1c8f69eb2a6d';
 // The planned markup is checked against the result: a mismatch is undone and
 // reported, never kept.
 
-const PLAIN_BLOCK = /^(P|DIV|H[1-6])$/;
+const PLAIN_BLOCK = /^(P|DIV|H[1-6]|BLOCKQUOTE)$/;
 
 // The copies an edit made become steps: new contents for each block that
 // changed, then the removal of a block the edit left empty. A document keeps
@@ -117,7 +117,7 @@ export function planMove(editor, model, source, gap) {
   return planSpanMove(editor, model, span, destination);
 }
 
-const PLAIN = /^(P|DIV|H[1-6])$/;
+const PLAIN = /^(P|DIV|H[1-6]|BLOCKQUOTE)$/;
 
 // Moving whole blocks `first`..`last` so they come before block `before`
 // (the number of blocks to put them at the end). No block is made or removed:

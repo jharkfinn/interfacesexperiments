@@ -1,4 +1,5 @@
 import { withinLimit, wordCount, textResponse } from './compose-core.js?v=576be38817a3';
+import { legalSentences } from './legal-text.js';
 
 // Dragging a selection onto another sentence asks for both as a single thought.
 const COMBINE_VERSIONS = 3;
@@ -91,13 +92,16 @@ export function combineText(raw, context) {
 }
 
 // The sentence of a block's text under a character offset, without the
-// whitespace that separates it from its neighbours.
+// whitespace that separates it from its neighbours. It splits as the document
+// model does, so a citation stays with its claim. The space after a sentence
+// belongs to it.
 export function sentenceAt(text, offset, locale) {
-  const segments = [...new Intl.Segmenter(locale, { granularity: 'sentence' }).segment(text)];
-  const found = segments.find(item => offset < item.index + item.segment.length) || segments.at(-1);
-  if (!found || !found.segment.trim()) return null;
-  const start = found.index + found.segment.match(/^\s*/u)[0].length;
-  return { start, end: start + found.segment.trim().length };
+  const sentences = legalSentences(text, locale || undefined, { attachCitations: true });
+  if (!sentences.length) return null;
+  const found =
+    sentences.find((sentence, k) => offset < (sentences[k + 1]?.start ?? Infinity)) ||
+    sentences.at(-1);
+  return { start: found.start, end: found.end };
 }
 
 // Removing the dragged passage must not leave doubled spaces, a leading or

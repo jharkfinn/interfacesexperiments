@@ -6,7 +6,9 @@
 // made anywhere else in the document, so a link stays on its text while the
 // pieces around it are numbered again.
 
-const BLOCK = /^(P|DIV|H[1-6]|LI)$/;
+import { legalSentences } from './legal-text.js';
+
+const BLOCK = /^(P|DIV|H[1-6]|LI|BLOCKQUOTE)$/;
 const LIST = /^(UL|OL)$/;
 export const UNITS = ['sentence', 'paragraph'];
 
@@ -65,26 +67,26 @@ export function rangeIn(block, start, end) {
   return null;
 }
 
-// The text is split again on every edit, so each locale keeps one segmenter.
-const segmenters = new Map();
-function segmenter(locale) {
-  const key = locale || '';
-  if (!segmenters.has(key)) {
-    // An empty locale (a page with no lang) is an error to Intl; undefined is the default.
-    segmenters.set(key, new Intl.Segmenter(locale || undefined, { granularity: 'sentence' }));
-  }
-  return segmenters.get(key);
-}
+// The text is split again on every edit, but most blocks have not changed, so the
+// sentences of recent block texts are kept. The oldest entry goes when the cache is full.
+const SENTENCE_CACHE = 500;
+const sentenceCache = new Map();
 
-// The sentences of a block's text, without the spaces between them.
+// The sentences of a block's text, without the spaces between them. Legal text needs
+// more than Intl.Segmenter: "v." and "F. Supp." do not end sentences, and a sentence
+// that is only a citation belongs to the claim before it.
 export function sentencesIn(text, locale) {
-  const sentences = [];
-  for (const { segment, index } of segmenter(locale).segment(text)) {
-    const body = segment.trim();
-    if (!body) continue;
-    const start = index + segment.length - segment.trimStart().length;
-    sentences.push({ start, end: start + body.length, text: body });
-  }
+  // An empty locale (a page with no lang) is an error to Intl; undefined is the default.
+  const key = `${locale || ''}\u0000${text}`;
+  const cached = sentenceCache.get(key);
+  if (cached) return cached;
+  const sentences = text
+    ? legalSentences(text, locale || undefined, { attachCitations: true }).map(
+        ({ start, end, text }) => ({ start, end, text }),
+      )
+    : [];
+  if (sentenceCache.size >= SENTENCE_CACHE) sentenceCache.delete(sentenceCache.keys().next().value);
+  sentenceCache.set(key, sentences);
   return sentences;
 }
 
@@ -254,7 +256,7 @@ export class DocumentModel {
     const sentences = blocks.flatMap(block =>
       block.sentences.map(sentence => ({ ...sentence, block: block.index })),
     );
-    return runs.map(({ first, last, label, method, parent }) => {
+    return runs.map(({ first, last, label, method, parent, ...extra }) => {
       const head = sentences[first - 1];
       const tail = sentences[last - 1];
       const own = sentences.slice(first - 1, last);
@@ -276,6 +278,7 @@ export class DocumentModel {
         label: label || '',
         method: method || '',
         parent: parent ?? null,
+        ...extra,
         text: own.map(sentence => sentence.text).join(' '),
       };
     });

@@ -25,6 +25,22 @@
   color: #dfe1e5;
   background: #191a1d;
   font-synthesis: none;
+  /* The job each sentence does in a legal analysis (IRAC view). */
+  --role-issue: #f0abfc;
+  --role-conclusion: #7aa2f7;
+  --role-rule: #b39af7;
+  --role-explanation: #5eead4;
+  --role-application: #fbbf24;
+  --role-counter: #fb7185;
+  --role-facts: #d9c08a;
+  --role-frame: #94a3b8;
+  /* How well a sentence is supported (Sourcing view). */
+  --support-ok: #4ade80;
+  --support-weak: #facc15;
+  --support-incomplete: #fb923c;
+  --support-missing: #f87171;
+  --support-contrary: #c4b5fd;
+  --support-muted: #8e939e;
 }
 * {
   box-sizing: border-box;
@@ -305,6 +321,17 @@ summary:focus-visible {
   line-height: 1.4;
   font-weight: 500;
   margin: 0;
+}
+.document-body h3 {
+  font-size: 18px;
+  line-height: 1.45;
+  font-weight: 600;
+  margin: 0;
+}
+/* A block quotation, indented as a memo sets long quotations. */
+.document-body blockquote {
+  margin: 0 0 0 2.5em;
+  padding: 0;
 }
 .document-body::selection,
 .document-body *::selection {
@@ -697,6 +724,8 @@ dialog .key-error:empty {
 .document-body p,
 .document-body h1,
 .document-body h2,
+.document-body h3,
+.document-body blockquote,
 .document-body div,
 .document-body li {
   margin-bottom: calc(22px + var(--completion-space, 0px));
@@ -1520,4 +1549,459 @@ body:not(:has(.pane .document-view)) .toolbar .group:not(.history, .zoom-group) 
   50% {
     background: #6cb6ff12;
   }
+}
+
+/* Legal views: a panel above the pieces, for structure checks or authorities. */
+.pv-header:empty {
+  display: none;
+}
+.pv-header {
+  margin: -4px 0 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #c9cdd6;
+}
+.pv-header summary {
+  cursor: pointer;
+  color: #e2e3e7;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.pv-header summary:focus-visible {
+  outline: 2px solid #9bbcff;
+  outline-offset: 2px;
+}
+
+/* IRAC: the structure checks. */
+.irac-checks ul {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.irac-check {
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  column-gap: 8px;
+  cursor: default;
+}
+.irac-check[data-target] {
+  cursor: pointer;
+}
+.irac-check[data-target]:hover .irac-check-text {
+  color: #e8ecf3;
+}
+.irac-check-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--support-muted);
+}
+.irac-check[data-severity='fail'] .irac-check-dot {
+  background: var(--support-missing);
+}
+.irac-check[data-severity='warn'] .irac-check-dot {
+  background: var(--support-weak);
+}
+.irac-check-where {
+  grid-column: 2;
+  color: #8e939e;
+  font-size: 12px;
+}
+.irac-unchecked {
+  margin: 4px 0 0;
+  color: #8e939e;
+  font-size: 12px;
+}
+
+/* IRAC: a section's name, how sure it sounds, and its I R A C rail. */
+.irac-section > .pv-group-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-bottom: 2px;
+  color: #c9cdd6;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+.irac-section[data-part='caption'] {
+  opacity: 0.6;
+}
+.irac-part {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #2f3237;
+  color: #e2e3e7;
+  font-weight: 700;
+}
+.irac-heading {
+  min-width: 0;
+  flex: 1 1 12em;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.irac-conf {
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid #45474d;
+  color: #c9cdd6;
+  font-weight: 500;
+}
+.irac-conf[data-rank='1'] {
+  border-color: var(--support-incomplete);
+  color: var(--support-incomplete);
+}
+.irac-conf[data-rank='3'] {
+  border-color: var(--support-ok);
+  color: var(--support-ok);
+}
+.irac-rail {
+  display: inline-flex;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.irac-step {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #191a1d;
+  background: var(--role-frame);
+  cursor: pointer;
+}
+.irac-step[data-role='issue'] {
+  background: var(--role-issue);
+}
+.irac-step[data-role='rule'] {
+  background: var(--role-rule);
+}
+.irac-step[data-role='application'] {
+  background: var(--role-application);
+}
+.irac-step[data-role='conclusion'] {
+  background: var(--role-conclusion);
+}
+.irac-step[data-role='prediction'] {
+  background: var(--role-conclusion);
+}
+.irac-step[data-role='roadmap'] {
+  background: var(--role-frame);
+}
+/* A hollow letter is a part the section lacks; a dashed one is out of order. */
+.irac-step[data-state='missing'] {
+  background: transparent;
+  color: #c9cdd6;
+  box-shadow: inset 0 0 0 1.5px #6b7080;
+}
+.irac-step[data-state='order'] {
+  box-shadow:
+    0 0 0 1.5px #191a1d,
+    0 0 0 3px var(--support-weak);
+}
+
+/* IRAC: one run of sentences that share a job. */
+.irac-piece {
+  border-left: 3px solid var(--role-frame);
+}
+.irac-piece[data-role='issue'] {
+  border-left-color: var(--role-issue);
+}
+.irac-piece[data-role='conclusion'] {
+  border-left-color: var(--role-conclusion);
+}
+.irac-piece[data-role='rule'] {
+  border-left-color: var(--role-rule);
+}
+.irac-piece[data-role='explanation'] {
+  border-left-color: var(--role-explanation);
+}
+.irac-piece[data-role='application'] {
+  border-left-color: var(--role-application);
+}
+.irac-piece[data-role='counter'] {
+  border-left-color: var(--role-counter);
+}
+.irac-piece[data-role='facts'] {
+  border-left-color: var(--role-facts);
+}
+.irac-role {
+  display: inline-block;
+  margin-right: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--role-frame);
+}
+.irac-piece[data-role='issue'] .irac-role {
+  color: var(--role-issue);
+}
+.irac-piece[data-role='conclusion'] .irac-role {
+  color: var(--role-conclusion);
+}
+.irac-piece[data-role='rule'] .irac-role {
+  color: var(--role-rule);
+}
+.irac-piece[data-role='explanation'] .irac-role {
+  color: var(--role-explanation);
+}
+.irac-piece[data-role='application'] .irac-role {
+  color: var(--role-application);
+}
+.irac-piece[data-role='counter'] .irac-role {
+  color: var(--role-counter);
+}
+.irac-piece[data-role='facts'] .irac-role {
+  color: var(--role-facts);
+}
+.irac-also {
+  margin-right: 8px;
+  color: #8e939e;
+  font-size: 11px;
+  font-weight: 600;
+}
+/* Labels carried over an edit, or two labels that disagree, are less sure. */
+.irac-piece[data-guess] {
+  outline: 1px dotted #6b7080;
+  outline-offset: -1px;
+}
+.irac-piece[data-conflict] {
+  outline: 1px dashed var(--support-weak);
+  outline-offset: -1px;
+}
+
+/* Sourcing: the table of authorities. */
+.src-toa {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 8px;
+}
+.src-toa-group th {
+  padding: 8px 0 4px;
+  text-align: left;
+  color: #8e939e;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.src-toa-row td {
+  padding: 5px 4px;
+  border-top: 1px solid #2f3237;
+  vertical-align: top;
+}
+.src-toa-row {
+  cursor: pointer;
+}
+.src-toa-row:hover td,
+.src-toa-row.pv-hover td {
+  background: #23262b;
+}
+.src-toa-row td:first-child {
+  width: 22px;
+  padding-left: 0;
+}
+.src-toa-name {
+  display: block;
+  color: #e2e3e7;
+  overflow-wrap: anywhere;
+}
+.src-toa-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  color: #8e939e;
+  font-size: 12px;
+}
+.src-court::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--support-muted);
+  vertical-align: 1px;
+}
+.src-court[data-level='supreme']::before {
+  background: #f472b6;
+}
+.src-court[data-level='circuit']::before {
+  background: #7aa2f7;
+}
+.src-court[data-level='district']::before {
+  background: #5eead4;
+}
+.src-court[data-level='statute']::before {
+  background: #b39af7;
+}
+.src-warn {
+  display: block;
+  color: var(--support-incomplete);
+  font-size: 12px;
+}
+.src-unresolved {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+  color: #c9cdd6;
+  font-size: 12px;
+}
+.src-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 0;
+}
+.src-attention {
+  border: 1px solid #45474d;
+  border-radius: 6px;
+  background: #2a2c31;
+  color: #d0d3d9;
+  font-size: 12px;
+  padding: 3px 10px;
+}
+.src-attention[aria-pressed='true'] {
+  border-color: var(--support-missing);
+  color: #ffd2cc;
+}
+
+/* Sourcing: one sentence with what it asserts, its support, citations, and flags. */
+.src-piece {
+  border-left: 3px solid transparent;
+}
+.src-piece[data-support='direct'],
+.src-piece[data-support='record'],
+.src-piece[data-support='inferential'] {
+  border-left-color: var(--support-ok);
+}
+.src-piece[data-support='indirect'],
+.src-piece[data-support='below'],
+.src-piece[data-support='secondhand'],
+.src-piece[data-support='background'] {
+  border-left-color: var(--support-weak);
+}
+.src-piece[data-support='incomplete'],
+.src-piece[data-support='unsourced'] {
+  border-left-color: var(--support-incomplete);
+}
+.src-piece[data-support='missing'] {
+  border-left-color: var(--support-missing);
+}
+.src-piece[data-support='contrary'] {
+  border-left-color: var(--support-contrary);
+}
+.src-piece:is([data-support='n/a'], [data-support='unknown']):not([data-attention]) {
+  opacity: 0.55;
+}
+.src-line {
+  display: block;
+}
+.src-kind {
+  margin-right: 6px;
+  color: #8e939e;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.src-support {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #191a1d;
+  background: var(--support-muted);
+}
+.src-piece[data-support='direct'] .src-support,
+.src-piece[data-support='record'] .src-support {
+  background: var(--support-ok);
+}
+.src-piece[data-support='inferential'] .src-support {
+  background: transparent;
+  color: var(--support-ok);
+  box-shadow: inset 0 0 0 1px var(--support-ok);
+}
+.src-piece[data-support='indirect'] .src-support,
+.src-piece[data-support='below'] .src-support,
+.src-piece[data-support='background'] .src-support {
+  background: var(--support-weak);
+}
+.src-piece[data-support='secondhand'] .src-support {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--support-weak) 0 4px,
+    #c9a50e 4px 8px
+  );
+}
+.src-piece[data-support='incomplete'] .src-support,
+.src-piece[data-support='unsourced'] .src-support {
+  background: var(--support-incomplete);
+}
+.src-piece[data-support='missing'] .src-support {
+  background: var(--support-missing);
+}
+.src-piece[data-support='contrary'] .src-support {
+  background: var(--support-contrary);
+}
+.src-text {
+  color: #d5d9e0;
+}
+.src-cites,
+.src-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.src-cite {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #2f3542;
+  color: #c0d6fa;
+  font-size: 12px;
+  cursor: pointer;
+}
+.src-cite:hover,
+.src-cite.pv-hover {
+  background: #3a4458;
+}
+.src-cite:not([data-state='own']) {
+  background: transparent;
+  color: #8e939e;
+  box-shadow: inset 0 0 0 1px #3b3d43;
+}
+.src-flag {
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #ffd2cc;
+  background: #3a2428;
+}
+.src-flag[data-flag='quote'],
+.src-flag[data-flag='see-suggested'] {
+  color: #c9cdd6;
+  background: #2a2c31;
+}
+.src-flag[data-flag='form'] {
+  color: #8e939e;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px #3b3d43;
+}
+/* "Only what needs attention" hides the rest. */
+.pv-attention-only :is(.pv-unit, .pv-piece):not([data-attention]) {
+  display: none;
+}
+.pv-attention-only .pv-row:not(:has([data-attention])) {
+  display: none;
 }
