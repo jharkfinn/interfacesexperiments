@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sentencesIn, sentenceIndex, staysPut, joiner } from '../dist/sentence-view.js';
+import { sentencesIn, sentenceIndex, staysPut, joiner, plainHTML } from '../dist/sentence-view.js';
 
 const TEXT = 'Pancakes are quick.  They take ten minutes! Does anyone complain?';
 
@@ -51,4 +51,10 @@ test('Japanese and Chinese sentences join without a space, others with one', () 
   assert.equal(joiner('煎饼很快。'), '');
   assert.equal(joiner('팬케이크는 빠르다.'), ' ');
   assert.equal(joiner('Pancakes are quick.'), ' ');
+});
+
+test('the edit check ignores empty style attributes, and only in tags', () => {
+  assert.equal(plainHTML('<p style="">A.</p><h1 style="">T</h1>'), '<p>A.</p><h1>T</h1>');
+  assert.equal(plainHTML('<p style="color: red">A.</p>'), '<p style="color: red">A.</p>');
+  assert.equal(plainHTML('<p>Type style="" here.</p>'), '<p>Type style="" here.</p>');
 });

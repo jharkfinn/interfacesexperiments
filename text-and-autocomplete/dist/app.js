@@ -18,7 +18,7 @@ import { BridgeCompose } from './bridge-client.js?v=ae40474645ea';
 import { RealtimeCompose } from './realtime.js?v=f6a116bc6cb8';
 import { readSavedKey, saveKey, forgetKey } from './key-storage.js?v=d7465de288af';
 import { SelectionRewrite } from './selection-rewrite.js?v=65913731007c';
-import { SentenceView } from './sentence-view.js?v=3f9ce1eda613';
+import { SentenceView } from './sentence-view.js?v=3efac3de50fc';
 
 const $ = id => document.getElementById(id);
 const editor = $('editor');

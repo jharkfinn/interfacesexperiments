@@ -125,6 +125,11 @@ export function stepsFor(editor, copies) {
   return [...replace, ...remove];
 }
 
+// Removing a suggestion's spacing leaves an empty style attribute on a block.
+// It changes nothing, and a merged block can gain or lose it, so the check of
+// an edit ignores it.
+export const plainHTML = html => html.replace(/ style=""(?=[^<]*>)/g, '');
+
 // The editor's markup once the steps are made, to check the native edits
 // against. Blocks are matched by their order in the document.
 export function expectedHTML(editor, steps) {
@@ -518,7 +523,7 @@ export class SentenceView {
   // result differs from the plan, its edits are undone and this returns false.
   apply(steps) {
     if (!steps.length) return false;
-    const expected = expectedHTML(this.editor, steps);
+    const expected = plainHTML(expectedHTML(this.editor, steps));
     const before = this.editor.innerHTML;
     let made = 0;
     this.applying = true;
@@ -536,7 +541,7 @@ export class SentenceView {
           made += count;
           if (!count) break;
         }
-        if (this.editor.innerHTML !== expected) {
+        if (plainHTML(this.editor.innerHTML) !== expected) {
           for (; made > 0; made--) document.execCommand('undo');
         }
         selection.removeAllRanges();
@@ -544,7 +549,7 @@ export class SentenceView {
     } finally {
       this.applying = false;
     }
-    if (made && this.editor.innerHTML === expected) {
+    if (made && plainHTML(this.editor.innerHTML) === expected) {
       this.done.push(made);
       this.undone = [];
       return true;
