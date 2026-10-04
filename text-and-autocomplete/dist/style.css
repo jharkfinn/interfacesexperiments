@@ -1173,6 +1173,20 @@ body[data-layout='split'] .sv-header {
   padding-top: 28px;
   background: #242529;
 }
+@media (max-width: 1199px) {
+  body[data-layout='split'] .workspace {
+    padding-inline: 16px;
+  }
+  body[data-layout='split'] .page-stack {
+    column-gap: 12px;
+  }
+  body[data-layout='split'] #document-page {
+    padding: 40px 32px;
+  }
+  body[data-layout='split'] .sentence-view {
+    padding: 0 20px 24px;
+  }
+}
 
 /* Linked highlighting: what one view points at, the other marks. */
 .sv-sentence.sv-hover {

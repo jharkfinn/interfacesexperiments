@@ -38,7 +38,7 @@ const layoutButtons = [...document.querySelectorAll('.layout-switch button')];
 // narrower window shows the Document view in place of the split.
 const LAYOUTS = ['document', 'split', 'sentences'];
 const LAYOUT_KEY = 'text-and-autocomplete.layout';
-const wideWindow = matchMedia('(min-width: 1080px)');
+const wideWindow = matchMedia('(min-width: 900px)');
 let layout = 'split';
 // The layout on screen now.
 let shown = 'document';

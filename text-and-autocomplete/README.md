@@ -4,7 +4,7 @@ A document editor prototype from [Interfaces that think](https://tareqistyping.c
 
 ## What you can do
 
-The document has two views: **Document**, where you write, and **Sentences**, where you rearrange. The switch above the page shows either one, or both **Side by side**, which is the default in a window at least 1080 pixels wide. Both views show the same text, and a change in one shows in the other at once, as you type. The page remembers your choice in this browser, and a link can name a layout with `#document`, `#split`, or `#sentences`.
+The document has two views: **Document**, where you write, and **Sentences**, where you rearrange. The switch above the page shows either one, or both **Side by side**, which is the default in a window at least 900 pixels wide. Both views show the same text, and a change in one shows in the other at once, as you type. The page remembers your choice in this browser, and a link can name a layout with `#document`, `#split`, or `#sentences`.
 
 Side by side, the views are linked:
 
