@@ -225,6 +225,39 @@ test('autocomplete stops before a citation, signal, or quotation it would begin'
     cleanCompletion(anchor + ' Smith was cited in Brown v. Board too', before, ''),
     ' Smith was cited in',
   );
+  // A reply, or the streamed part of one, that stops partway into a citation is cut too:
+  // accepting it would leave "455 F.3d at" in the memo.
+  for (const finished of [true, false]) {
+    assert.equal(
+      inspectCompletion(anchor + ' It held so in Lakeside, 455 F.3d at ', before, '', finished)
+        .text,
+      ' It held so in Lakeside',
+    );
+  }
+  assert.equal(
+    cleanCompletion(anchor + ' It applies, see Lakeside, 455 F.3d at 159.', before, ''),
+    ' It applies',
+  );
+  // While a reply streams, a number and a signal word wait for the word after them,
+  // which shows whether a citation begins there.
+  assert.deepEqual(inspectCompletion(anchor + ' It held so in Lakeside, 455 ', before, '', false), {
+    text: ' It held so in Lakeside, ',
+    reason: null,
+  });
+  assert.deepEqual(inspectCompletion(anchor + ' 455 ', before, '', false), {
+    text: '',
+    reason: 'waiting-for-word',
+  });
+  assert.equal(previewCompletion(anchor + ' It applies, see ', before, ''), ' It applies, ');
+  assert.equal(
+    previewCompletion(anchor + ' It took 455 days to', before, ''),
+    ' It took 455 days ',
+  );
+  // Ordinary prose that looks a little like a citation is kept.
+  assert.equal(
+    cleanCompletion(anchor + ' See you at 3 PM on 5 May.', before, ''),
+    ' See you at 3 PM on 5 May.',
+  );
 });
 test('the context window keeps the paragraphs nearest the caret', () => {
   const short = { before: 'One.\nTwo three. ', after: ' four\nFive.' };

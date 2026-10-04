@@ -307,6 +307,32 @@ test('stored duplicates are matched in order, and stored guesses stay guesses', 
   assert.equal(remapLegal(null, paragraphs), null);
 });
 
+test('stored labels this version could not have made are left out', () => {
+  const paragraphs = [{ kind: 'p', sentences: ['A.', 'B.', 'C.'] }];
+  // As an older version, or a damaged store, might have saved them.
+  const stored = {
+    tags: [
+      null,
+      { text: 'A.', role: 'thesis', kind: 'law' },
+      { text: 'B.', role: 'rule', kind: 'law', also: 'nonsense', guess: 'yes' },
+      { text: 'C.', role: 'facts', kind: 'facts' },
+    ],
+  };
+  const tags = remapLegal(stored, paragraphs);
+  assert.deepEqual(tags, [
+    { text: 'A.', role: 'rule', kind: 'law', guess: true },
+    { text: 'B.', role: 'rule', kind: 'law' },
+    { text: 'C.', role: 'rule', kind: 'law', guess: true },
+  ]);
+  // Every label carried over is one a request can send back as prior.
+  const prior = tags.map(tag => (tag.guess ? null : [tag.role, tag.kind]));
+  assert.doesNotThrow(() => legalEvent('id', { paragraphs, prior }));
+  assert.equal(
+    remapLegal({ tags: [null, { text: 'A.', role: 'x', kind: 'y' }] }, paragraphs),
+    null,
+  );
+});
+
 // A small seeded generator, so a failure can be reproduced.
 function random(seed) {
   let state = seed >>> 0;

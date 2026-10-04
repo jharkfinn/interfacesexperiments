@@ -78,10 +78,23 @@ export function inspectCompletion(text, before, after, finished = true) {
   const raw = wholeWords(text.slice(anchor.length), finished);
   // A continuation stops before any citation, signal or quotation it would begin: those
   // words are the author's evidence. Nothing left means the model only offered authority.
-  const candidate = cutAtCitation(lastParagraph(before), raw);
+  // A streamed number with capitalized words after it, or a signal word, waits for the
+  // next word, which shows whether a citation begins there ("455 F.3d at", "see Lakeside")
+  // or not ("455 people", "see you"): a preview can be accepted before the reply ends.
+  const shown = finished
+    ? raw
+    : raw
+        .replace(/\d[\d.,:–-]*(?:\s+[A-Z][\p{L}.'’]*){0,3}\s*$/u, '')
+        .replace(
+          /\b(?:see|cf\.|accord|citing|quoting|compare|contra)(?:,?\s+(?:also|generally|e\.g\.,?))?[\s,]*$/iu,
+          '',
+        );
+  const candidate = cutAtCitation(lastParagraph(before), shown);
   const reason =
     raw.trim() && !candidate.trim()
-      ? 'citation-cut'
+      ? shown.trim()
+        ? 'citation-cut'
+        : 'waiting-for-word'
       : guardInsertion(before + after, candidate) || insertionRejection(candidate, before, after);
   return {
     text: reason ? '' : candidate,

@@ -90,8 +90,9 @@ const TAGS = {
   conclusion: 'Conclusion',
 };
 const NUMERAL = /^\s*((?:[IVXLC]+|[A-Z]|\d{1,2}))[.)]\s/;
+// "IV. Conclusion" is the conclusion, as "Conclusion" is.
 const partOf = heading => {
-  const text = heading.trim().replace(/[:.]$/, '').trim();
+  const text = heading.replace(NUMERAL, '').trim().replace(/[:.]$/, '').trim();
   return PARTS.find(([pattern]) => pattern.test(text))?.[1] || 'discussion';
 };
 
@@ -393,7 +394,9 @@ function readBlock(text) {
 const GOVERNMENT = /^(?:United States|State|People|Commonwealth)\b/;
 const FULL_DATE =
   /\b(?:Jan|Feb|Mar|Apr|May|June?|July?|Aug|Sept?|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},\s+\d{4}\)/;
-const STATUTE_FORM = /\bU\.S\. Code\b|§\s*\d[\w.]*\s+\(/;
+// "U.S. Code", or a space before a subsection: "§ 3602 (b)". A space before the
+// code's edition is Bluebook form: "§ 1332 (2018)", "§ 1332 (West 2020)".
+const STATUTE_FORM = /\bU\.S\. Code\b|§\s*\d[\w.]*\s+\((?![^()]*\d{4}\))/;
 const SUBSECTIONS = /(?:\s?\((?!\d{4}\))[0-9a-zA-Z]{1,4}\))+/;
 // The code's edition after a statute: "(2018)".
 const YEAR_AFTER = /\s*\([^()]*\d{4}\)$/;
@@ -428,12 +431,14 @@ function shortName(cite) {
   return cite.volume ? `${cite.volume} ${cite.reporter}` : cite.docket || cite.text;
 }
 
+// A statute from its section on ("§ 3602(b)"), since the code's name repeats
+// through a document. A constitution's "§ 1" means nothing without its article or
+// amendment, so it keeps them.
+const fromSection = text =>
+  /\bConst\./.test(text) ? text : text.slice(Math.max(0, text.indexOf('§')));
+
 // A statute's name in chips and messages: its section, without subsections ("§ 3602").
-const sectionName = cite =>
-  cite.text
-    .slice(Math.max(0, cite.text.indexOf('§')))
-    .replace(YEAR_AFTER, '')
-    .replace(SUBSECTIONS, '');
+const sectionName = cite => fromSection(cite.text).replace(YEAR_AFTER, '').replace(SUBSECTIONS, '');
 
 const pinOf = cite => (cite.pin || '').replace(/^at\s+/, '');
 const hasPin = cite => {
@@ -471,7 +476,7 @@ function chipLabel(cite) {
     case 'short':
       return authority
         ? `${authority.name} ${pinOf(cite)}`
-        : `${cite.volume} ${cite.reporter} ${pinOf(cite)}`;
+        : `${cite.volume} ${cite.reporter} at ${pinOf(cite)}`;
     case 'docket':
       return `${authority.name} (docket)`;
     case 'id': {
@@ -482,63 +487,122 @@ function chipLabel(cite) {
       return authority ? `${authority.name}, supra` : cite.text.replace(SIGNAL_START, '');
     case 'statute':
     case 'section':
-      return cite.text
-        .slice(Math.max(0, cite.text.indexOf('§')))
-        .replace(YEAR_AFTER, '')
-        .replace(/\s+\(/g, '(');
+      return fromSection(cite.text).replace(YEAR_AFTER, '').replace(/\s+\(/g, '(');
     default:
       return cite.text;
   }
 }
 
 // Citations an id. can point back to.
-const CITABLE = new Set(['full', 'docket', 'short', 'supra', 'statute', 'section']);
+const CITABLE = new Set([
+  'full',
+  'docket',
+  'docket-number',
+  'database',
+  'short',
+  'supra',
+  'statute',
+  'section',
+]);
 
-// The authorities the citations point at, keyed as legal-text's citationKey keys
-// them. Full citations, dockets and statutes name their own; a short form
-// resolves to a full citation of the same volume and reporter anywhere in the
-// document, or else stands for a case never cited in full ("Hovsons"); id.
-// resolves to the last authority the writer cited, not one inside a quotation or
-// a parenthetical.
+// Citations that name an authority in full, with its court.
+const FULL_TYPES = new Set(['full', 'docket', 'docket-number']);
+
+// The page a pin starts on: "418–19" is 418, "*3" is 3.
+const pinPage = cite => parseInt(String(cite.pin || '').replace(/^\D+/, ''), 10);
+
+// The case a short form means among the cases cited in its volume and reporter.
+// With one case cited in full, that one. With several (Celotex and Anderson are
+// both in 477 U.S.), the one its name names, else the last to start before its
+// pin, since a pin falls inside the case it cites. With none cited in full, a
+// case never cited in full by the same name, or by any name if it gives none.
+function caseIn(cases, cite) {
+  const full = cases.filter(item => !item.nameless);
+  const name = cite.antecedent ? shortName(cite) : null;
+  if (!full.length) return cases.find(item => !name || item.name === name) || null;
+  if (full.length === 1) return full[0];
+  const named = name && full.find(item => item.name === name || item.caseName?.includes(name));
+  if (named) return named;
+  const pin = pinPage(cite);
+  const before = full.filter(item => Number(item.page) <= pin);
+  return before.sort((a, b) => Number(b.page) - Number(a.page))[0] || full[0];
+}
+
+// The authorities the citations point at. A full citation's key is its volume,
+// reporter and first page, so two cases in one volume stay two; a statute's is
+// legal-text's citationKey, which drops subsections. Full citations, dockets
+// and statutes name their own; a short form resolves to a case cited in full in
+// its volume and reporter anywhere in the document, or else stands for a case
+// never cited in full ("Hovsons"); a bare section ("§ 3602(c)") joins the statute
+// cited with that section; id. resolves to the last authority the writer cited,
+// not one inside a quotation or a parenthetical.
 function resolve(all) {
   const byKey = new Map();
   const authority = (key, make) => {
     if (!byKey.has(key)) byKey.set(key, { key, cites: [], refs: [], ...make() });
     return byKey.get(key);
   };
+  // The cases cited in each volume and reporter, and the statutes, in order.
+  const volumes = new Map();
+  const inVolume = (cite, item) => {
+    const list = volumes.get(citationKey(cite)) || [];
+    if (!list.includes(item)) list.push(item);
+    volumes.set(citationKey(cite), list);
+    return item;
+  };
+  const statutes = [];
   for (const cite of all) {
-    if (cite.type === 'full' || cite.type === 'docket') {
+    if (cite.type === 'full') {
+      cite.authority = inVolume(
+        cite,
+        authority(`${citationKey(cite)} ${cite.page}`, () => ({
+          group: 'cases',
+          name: shortName(cite),
+          caseName: cite.name,
+          page: cite.page,
+        })),
+      );
+    } else if (cite.type === 'docket') {
       cite.authority = authority(citationKey(cite), () => ({
         group: 'cases',
         name: shortName(cite),
       }));
-    } else if (cite.type === 'statute' || cite.type === 'section') {
+    } else if (cite.type === 'statute') {
       cite.authority = authority(citationKey(cite), () => ({
         group: 'statutes',
         name: sectionName(cite),
       }));
+      if (!statutes.includes(cite.authority)) statutes.push(cite.authority);
     } else if (cite.type === 'docket-number' || cite.type === 'database') {
       cite.authority = authority(cite.docket || cite.text, () => ({
         group: 'other',
-        name: cite.text,
+        name: cite.docket || cite.text,
       }));
     }
   }
   let last = null;
   for (const cite of all) {
     if (cite.type === 'short') {
-      const key = citationKey(cite);
-      const found = byKey.get(key);
+      const found = caseIn(volumes.get(citationKey(cite)) || [], cite);
       if (found) cite.authority = found;
       else if (cite.antecedent) {
-        cite.authority = authority(key, () => ({
-          group: 'cases',
-          name: shortName(cite),
-          nameless: true,
-          volume: cite.volume,
-          reporter: cite.reporter,
-        }));
+        const name = shortName(cite);
+        cite.authority = inVolume(
+          cite,
+          authority(`${citationKey(cite)} ${name}`, () => ({
+            group: 'cases',
+            name,
+            nameless: true,
+            volume: cite.volume,
+            reporter: cite.reporter,
+          })),
+        );
       }
+    } else if (cite.type === 'section') {
+      const key = citationKey(cite);
+      cite.authority =
+        statutes.find(item => item.key.endsWith(key)) ||
+        authority(key, () => ({ group: 'statutes', name: sectionName(cite) }));
     } else if (cite.type === 'supra') {
       // The supra pattern can take a signal into the name: "See Jones, supra".
       const name = cite.antecedent.replace(SIGNAL_START, '');
@@ -617,7 +681,10 @@ const FORM = [
   [
     'missing-space',
     'No space after the period',
-    ({ sentence, text }) => sentence.end < text.length && /\S/.test(text[sentence.end]),
+    // Only after a period, question mark or exclamation mark, so not between
+    // sentences of scripts written without spaces ("裁判所は判断した。これは").
+    ({ sentence, text }) =>
+      /[.!?]["”’)\]]*$/.test(sentence.text) && /\S/.test(text[sentence.end] ?? ' '),
   ],
   ['statute', 'Statute not in Bluebook form', ({ sentence }) => STATUTE_FORM.test(sentence.text)],
   [
@@ -740,7 +807,7 @@ export function analyzeLegal(blocks, labels) {
   });
   const authorities = resolve(all);
   for (const authority of authorities.values()) {
-    authority.full = authority.cites.find(cite => cite.type === 'full' || cite.type === 'docket');
+    authority.full = authority.cites.find(cite => FULL_TYPES.has(cite.type));
   }
   const names = referenceNames(all);
   const refsOf = blocks.map((block, at) =>
@@ -850,7 +917,9 @@ export function analyzeLegal(blocks, labels) {
 // ---------------------------------------------------------------------------
 
 const SEVERITY = { fail: 0, warn: 1, info: 2 };
-const CLIENT_LINE = /^\s*RE\s*:\s*(.*)$/im;
+// Spaces only, not line breaks: with \s each line start would look through every
+// line after it, a pause of a fifth of a second on a block of empty lines.
+const CLIENT_LINE = /^[^\S\n]*RE[^\S\n]*:[^\S\n]*(.*)$/im;
 
 // The client's names: capitalized words of three or more letters at the start of
 // the RE line, before its first ";" or ",".
@@ -1127,7 +1196,8 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf }) {
 // ---------------------------------------------------------------------------
 
 const GROUPS = ['cases', 'statutes', 'other'];
-const SUPREME = /^(?:U\.S\.|S\.Ct\.|L\.Ed\.)/;
+// The whole reporter: "U.S. App. D.C." starts like U.S. but is not the Supreme Court's.
+const SUPREME = /^(?:U\.S\.|S\.Ct\.|L\.Ed\.(?:2d)?)$/;
 
 function levelOf(authority) {
   if (authority.group === 'statutes') return 'statute';
@@ -1140,9 +1210,10 @@ function levelOf(authority) {
 }
 
 // A statute's title from its first mention in Bluebook form, with every
-// subsection the document cites: "42 U.S.C. § 3602(b), (c)".
+// subsection the document cites: "42 U.S.C. § 3602(b), (c)". The first mention
+// that names the code, since a bare "§ 3602" may come before it.
 function statuteTitle(cites) {
-  const base = cites[0].text
+  const base = (cites.find(cite => cite.type === 'statute') || cites[0]).text
     .replace(YEAR_AFTER, '')
     .replace(SUBSECTIONS, '')
     .replace(/U\.\s?S\.\s?Code\b/, 'U.S.C.')

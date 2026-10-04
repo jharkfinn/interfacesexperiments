@@ -59,6 +59,22 @@ test('a segment request refuses a bad purpose or document', () => {
   );
 });
 
+test('a document within the limit is never refused for its number of paragraphs', () => {
+  // A transcript of short lines: 600 paragraphs, 1,200 words.
+  const lines = Array.from({ length: 600 }, (_, n) => ({ kind: 'p', sentences: [`Q${n}. Yes.`] }));
+  const input = JSON.parse(
+    segmentEvent('id', { purpose: 'Ideas', paragraphs: lines }).response.input[0].content[0].text,
+  );
+  assert.equal(input.paragraphs.length, 600);
+  assert.doesNotThrow(() => levelsEvent('id', { paragraphs: lines }));
+  // A list longer than the limit has words is refused before its text is counted.
+  const many = Array.from({ length: MAX_WORDS + 1 }, () => ({ kind: 'li', sentences: ['A'] }));
+  assert.throws(
+    () => levelsEvent('id', { paragraphs: many }),
+    /Expected the document as a list of paragraphs/,
+  );
+});
+
 test('a block quotation is a paragraph Claude can see', () => {
   const event = segmentEvent('id', {
     purpose: 'Ideas',
@@ -124,6 +140,15 @@ test('labels are short plain text', () => {
   assert.equal(cleanLabel('  "Why  pancakes" '), 'Why pancakes');
   assert.equal(cleanLabel(42), '');
   assert.equal(cleanLabel('x'.repeat(80)).length, 60);
+  assert.equal(cleanLabel('“‘Quoted’”'), 'Quoted');
+  assert.equal(cleanLabel('"”’'), '');
+});
+
+test('a label of a long run of quotation marks is cleaned in time', () => {
+  // A reply may be up to 65,536 characters on the bridge.
+  const started = performance.now();
+  assert.equal(cleanLabel(`${'’'.repeat(30000)}x`), `${'’'.repeat(59)}…`);
+  assert.ok(performance.now() - started < 50, `${performance.now() - started} ms`);
 });
 
 test('stored pieces follow their sentences through moves and edits', () => {

@@ -126,6 +126,8 @@ export class Segments {
         status: 'waiting',
         timer: 0,
         asking: null,
+        // How Claude's last answer about `key` went: {status, message}.
+        last: null,
       });
     }
     return this.states.get(topic);
@@ -140,7 +142,9 @@ export class Segments {
       set?.delete(listener);
       if (set && !set.size) {
         this.listeners.delete(topic);
-        clearTimeout(this.state(topic).timer);
+        const state = this.state(topic);
+        clearTimeout(state.timer);
+        state.timer = 0;
       }
     };
   }
@@ -173,8 +177,8 @@ export class Segments {
     const saved = this.saved.get(key);
     if (saved && state.key !== key) {
       state.division = saved;
-      state.key = key;
-      if (state.status !== 'failed') state.status = 'ready';
+      if (state.status === 'failed') this.settle(state, key, 'failed', state.message);
+      else this.settle(state, key, 'ready');
     }
     const levels = remapLevels(state.division, paragraphs);
     const shown = levels ? Math.min(level, levels.length - 1) : 0;
@@ -210,6 +214,7 @@ export class Segments {
       memo.version === version &&
       memo.key === state.key &&
       memo.status === state.status &&
+      memo.message === state.message &&
       memo.division === state.division &&
       memo.ready === ready
     ) {
@@ -220,8 +225,8 @@ export class Segments {
     const saved = this.saved.get(key);
     if (saved && state.key !== key) {
       state.division = saved;
-      state.key = key;
-      if (state.status !== 'failed') state.status = 'ready';
+      if (state.status === 'failed') this.settle(state, key, 'failed', state.message);
+      else this.settle(state, key, 'ready');
     }
     const tags = remapLegal(state.division, paragraphs);
     let status = state.status;
@@ -237,6 +242,7 @@ export class Segments {
       version,
       key: state.key,
       status: state.status,
+      message: state.message,
       division: state.division,
       ready,
       value,
@@ -248,27 +254,64 @@ export class Segments {
     if (!this.listeners.has(topic)) return;
     const state = this.state(topic);
     const key = divisionKey(topic, this.model.paragraphs());
-    if (state.key === key || this.saved.has(key)) {
-      if (this.saved.has(key) && state.key !== key) this.notify(topic);
+    if (state.key === key) {
+      this.restore(topic);
       return;
     }
+    if (this.saved.has(key)) {
+      this.notify(topic);
+      return;
+    }
+    this.plan(topic, delay);
+  }
+  // Records how Claude's answer about the text whose key is `key` went.
+  settle(state, key, status, message = '') {
+    state.key = key;
+    state.status = status;
+    state.message = message;
+    state.last = { status, message };
+  }
+  // The text is the one Claude last answered about again, say after an edit
+  // was undone while a request was cancelled or the editor was offline, so its
+  // status is that answer's again; nothing is left to ask.
+  restore(topic) {
+    const state = this.state(topic);
+    const { last } = state;
+    if (!last || (state.status === last.status && state.message === last.message)) return;
+    state.status = last.status;
+    state.message = last.message;
+    this.notify(topic);
+  }
+  // Asks about a topic after `delay`, in place of the ask planned before.
+  plan(topic, delay) {
+    const state = this.state(topic);
     clearTimeout(state.timer);
-    state.timer = setTimeout(() => this.ask(topic), delay);
+    state.timer = setTimeout(() => {
+      state.timer = 0;
+      this.ask(topic);
+    }, delay);
+  }
+  // Asks again once the connection may be free. An ask planned already stays:
+  // it waits for typing to stop, and a retry must not cut that wait short.
+  retry(topic) {
+    if (!this.state(topic).timer) this.plan(topic, RETRY_MS);
   }
   async ask(topic) {
     const state = this.state(topic);
     if (!this.listeners.has(topic) || state.asking) return;
     const paragraphs = this.model.paragraphs();
     const key = divisionKey(topic, paragraphs);
-    if (state.key === key) return;
+    if (state.key === key) {
+      this.restore(topic);
+      return;
+    }
     if (this.saved.has(key)) {
       this.notify(topic);
       return;
     }
     if (!paragraphs.length) {
       state.division = topic === LEGAL ? { tags: [] } : { levels: [] };
-      state.key = key;
-      state.status = 'ready';
+      this.settle(state, key, 'ready');
       this.notify(topic);
       return;
     }
@@ -279,7 +322,7 @@ export class Segments {
     }
     // Autocomplete and the views' own requests come first on a shared client.
     if (this.shared && this.client.pending) {
-      state.timer = setTimeout(() => this.ask(topic), RETRY_MS);
+      this.retry(topic);
       return;
     }
     if (!this.client.ready) {
@@ -291,11 +334,12 @@ export class Segments {
         return;
       }
     }
-    // One topic asks at a time. A new request cancels the one before it on
-    // every client, so two topics asking at once would abort each other, try
-    // again, and abort each other again.
-    if ([...this.states.values()].some(other => other !== state && other.asking)) {
-      state.timer = setTimeout(() => this.ask(topic), RETRY_MS);
+    // One request at a time. A new request cancels the one before it on every
+    // client, so two topics asking at once would abort each other, try again,
+    // and abort each other again. That includes this topic: another ask of it
+    // may have started while this one waited for the connection.
+    if ([...this.states.values()].some(other => other.asking)) {
+      this.retry(topic);
       return;
     }
     state.asking = key;
@@ -318,18 +362,14 @@ export class Segments {
       }
       this.remember(key, division);
       state.division = division;
-      state.key = key;
-      state.status = 'ready';
+      this.settle(state, key, 'ready');
     } catch (error) {
       if (error?.name === 'AbortError') {
         // Another request took the connection; try again once it is free.
-        state.asking = null;
-        state.timer = setTimeout(() => this.ask(topic), RETRY_MS);
+        this.retry(topic);
         return;
       }
-      state.status = 'failed';
-      state.message = error?.message || 'Claude could not divide the document.';
-      state.key = key;
+      this.settle(state, key, 'failed', error?.message || 'Claude could not divide the document.');
     } finally {
       if (state.asking === key) state.asking = null;
     }

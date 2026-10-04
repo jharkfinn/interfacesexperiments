@@ -456,3 +456,26 @@ test('the document model splits legal text the same way, and reuses an unchanged
   assert.equal(sentencesIn(text, 'en'), sentencesIn(text, 'en'));
   assert.deepEqual(sentencesIn('', ''), []);
 });
+
+test('a long block splits in time linear in its length', () => {
+  // Near the 16,000-character limit. Each of these took half a second or more when a
+  // pattern was retried from every character, or every break rescanned its sentence.
+  const cases = {
+    chinese: '这是一个句子。'.repeat(2000),
+    'one long word': 'a'.repeat(15900),
+    'unclosed parentheses': '('.repeat(15000),
+    initials: Array.from({ length: 2000 }, (_, k) => String.fromCharCode(65 + (k % 26)) + '.').join(
+      ' ',
+    ),
+    'one id. after another': 'Id. '.repeat(2000),
+    'capitals after a number':
+      `See Exhibit 5 ${'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.repeat(3)} here. `.repeat(20),
+  };
+  for (const [name, text] of Object.entries(cases)) {
+    const at = performance.now();
+    legalSentences(text, 'en', { attachCitations: true });
+    findCitations(text);
+    assert.ok(performance.now() - at < 200, name);
+  }
+  assert.equal(legalSentences('这是一个句子。'.repeat(3), 'zh').length, 3);
+});

@@ -149,8 +149,14 @@ export class Operations {
     source = this.current(source);
     target = this.current(target);
     if (this.pending || !source || !target) return;
-    // A merge rewords both sentences, so neither may carry the author's evidence.
-    const refusal = combineRefusal(target.text, source.text);
+    // A merge rewords both sentences, so neither may carry the author's evidence or sit
+    // in a block quotation.
+    const { blocks } = this.model.read();
+    const quoted = piece =>
+      blocks
+        .slice(piece.block, (piece.endBlock ?? piece.block) + 1)
+        .some(block => block.kind === 'blockquote');
+    const refusal = combineRefusal(target.text, source.text, quoted(target) || quoted(source));
     if (refusal) {
       this.client.diagnose?.('legal-guard', { operation: 'combine', reason: 'refused' });
       this.notify(refusal);

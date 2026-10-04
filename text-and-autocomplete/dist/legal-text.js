@@ -933,8 +933,9 @@ const YEAR = String.raw`(?:1[6-9]\d\d|20\d\d)`;
 const MONTH = String.raw`(?:Jan\.|Feb\.|Mar\.|Apr\.|May|June?\.?|July?\.?|Aug\.|Sept?\.|Oct\.|Nov\.|Dec\.|January|February|March|April|August|September|October|November|December)`;
 // A pin: 158 / 418–19 / *3 / 5 n.2 / 12-13 & n.4
 const PIN = String.raw`\*{0,4}\d+(?:\s*${DASH}\s*\d+)?(?:\s*(?:&\s*)?nn?\.\s*\d+(?:\s*${DASH}\s*\d+)?)?`;
-// A reporter: 1-6 tokens like F. / Supp. / 2d / App'x / S. / Ct. / & / Idaho.
-const REPORTER = String.raw`(?:(?:[A-Z][A-Za-z'’]{0,12}\.?|\d(?:d|th|st|nd|rd)|&)\s?){1,6}?`;
+// A reporter: 1-6 tokens like F. / Supp. / 2d / App'x / S. / Ct. / & / Idaho. A word is
+// taken whole, so a long run of capitals after a number is not tried in every split.
+const REPORTER = String.raw`(?:(?:[A-Z][A-Za-z'’]{0,12}(?![A-Za-z'’])\.?|\d(?:d|th|st|nd|rd)|&)\s?){1,6}?`;
 
 // VOLUME REPORTER PAGE, or VOLUME REPORTER at PIN (short form).
 const CASE_CORE = new RegExp(
@@ -969,9 +970,10 @@ const ID = new RegExp(
   String.raw`(?<![\w.])(?:[Ii]d\.|[Ii]bid\.)(?:,?\s+at\s+${PIN}(?:,\s*${PIN})*|\s+§§?\s*${SEC}(?:\([0-9a-zA-Z]{1,4}\))*|\s+¶+\s*\d+)?`,
   'g',
 );
-// Smith, supra, at 5 / Smith, supra note 3, at 5
+// Smith, supra, at 5 / Smith, supra note 3, at 5. The name is at most 9 words, so a long
+// run of capitalized words is not scanned again from each of its words.
 const SUPRA = new RegExp(
-  String.raw`(?<![\w.])([A-Z][\w'’.-]*(?:\s+(?:[A-Z][\w'’.-]*|of|the|&))*?),?\s+supra(?:,?\s+note\s+\d+)?(?:,?\s+at\s+${PIN})?`,
+  String.raw`(?<![\w.])([A-Z][\w'’.-]*(?:\s+(?:[A-Z][\w'’.-]*|of|the|&)){0,8}?),?\s+supra(?:,?\s+note\s+\d+)?(?:,?\s+at\s+${PIN})?`,
   'g',
 );
 // No. 13-114-J / No. 2:13-cv-00114 / Nos. 12-1, 12-2
@@ -1336,15 +1338,20 @@ export function findReferences(text, cites, names = referenceNames(cites)) {
 // Spans that a sentence break may not fall inside
 // ---------------------------------------------------------------------------
 
+// The same spans closeOf finds for each opening bracket, in one pass: an unclosed "("
+// would otherwise be scanned to the end of the text once per bracket.
 function parenSpans(text) {
   const spans = [];
+  const open = { '(': [], '[': [] };
   for (let i = 0; i < text.length; i++) {
-    if (text[i] === '(' || text[i] === '[') {
-      const close = closeOf(text, i);
-      if (close > 0) spans.push([i, close]);
-    }
+    const c = text[i];
+    if (c === '(' || c === '[') open[c].push(i);
+    else if (c === ')' || c === ']') {
+      const start = open[c === ')' ? '(' : '['].pop();
+      if (start !== undefined) spans.push([start, i + 1]);
+    } else if (c === '\n') open['('].length = open['['].length = 0;
   }
-  return spans;
+  return spans.sort((a, b) => a[0] - b[0]);
 }
 
 // Balanced double quotations. A straight quote opens after a space, a bracket or the
@@ -1387,9 +1394,18 @@ function segmenter(locale) {
   return segmenters.get(key);
 }
 
-const lastToken = left => (left.trimEnd().match(/(\S+)$/)?.[1] || '').replace(/^[“"‘(\[]+/, '');
+// `left` runs back to the last kept break, which after many joined breaks is long, so
+// these read only its end.
+const TAIL = 400;
+const lastToken = left =>
+  (
+    left
+      .slice(-TAIL)
+      .trimEnd()
+      .match(/(\S+)$/)?.[1] || ''
+  ).replace(/^[“"‘(\[]+/, '');
 const tokenBefore = left => {
-  const words = left.trimEnd().split(/\s+/);
+  const words = left.slice(-TAIL).trimEnd().split(/\s+/);
   return words.length > 1 ? words[words.length - 2].replace(/^[“"‘(\[]+/, '') : '';
 };
 const firstToken = right => (right.trimStart().match(/^(\S+)/)?.[1] || '').replace(/[,;:]$/, '');
@@ -1435,9 +1451,12 @@ function nameRunsToV(right) {
 // or a closing quote, and a citation sentence after a quotation that has no period.
 function forcedBreaks(text, cites, options) {
   const breaks = [];
+  // Each pattern starts where its word starts: without the lookbehind, a long run of
+  // letters (or a paragraph of Chinese, with no spaces) is scanned again from every
+  // character, which takes seconds near the length limit.
   if (options.splitFootnotes) {
     for (const m of text.matchAll(
-      /([A-Za-z\]]+)([.!?]["”’)]?)(\d{1,3}|\[\d{1,3}\]|\[\*+\])(\s+)(?=[A-Z“"‘(])/g,
+      /(?<![A-Za-z\]])([A-Za-z\]]+)([.!?]["”’)]?)(\d{1,3}|\[\d{1,3}\]|\[\*+\])(\s+)(?=[A-Z“"‘(])/g,
     )) {
       if (isAbbreviation(m[1] + '.')) continue; // No.10, Sec.3
       breaks.push({ at: m.index + m[0].length, why: 'footnote' });
@@ -1469,7 +1488,7 @@ function forcedBreaks(text, cites, options) {
   if (options.splitLowercaseAfterQuote) {
     // "... receive packages.” this closely mirrors ..." A period inside a closing
     // quote ends the sentence even when the writer forgot the capital.
-    for (const m of text.matchAll(/(\S+)\.([”"])(\s+)(?=[a-z])/g)) {
+    for (const m of text.matchAll(/(?<!\S)(\S+)\.([”"])(\s+)(?=[a-z])/g)) {
       if (isAbbreviation(m[1].replace(/^[“"‘(\[]+/, '') + '.')) continue; // “U.S.” and
       breaks.push({ at: m.index + m[0].length, why: 'lowercase after quotation' });
     }
@@ -1477,17 +1496,44 @@ function forcedBreaks(text, cites, options) {
   return breaks;
 }
 
+// Whether a span of `list` ([start, end] pairs) has `at` strictly inside it. Each list is
+// indexed once, as its starts in order and the furthest end so far, because a block with
+// many citations is asked about at every proposed break.
+const spanIndex = new WeakMap();
+function covers(list, at) {
+  let index = spanIndex.get(list);
+  if (!index) {
+    const sorted = [...list].sort((a, b) => a[0] - b[0]);
+    let far = -Infinity;
+    index = {
+      starts: sorted.map(([s]) => s),
+      reach: sorted.map(([, e]) => (far = Math.max(far, e))),
+    };
+    spanIndex.set(list, index);
+  }
+  let low = 0;
+  let high = index.starts.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (index.starts[middle] < at) low = middle + 1;
+    else high = middle;
+  }
+  return low > 0 && index.reach[low - 1] > at;
+}
+
 // Why a break between `left` and `right` should be joined, or null to keep it.
 export function joinReason(at, left, right, spans, options = {}) {
-  if (/\n\s*$/.test(left)) return null; // a soft line break always separates
+  const trimmed = left.trimEnd();
+  if (left.slice(trimmed.length).includes('\n')) return null; // a soft line break always separates
   for (const [kind, list] of spans) {
-    if (list.some(([s, e]) => s < at && at < e)) return kind;
+    if (covers(list, at)) return kind;
   }
-  const tail = left.trimEnd();
+  const tail = trimmed.slice(-TAIL);
   if (/\.\s?\.\s?\.$/.test(tail) && !/\.\s?\.\s?\.\s?\.$/.test(tail)) return 'ellipsis';
   if (/^\s*[.]/.test(right)) return 'ellipsis';
   const token = lastToken(left);
-  if (options.joinEnumerators !== false && ENUMERATOR.test(tail.trim())) return 'enumerator'; // "I." / "2." / "(a)" alone
+  if (options.joinEnumerators !== false && ENUMERATOR.test(trimmed.trimStart()))
+    return 'enumerator'; // "I." / "2." / "(a)" alone
   if (/[?!][”"’)]*$/.test(tail) && /^\s*[a-z]/.test(right)) return 'lowercase continues'; // “Why?” and left
   if (!token.endsWith('.')) return null; // ? ! .” .) end sentences
   if (always.has(token) || always.has(titleCase(token))) return 'abbreviation';
@@ -1529,7 +1575,8 @@ export function legalSentences(text, locale, options = {}) {
   for (const { index } of segmenter(locale).segment(text))
     if (index > 0) proposed.push({ at: index, why: 'segmenter' });
   const forced = forcedBreaks(text, cites, options);
-  const all = [...proposed, ...forced.filter(f => !proposed.some(p => p.at === f.at))].sort(
+  const proposedAt = new Set(proposed.map(p => p.at));
+  const all = [...proposed, ...forced.filter(f => !proposedAt.has(f.at))].sort(
     (a, b) => a.at - b.at,
   );
   const spans = [
@@ -1548,7 +1595,7 @@ export function legalSentences(text, locale, options = {}) {
     const reason =
       why === 'segmenter'
         ? joinReason(at, left, right, spans, options)
-        : spans.find(([, list]) => list.some(([s, e]) => s < at && at < e))?.[0] || null;
+        : spans.find(([, list]) => covers(list, at))?.[0] || null;
     if (reason) {
       joined.push({ at, reason, left: left.trim().slice(-25), right: right.trim().slice(0, 25) });
       continue;

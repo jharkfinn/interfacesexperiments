@@ -13,6 +13,23 @@ import {
 } from './rewrite-preview.js?v=0ef16eccfb75';
 import { guardMessage, guardReplacement, selectionRefusal } from './citation-guard.js';
 
+// Whether a selection takes any words of a block quotation. A <blockquote> is quoted by
+// its formatting, with no quotation marks for the text checks to see.
+function inBlockQuote(editor, range) {
+  return [...editor.querySelectorAll('blockquote')].some(quote => {
+    if (!range.intersectsNode(quote)) return false;
+    const part = document.createRange();
+    part.selectNodeContents(quote);
+    if (range.compareBoundaryPoints(Range.START_TO_START, part) > 0) {
+      part.setStart(range.startContainer, range.startOffset);
+    }
+    if (range.compareBoundaryPoints(Range.END_TO_END, part) < 0) {
+      part.setEnd(range.endContainer, range.endOffset);
+    }
+    return /\S/.test(part.toString());
+  });
+}
+
 // Masks and streamed text float over the untouched original selection. Only
 // the final replacement enters the editor, as one native undo operation.
 export class SelectionRewrite {
@@ -216,8 +233,14 @@ export class SelectionRewrite {
     if (!this.selection) return false;
     // A selection that cuts into a citation or quotation, or is mostly one, has no
     // words Claude may change, so it is refused before anything is asked.
-    const { before, selected, after } = this.selection;
-    const refusal = selectionRefusal(before, selected, after, rephrase);
+    const { before, selected, after, range } = this.selection;
+    const refusal = selectionRefusal(
+      before,
+      selected,
+      after,
+      rephrase,
+      inBlockQuote(this.editor, range),
+    );
     if (refusal) {
       this.notify(refusal);
       return false;

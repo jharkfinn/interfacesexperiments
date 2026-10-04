@@ -291,20 +291,29 @@ export function parseLegal(raw, paragraphs) {
 // tag per sentence, in order. A sentence keeps the tag stored with its text;
 // a new or changed sentence is labelled as fillGaps() labels a gap, and is
 // always a guess. Returns null with nothing stored.
+//
+// Stored labels come back from this browser's storage, perhaps written by an
+// older version with other lists, so a tag that is not one this version could
+// have made is left out: it would break the views and be sent back as prior.
 export function remapLegal(stored, paragraphs) {
-  if (!Array.isArray(stored?.tags) || !stored.tags.length) return null;
+  if (!Array.isArray(stored?.tags)) return null;
   const owners = new Map();
   for (const tag of stored.tags) {
+    if (typeof tag?.text !== 'string' || !ROLES.includes(tag.role) || !KINDS.includes(tag.kind)) {
+      continue;
+    }
     if (!owners.has(tag.text)) owners.set(tag.text, []);
     owners.get(tag.text).push(tag);
   }
+  if (!owners.size) return null;
   const found = paragraphs
     .flatMap(paragraph => paragraph.sentences)
     .map(text => {
       const tag = owners.get(text)?.shift();
       if (!tag) return null;
       const { role, kind, also, guess } = tag;
-      return { role, kind, ...(also ? { also } : {}), ...(guess ? { guess } : {}) };
+      const second = ROLES.includes(also) && also !== role;
+      return { role, kind, ...(second ? { also } : {}), ...(guess === true ? { guess } : {}) };
     });
   return fillGaps(found, paragraphs);
 }

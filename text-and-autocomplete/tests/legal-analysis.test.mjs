@@ -31,7 +31,8 @@ const SUFFIX = {
   nested: ' · inside (quoting …)',
   unresolved: ' · unresolved',
 };
-const chips = n => sentence(n).cites.map(cite => cite.label + SUFFIX[cite.state]);
+const chips = (n, reading = MEMO) =>
+  reading.sentences[n - 1].cites.map(cite => cite.label + SUFFIX[cite.state]);
 const flagIds = item =>
   item.flags.flatMap(flag => (flag.id === 'form' ? flag.items.map(i => `form ${i.id}`) : flag.id));
 const rail = section => Object.fromEntries(section.rail.map(step => [step.letter, step.state]));
@@ -358,7 +359,7 @@ test('citation chips name the authority and say where the citation stands', () =
   }
   assert.deepEqual(
     sentence(14).cites.map(cite => cite.key),
-    ['915 F.2d', '455 F.3d', '915 F.2d'],
+    ['915 F.2d 877', '455 F.3d 154', '915 F.2d 877'],
   );
   assert.equal(sentence(19).cites[0].key, null);
   // Without labels the citations are the same.
@@ -759,7 +760,7 @@ test('the table of authorities', () => {
     },
   ]);
   const lakeside = MEMO.authorities[2];
-  assert.equal(lakeside.key, '455 F.3d');
+  assert.equal(lakeside.key, '455 F.3d 154');
   assert.equal(lakeside.name, 'Lakeside');
   assert.equal(lakeside.court, '3d Cir.');
   assert.equal(
@@ -862,4 +863,189 @@ test('a block read once gives the same reading every time', () => {
 test('opening cuts at a word', () => {
   assert.equal(opening('short', 10), 'short');
   assert.equal(opening('The key term over which the plain text', 20), 'The key term over…');
+});
+
+test('two cases in one reporter volume stay two authorities', () => {
+  // Celotex and Anderson are both in 477 U.S., and summary judgment briefs cite them together.
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'Summary judgment is proper when no material fact is in dispute. Celotex Corp. v. Catrett, 477 U.S. 317, 322 (1986). A dispute is genuine if a jury could find for the nonmovant. Anderson v. Liberty Lobby, Inc., 477 U.S. 242, 248 (1986).',
+      ],
+      [
+        'p',
+        'The movant bears the first burden. Celotex, 477 U.S. at 323. The court views the evidence for the nonmovant. Anderson, 477 U.S. at 255. It does not weigh it. Id. at 256. Nor does it find facts. 477 U.S. at 249.',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(
+    reading.sentences.flatMap(item => item.cites.map(cite => cite.label)),
+    [
+      'Celotex 322',
+      'Anderson 248',
+      'Celotex 323',
+      'Anderson 255',
+      'Id. → Anderson',
+      // With no name, the pin falls inside Anderson (242 on), not Celotex (317 on).
+      'Anderson 249',
+    ],
+  );
+  assert.deepEqual(
+    reading.authorities.map(row => [row.title, row.count, row.level]),
+    [
+      ['Anderson v. Liberty Lobby, Inc., 477 U.S. 242 (1986)', 4, 'supreme'],
+      ['Celotex Corp. v. Catrett, 477 U.S. 317 (1986)', 2, 'supreme'],
+    ],
+  );
+  // Two cases never cited in full from one volume are two rows as well.
+  const nameless = analyzeLegal(
+    doc([['p', 'One rule. Hovsons, 89 F.3d at 1102. Another rule. Smith, 89 F.3d at 40.']]),
+    null,
+  );
+  assert.deepEqual(
+    nameless.authorities.map(row => row.title),
+    ['Hovsons, 89 F.3d', 'Smith, 89 F.3d'],
+  );
+});
+
+test('a bare section joins the statute it is a section of', () => {
+  const reading = analyzeLegal(
+    doc([
+      ['p', 'Claims arise under § 1983. 42 U.S.C. § 1983 (2018).'],
+      ['p', 'Under § 1983(a), a plaintiff must show a deprivation. Id.'],
+    ]),
+    null,
+  );
+  assert.deepEqual(
+    reading.authorities.map(row => [row.title, row.count, row.warnings]),
+    [['42 U.S.C. § 1983(a)', 4, []]],
+  );
+  assert.deepEqual(
+    reading.sentences.flatMap(item => item.cites.map(cite => cite.label)),
+    ['§ 1983', '§ 1983', '§ 1983(a)', 'Id. → § 1983'],
+  );
+});
+
+test('a statute with its code edition is in Bluebook form', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'The court has jurisdiction. 28 U.S.C. § 1332 (2018). It may hear related claims. 28 U.S.C. § 1367 (West 2020).',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(reading.sentences.map(flagIds), [[], []]);
+  assert.deepEqual(
+    reading.authorities.map(row => row.warnings),
+    [[], []],
+  );
+  // A space before a subsection is still flagged.
+  const spaced = analyzeLegal(doc([['p', 'It is defined. 42 U.S.C. § 3602 (b).']]), null);
+  assert.deepEqual(spaced.sentences.map(flagIds), [['form statute']]);
+});
+
+test('a constitution keeps its article or amendment in chips and the table', () => {
+  const reading = analyzeLegal(
+    doc([['p', 'The state may not deny equal protection. U.S. Const. amend. XIV, § 1.']]),
+    [['rule', 'law']],
+  );
+  assert.deepEqual(chips(1, reading), ['U.S. Const. amend. XIV, § 1']);
+  assert.equal(reading.authorities[0].name, 'U.S. Const. amend. XIV, § 1');
+});
+
+test('numbered top headings still name their parts', () => {
+  const sections = sectionsOf(
+    doc([
+      ['h1', 'Memorandum'],
+      ['h2', 'I. Question Presented'],
+      ['p', 'Whether it is a dwelling.'],
+      ['h2', 'II. Brief Answer'],
+      ['p', 'Probably yes.'],
+      ['h2', 'III. Statement of Facts'],
+      ['p', 'He leased a room.'],
+      ['h2', 'IV. Discussion'],
+      ['p', 'Two parts.'],
+      ['h3', 'A. Intent'],
+      ['p', 'It was intended.'],
+      ['h3', 'B. Return'],
+      ['p', 'He returned.'],
+      ['h2', 'V. CONCLUSION'],
+      ['p', 'Yes.'],
+    ]),
+  );
+  assert.deepEqual(
+    sections.map(({ part, tag }) => [part, tag]),
+    [
+      ['caption', 'Caption'],
+      ['question', 'Question'],
+      ['answer', 'Answer'],
+      ['facts', 'Facts'],
+      ['umbrella', 'Umbrella'],
+      ['sub-issue', 'A'],
+      ['sub-issue', 'B'],
+      ['conclusion', 'Conclusion'],
+    ],
+  );
+});
+
+test('court levels, dockets with no name, and short forms nothing resolves', () => {
+  // A reporter that starts like U.S. is not the Supreme Court's.
+  const levels = analyzeLegal(
+    doc([['p', 'The rule. Doe v. Roe, 5 U.S. App. D.C. 10, 12 (1950).']]),
+    null,
+  );
+  assert.equal(levels.authorities[0].level, 'unknown');
+  // An id. after a bare docket number means that docket, whose court is stated.
+  const docket = analyzeLegal(
+    doc([['p', 'A rule. No. 13-114-J (W.D. Pa. 2015). Another rule. Id. at 4.']]),
+    null,
+  );
+  assert.deepEqual(chips(2, docket), ['Id. → No. 13-114-J']);
+  assert.deepEqual(docket.unresolved, []);
+  assert.deepEqual(
+    [docket.authorities[0].court, docket.authorities[0].level],
+    ['W.D. Pa.', 'district'],
+  );
+  // A short form with no name and no full citation reads as one, not as a page.
+  const short = analyzeLegal(doc([['p', 'The rule. 455 F.3d at 158.']]), null);
+  assert.deepEqual(chips(1, short), ['455 F.3d at 158 · unresolved']);
+});
+
+test('no space after the period applies to scripts that put spaces between sentences', () => {
+  const reading = analyzeLegal(doc([['p', '裁判所は判断した。これは重要だ。']]), null);
+  assert.equal(reading.sentences.length, 2);
+  assert.deepEqual(reading.sentences.map(flagIds), [[], []]);
+  assert.deepEqual(flagIds(sentence(11)), ['form missing-space']);
+});
+
+test('looking for the client line takes no longer as empty lines are added', () => {
+  // Each line start once looked through every line after it for "RE:".
+  const blank = { kind: 'p', text: `${'\n'.repeat(12000)}x`, sentences: [] };
+  const started = performance.now();
+  assert.deepEqual(clientNames([blank]), []);
+  assert.ok(performance.now() - started < 50);
+  // The line must start with RE, not merely come after a blank line that does not.
+  assert.deepEqual(clientNames(doc([['p', 'TO: Partner\n\nRE: Acme Widgets; lease']])), [
+    'Acme',
+    'Widgets',
+  ]);
+  assert.deepEqual(clientNames(doc([['p', 'TO: Partner\nAREA: Acme']])), []);
+});
+
+test('generalization with no authority says so', () => {
+  const reading = analyzeLegal(
+    doc([['p', 'Most courts reject this argument. The client should settle.']]),
+    [
+      ['rule', 'law'],
+      ['conclusion', 'conclusion'],
+    ],
+  );
+  assert.deepEqual(
+    reading.checks.filter(check => check.id === 'generalization').map(check => check.message),
+    ['“Most courts reject this…” speaks for courts in general but rests on no authority.'],
+  );
 });

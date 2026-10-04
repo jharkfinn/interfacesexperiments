@@ -1,4 +1,4 @@
-import { withinLimit, textResponse } from './compose-core.js?v=576be38817a3';
+import { withinLimit, textResponse, MAX_WORDS } from './compose-core.js?v=576be38817a3';
 
 // A view says what it is for, and Claude divides the document into pieces for
 // that purpose. Pieces are made of whole sentences: a run of sentences inside
@@ -17,7 +17,10 @@ export const MAX_LABEL_CHARS = 60;
 export const MAX_METHOD_CHARS = 30;
 // Levels in a tree of goals, the main goals included.
 export const MAX_LEVELS = 4;
-const MAX_PARAGRAPHS = 400;
+// Every paragraph has at least one word, so no document within the limit has
+// more paragraphs than the limit has words. This stops a huge list before its
+// text is counted.
+const MAX_PARAGRAPHS = MAX_WORDS;
 const KIND = /^(p|div|h[1-6]|li|blockquote)$/;
 
 export const DOCUMENT_SHAPE = `Each paragraph has a "kind" (h1 to h6 for headings, blockquote for a block quotation, p for text, li for a list item) and numbered sentences. Sentence numbers run through the whole document.`;
@@ -102,12 +105,19 @@ export function levelsEvent(id, { paragraphs }) {
   });
 }
 
+const OPENING_QUOTES = `"'“‘`;
+const CLOSING_QUOTES = `"'”’`;
+
 export function cleanLabel(label, limit = MAX_LABEL_CHARS) {
   if (typeof label !== 'string') return '';
-  const text = label
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^["'“‘]+|["'”’]+$/g, '');
+  const spaced = label.replace(/\s+/g, ' ').trim();
+  // Quotation marks around the label go. A loop, not a pattern anchored at the
+  // end, which would take time growing with the square of a long run of them.
+  let start = 0;
+  let end = spaced.length;
+  while (start < end && OPENING_QUOTES.includes(spaced[start])) start++;
+  while (end > start && CLOSING_QUOTES.includes(spaced[end - 1])) end--;
+  const text = spaced.slice(start, end);
   return text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text;
 }
 
