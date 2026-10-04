@@ -305,14 +305,23 @@ test('cancelling stops the process, and a long reply is cut off', { skip }, asyn
       maxChars: 100,
       signal: controller.signal,
     });
-    await settle(150);
+    // Abort once the process has the request.
+    const runner = () => fake.logs().find(entry => entry.message)?.pid;
+    for (let waited = 0; waited < 5000 && !runner(); waited += 25) await settle(25);
     controller.abort();
     await assert.rejects(running, error => error.name === 'AbortError');
-    await settle(150);
-    assert.ok(
-      fake.logs().some(entry => entry.terminated),
-      'the process received SIGTERM',
-    );
+    // Stopping closes the process's input and sends SIGTERM; it may exit on
+    // either, so the test checks that it is gone.
+    const alive = pid => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    for (let waited = 0; waited < 3000 && alive(runner()); waited += 50) await settle(50);
+    assert.ok(runner() && !alive(runner()), 'the process stopped');
     fake.setConfig({ chunks: ['a'.repeat(60), 'b'.repeat(60)] });
     backend.spare?.stop();
     backend.spare = null;
