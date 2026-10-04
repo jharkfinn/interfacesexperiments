@@ -1,14 +1,20 @@
-import { MAX_PURPOSE_CHARS } from './segment-core.js?v=da80b70b8354';
+import { MAX_PURPOSE_CHARS, MAX_LEVELS } from './segment-core.js?v=bc5c5daaadea';
 
 // A view is declared as data. The Document view is the editor itself; every
 // other view shows pieces of the document and says what gestures do to them.
 //
-//   unit     what one piece is          sentence | paragraph | claude
+//   unit     what one piece is          sentence | paragraph | claude | level
 //   purpose  what the view is for       words; with unit "claude", Claude
 //                                       divides the document to suit them
-//   group    how pieces form rows       paragraph | none
+//   level    which level of goals       1 (the main goals) to 4; with unit
+//                                       "level", the view shows one level of
+//                                       Claude's tree of what the text tries
+//                                       to do, which all level views share
+//   group    how pieces form rows       paragraph | parent (the goal above,
+//                                       on levels 2 and down) | none
 //   show     what a piece displays      text | start (first words) | label
-//                                       (Claude's name for the piece)
+//                                       (Claude's name for the piece) | method
+//                                       (the goal and how the piece reaches it)
 //   layout   how pieces are arranged    flow | list | cards | bars (one bar
 //                                       per piece, as long as its word count)
 //   on       gesture → operation        drop-on, drop-between, double-click, delete
@@ -18,9 +24,9 @@ import { MAX_PURPOSE_CHARS } from './segment-core.js?v=da80b70b8354';
 
 export const VOCABULARY = {
   kind: ['document', 'pieces'],
-  unit: ['sentence', 'paragraph', 'claude'],
-  group: ['paragraph', 'none'],
-  show: ['text', 'start', 'label'],
+  unit: ['sentence', 'paragraph', 'claude', 'level'],
+  group: ['paragraph', 'parent', 'none'],
+  show: ['text', 'start', 'label', 'method'],
   layout: ['flow', 'list', 'cards', 'bars'],
 };
 // Each gesture, and the operations it may name.
@@ -36,6 +42,28 @@ const MAX_TITLE_CHARS = 40;
 
 export const BUILT_IN = [
   { id: 'document', title: 'Document', kind: 'document' },
+  {
+    id: 'goals',
+    title: 'Goals',
+    kind: 'pieces',
+    unit: 'level',
+    level: 1,
+    group: 'none',
+    show: 'label',
+    layout: 'list',
+    on: { 'drop-between': 'move', 'double-click': 'open' },
+  },
+  {
+    id: 'how',
+    title: 'How',
+    kind: 'pieces',
+    unit: 'level',
+    level: 2,
+    group: 'parent',
+    show: 'method',
+    layout: 'list',
+    on: { 'drop-between': 'move', 'double-click': 'open' },
+  },
   {
     id: 'sentences',
     title: 'Sentences',
@@ -109,7 +137,7 @@ export function checkSpec(spec) {
       problems.push(`"${field}" must be one of: ${allowed.join(', ')}.`);
     }
   }
-  const known = new Set(['id', 'title', 'on', 'purpose', ...Object.keys(VOCABULARY)]);
+  const known = new Set(['id', 'title', 'on', 'purpose', 'level', ...Object.keys(VOCABULARY)]);
   for (const field of Object.keys(spec)) {
     if (!known.has(field)) problems.push(`"${field}" is not a field a view can have.`);
   }
@@ -128,11 +156,28 @@ export function checkSpec(spec) {
   } else if (spec.purpose !== undefined) {
     problems.push('"purpose" is used only with "unit": "claude".');
   }
+  if (unit === 'level') {
+    if (!Number.isInteger(spec.level) || spec.level < 1 || spec.level > MAX_LEVELS) {
+      problems.push(
+        `With "unit": "level", "level" must be a whole number from 1 (the main goals) to ${MAX_LEVELS}.`,
+      );
+    }
+  } else if (spec.level !== undefined) {
+    problems.push('"level" is used only with "unit": "level".');
+  }
   if (unit !== 'sentence' && spec.group === 'paragraph') {
     problems.push(`With "unit": "${unit}", "group" must be "none".`);
   }
-  if (spec.show === 'label' && unit !== 'claude') {
-    problems.push('"show": "label" needs "unit": "claude", because Claude writes the labels.');
+  if (spec.group === 'parent' && !(unit === 'level' && spec.level > 1)) {
+    problems.push('"group": "parent" needs "unit": "level" and "level" 2 or more.');
+  }
+  if (spec.show === 'label' && unit !== 'claude' && unit !== 'level') {
+    problems.push(
+      '"show": "label" needs "unit": "claude" or "level", because Claude writes the labels.',
+    );
+  }
+  if (spec.show === 'method' && unit !== 'level') {
+    problems.push('"show": "method" needs "unit": "level", because only goals have methods.');
   }
   if (spec.on !== undefined) {
     if (!spec.on || typeof spec.on !== 'object' || Array.isArray(spec.on)) {
@@ -160,7 +205,7 @@ export function fullSpec(spec) {
     kind: 'pieces',
     unit,
     group: unit === 'sentence' ? 'paragraph' : 'none',
-    show: unit === 'claude' ? 'label' : 'text',
+    show: unit === 'claude' || unit === 'level' ? 'label' : 'text',
     layout: unit === 'sentence' ? 'flow' : 'list',
     ...spec,
     on: { ...spec.on },
@@ -181,6 +226,25 @@ export function specFromPurpose({ id, title, purpose, layout = 'list', move = tr
     purpose: purpose.trim(),
     group: 'none',
     show: 'label',
+    layout,
+    on,
+  };
+}
+
+// A new view of one level of Claude's tree of goals. Below the main goals,
+// pieces show how they reach their goal and are grouped by it.
+export function specFromLevel({ id, title, level, layout = 'list', move = true, open = true }) {
+  const on = {};
+  if (move) on['drop-between'] = 'move';
+  if (open) on['double-click'] = 'open';
+  return {
+    id,
+    title: title.trim(),
+    kind: 'pieces',
+    unit: 'level',
+    level,
+    group: level > 1 ? 'parent' : 'none',
+    show: level > 1 ? 'method' : 'label',
     layout,
     on,
   };

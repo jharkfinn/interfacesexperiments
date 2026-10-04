@@ -13,26 +13,27 @@ import {
   ALTERNATIVE_COUNT,
   plainSpaces,
 } from './compose-core.js?v=576be38817a3';
-import { SampleCompose } from './sample-client.js?v=6647a0bbb4f6';
-import { BridgeCompose } from './bridge-client.js?v=e1e82842942e';
-import { RealtimeCompose } from './realtime.js?v=d3d98863ae74';
+import { SampleCompose } from './sample-client.js?v=2420a3ff4a15';
+import { BridgeCompose } from './bridge-client.js?v=d13a86e2e122';
+import { RealtimeCompose } from './realtime.js?v=1bd8cbd93e87';
 import { readSavedKey, saveKey, forgetKey } from './key-storage.js?v=d7465de288af';
 import { SelectionRewrite } from './selection-rewrite.js?v=65913731007c';
-import { DocumentModel } from './doc-model.js?v=c15b4514db7d';
-import { DocumentEdits } from './doc-edits.js?v=7d8c83a79b6c';
+import { DocumentModel } from './doc-model.js?v=014942255fc1';
+import { DocumentEdits } from './doc-edits.js?v=94306e1b61a6';
 import { Links } from './links.js?v=39d5dc963aea';
-import { Operations } from './operations.js?v=b8678a73a4ee';
-import { DocumentView } from './document-view.js?v=c6ea2c69faa7';
-import { PieceView } from './piece-view.js?v=b2275e91e719';
+import { Operations } from './operations.js?v=e4a7b5b7aa9d';
+import { DocumentView } from './document-view.js?v=70cfac77deb4';
+import { PieceView } from './piece-view.js?v=0c6159076f73';
 import { Workspace, restorePanes } from './panes.js?v=d23cd6c84cb1';
 import {
   BUILT_IN,
   fullSpec,
   checkSpec,
   specFromPurpose,
+  specFromLevel,
   idFor,
-} from './view-specs.js?v=fb455bb202ab';
-import { Segments } from './segments.js?v=d0ec063984a2';
+} from './view-specs.js?v=4999f1b0e751';
+import { Segments } from './segments.js?v=b2f577a60210';
 
 const $ = id => document.getElementById(id);
 const editor = $('editor');
@@ -46,13 +47,18 @@ const resize = $('resize');
 const rephrase = $('rephrase');
 const intelligence = $('intelligence');
 const documentHolder = $('document-holder');
-// Links that open the page with a set of panes: #document, #split, #sentences.
+// Links that open the page with a set of panes: #levels, #document, #split,
+// #sentences. A first visit opens #levels: the text's main goals, the steps
+// toward each goal, and the text itself.
 const PRESETS = {
+  levels: ['goals', 'how', 'document'],
   document: ['document'],
   split: ['document', 'sentences'],
   sentences: ['sentences'],
 };
-const PANES_KEY = 'text-and-autocomplete.panes';
+// Arrangements saved before the level views came keep to the old key, so each
+// reader starts once with the levels.
+const PANES_KEY = 'text-and-autocomplete.panes.2';
 const dialog = $('key-dialog');
 const keyInput = $('api-key');
 let completion = '';
@@ -925,7 +931,7 @@ async function connectKey(key, automatic = false) {
     await client.connect(key);
     if (attempt !== connectionAttempt) return;
     let message =
-      'Connected. Type for suggestions, select text and drag its handle, or double-click it to rephrase. Drag sentences in the Sentences pane to move and combine them.';
+      'Connected. Type for suggestions, select text and drag its handle, or double-click it to rephrase. Drag a goal or a step in its pane to move its text.';
     try {
       if (planMode) localStorage.setItem(`${CONSENT_KEY}.${client.session?.provider}`, '1');
       else saveKey(key);
@@ -1454,22 +1460,34 @@ function showViewProblems() {
   $('view-problems').textContent = problems.join(' ');
   $('view-save').disabled = Boolean(problems.length);
 }
+// The purpose field is for views Claude divides for a purpose; a level view
+// shares the map of goals and needs none.
+function showSourceFields() {
+  $('view-purpose-field').hidden = $('view-source').value !== 'purpose';
+}
 // The form fields write into the declaration, keeping any field set as data.
 function formToDraft() {
   const draft = viewDraft() || {};
-  const purpose = specFromPurpose({
+  const fields = {
     title: $('view-title').value,
-    purpose: $('view-purpose').value,
     layout: $('view-layout').value,
     move: $('view-move').checked,
     open: $('view-open').checked,
-  });
-  delete purpose.id;
+  };
+  const source = $('view-source').value;
+  const form =
+    source === 'purpose'
+      ? specFromPurpose({ ...fields, purpose: $('view-purpose').value })
+      : specFromLevel({ ...fields, level: Number(source) });
+  delete form.id;
   const on = { ...(draft.on || {}) };
   for (const gesture of ['drop-between', 'double-click']) delete on[gesture];
-  Object.assign(on, purpose.on);
-  const next = { ...draft, ...purpose, on };
+  Object.assign(on, form.on);
+  const next = { ...draft, ...form, on };
+  if (source === 'purpose') delete next.level;
+  else delete next.purpose;
   $('view-json').value = JSON.stringify(next, null, 2);
+  showSourceFields();
   showViewProblems();
 }
 // A declaration edited as data shows in the form where the form has a field.
@@ -1478,10 +1496,15 @@ function draftToForm() {
   if (draft) {
     if (typeof draft.title === 'string') $('view-title').value = draft.title;
     if (typeof draft.purpose === 'string') $('view-purpose').value = draft.purpose;
+    $('view-source').value =
+      draft.unit === 'level' && [1, 2, 3, 4].includes(draft.level)
+        ? String(draft.level)
+        : 'purpose';
     if (['list', 'cards', 'bars'].includes(draft.layout)) $('view-layout').value = draft.layout;
     $('view-move').checked = draft.on?.['drop-between'] === 'move';
     $('view-open').checked = draft.on?.['double-click'] === 'open';
   }
+  showSourceFields();
   showViewProblems();
 }
 function openViewDialog(spec = null) {
@@ -1503,7 +1526,14 @@ function openViewDialog(spec = null) {
   viewDialog.showModal();
   $('view-title').focus();
 }
-for (const field of ['view-title', 'view-purpose', 'view-layout', 'view-move', 'view-open']) {
+for (const field of [
+  'view-title',
+  'view-source',
+  'view-purpose',
+  'view-layout',
+  'view-move',
+  'view-open',
+]) {
   $(field).addEventListener('input', formToDraft);
 }
 $('view-json').addEventListener('input', draftToForm);
@@ -1610,7 +1640,7 @@ try {
   workspace.set(
     preset
       ? arrangementOf(preset)
-      : restorePanes(workspace.saved(), known) || arrangementOf(PRESETS.split),
+      : restorePanes(workspace.saved(), known) || arrangementOf(PRESETS.levels),
   );
 }
 updateCount();

@@ -142,6 +142,10 @@ export class BridgeCompose {
       30000,
     );
   }
+  // Maps the document's goals as a tree: {paragraphs}.
+  levels(context) {
+    return this.send({ op: 'levels', paragraphs: context.paragraphs }, () => {}, 45000);
+  }
   send(body, onProgress, timeout, attempt = null) {
     this.cancel();
     if (!this.ready) return Promise.reject(new Error('Connect first.'));

@@ -3,7 +3,7 @@
 import { responseEvent } from '../../dist/compose-core.js';
 import { rewriteEvent } from '../../dist/rewrite-core.js';
 import { combineEvent } from '../../dist/combine-core.js';
-import { segmentEvent } from '../../dist/segment-core.js';
+import { segmentEvent, levelsEvent } from '../../dist/segment-core.js';
 
 const MAX_AVOID = 12;
 const isText = value => typeof value === 'string';
@@ -62,6 +62,9 @@ export function buildRequest(body) {
       // segmentEvent checks the purpose and the shape of every paragraph.
       event = segmentEvent('bridge', { purpose: body.purpose, paragraphs: body.paragraphs });
       timeoutMs = 30000;
+    } else if (body.op === 'levels') {
+      event = levelsEvent('bridge', { paragraphs: body.paragraphs });
+      timeoutMs = 45000;
     } else {
       fail('Unknown operation.');
     }

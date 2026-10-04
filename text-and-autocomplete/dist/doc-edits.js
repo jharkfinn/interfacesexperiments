@@ -1,4 +1,4 @@
-import { blocksOf, blockText, offsetIn, rangeIn, joiner } from './doc-model.js?v=c15b4514db7d';
+import { blocksOf, blockText, offsetIn, rangeIn, joiner } from './doc-model.js?v=014942255fc1';
 import { removalSpan } from './combine-core.js?v=1c8f69eb2a6d';
 
 // Every change a view asks for is planned on copies of the blocks it touches,

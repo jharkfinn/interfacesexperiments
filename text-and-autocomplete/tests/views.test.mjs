@@ -4,7 +4,14 @@ import { sentencesIn, sentenceIndex, joiner, overlaps } from '../dist/doc-model.
 import { plainHTML } from '../dist/doc-edits.js';
 import { sameLink, Links } from '../dist/links.js';
 import { scrollToShow, opening, hintFor, statusText, destination } from '../dist/piece-view.js';
-import { checkSpec, fullSpec, BUILT_IN, specFromPurpose, idFor } from '../dist/view-specs.js';
+import {
+  checkSpec,
+  fullSpec,
+  BUILT_IN,
+  specFromPurpose,
+  specFromLevel,
+  idFor,
+} from '../dist/view-specs.js';
 import { resizeWeights as resize, restorePanes } from '../dist/panes.js';
 
 const TEXT = 'Pancakes are quick.  They take ten minutes! Does anyone complain?';
@@ -104,7 +111,9 @@ test('the opening of a long piece ends at a word', () => {
 });
 
 test('the header hint says what the declared gestures do', () => {
-  const [, sentences, paragraphs] = BUILT_IN.map(fullSpec);
+  const builtIn = id => fullSpec(BUILT_IN.find(spec => spec.id === id));
+  const sentences = builtIn('sentences');
+  const paragraphs = builtIn('paragraphs');
   assert.equal(
     hintFor(sentences),
     'Drag a sentence onto another to combine them, or between two to move it. Double-click a sentence to edit it in the document. Delete removes it.',
@@ -117,6 +126,75 @@ test('the header hint says what the declared gestures do', () => {
   assert.match(hintFor(ideas), /^Claude divides the document for this view: “The distinct ideas/);
   assert.match(hintFor(ideas), /Drag a piece between two to move it\./);
   assert.match(hintFor(fullSpec({ id: 'x', title: 'X', on: {} })), /links to the same text/);
+  assert.match(hintFor(builtIn('goals')), /Each piece here is one of its main goals\./);
+  assert.match(
+    hintFor(builtIn('how')),
+    /a step toward a goal one level up, with how it takes that step\. Drag a piece/,
+  );
+});
+
+test('level views say they wait for the map of goals', () => {
+  assert.match(statusText('waiting', false, true), /^Claude is mapping the goals of the text\./);
+  assert.match(statusText('offline', true, true), /The last pieces stand in/);
+  assert.match(statusText('waiting', false), /^Claude is dividing the document for this view/);
+});
+
+test('a level view declares a level, and only level views have methods and goal groups', () => {
+  const one = spec => checkSpec({ id: 'v', title: 'V', ...spec });
+  assert.deepEqual(one({ unit: 'level', level: 2, group: 'parent', show: 'method' }), []);
+  assert.deepEqual(one({ unit: 'level', level: 1, show: 'label', layout: 'cards' }), []);
+  assert.deepEqual(one({ unit: 'level' }), [
+    'With "unit": "level", "level" must be a whole number from 1 (the main goals) to 4.',
+  ]);
+  assert.deepEqual(one({ unit: 'level', level: 5 }).length, 1);
+  assert.deepEqual(one({ unit: 'level', level: 1.5 }).length, 1);
+  assert.deepEqual(one({ unit: 'claude', purpose: 'Claims.', level: 2 }), [
+    '"level" is used only with "unit": "level".',
+  ]);
+  assert.deepEqual(one({ unit: 'level', level: 1, group: 'parent' }), [
+    '"group": "parent" needs "unit": "level" and "level" 2 or more.',
+  ]);
+  assert.deepEqual(one({ unit: 'level', level: 2, group: 'paragraph' }), [
+    'With "unit": "level", "group" must be "none".',
+  ]);
+  assert.deepEqual(one({ unit: 'claude', purpose: 'Claims.', show: 'method' }), [
+    '"show": "method" needs "unit": "level", because only goals have methods.',
+  ]);
+  assert.deepEqual(one({ unit: 'level', level: 2, on: { 'drop-on': 'combine' } }), [
+    '"combine" works on sentences only, so "unit" must be "sentence".',
+  ]);
+  assert.deepEqual(fullSpec({ id: 'x', title: 'X', unit: 'level', level: 3 }), {
+    kind: 'pieces',
+    unit: 'level',
+    group: 'none',
+    show: 'label',
+    layout: 'list',
+    id: 'x',
+    title: 'X',
+    level: 3,
+    on: {},
+  });
+});
+
+test('a new level view groups its steps by goal below the main goals', () => {
+  const steps = specFromLevel({ id: 'steps', title: ' Steps ', level: 3, layout: 'cards' });
+  assert.deepEqual(steps, {
+    id: 'steps',
+    title: 'Steps',
+    kind: 'pieces',
+    unit: 'level',
+    level: 3,
+    group: 'parent',
+    show: 'method',
+    layout: 'cards',
+    on: { 'drop-between': 'move', 'double-click': 'open' },
+  });
+  assert.deepEqual(checkSpec(steps), []);
+  const top = specFromLevel({ id: 'top', title: 'Top', level: 1, move: false });
+  assert.equal(top.group, 'none');
+  assert.equal(top.show, 'label');
+  assert.deepEqual(top.on, { 'double-click': 'open' });
+  assert.deepEqual(checkSpec(top), []);
 });
 
 test('built-in views are valid declarations', () => {
@@ -150,7 +228,7 @@ test('declarations name fields, values, gestures, and operations from the vocabu
     '"purpose" is used only with "unit": "claude".',
   ]);
   assert.deepEqual(one({ unit: 'sentence', show: 'label' }), [
-    '"show": "label" needs "unit": "claude", because Claude writes the labels.',
+    '"show": "label" needs "unit": "claude" or "level", because Claude writes the labels.',
   ]);
   assert.deepEqual(
     one({ unit: 'claude', purpose: 'Claims.', layout: 'bars', on: { delete: 'remove' } }),

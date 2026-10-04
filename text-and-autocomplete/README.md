@@ -7,12 +7,14 @@ A document editor prototype from [Interfaces that think](https://tareqistyping.c
 The document shows in **panes**, side by side, any number of them. Each pane shows one **view** of the same text, and a change in one view shows in the others at once, as you type.
 
 - **Document** is the editor, where you write. There is one Document pane at most.
+- **Goals** shows what the text is trying to do: Claude's map of its main goals, each named for what it tries to achieve with the reader.
+- **How** shows the steps that reach each goal, one level down the same map. Each step names its own goal and, in a tag before it, its method (an anecdote, a contrast, an example). Steps sit under the name of the goal they reach.
 - **Sentences** shows each sentence as a piece you can drag, grouped by paragraph.
 - **Paragraphs** shows each paragraph by its first sentence. Drag one between two others to move it.
 - **Rhythm** shows each sentence as a bar as long as its word count, against the longest sentence, with the count at its start. Drag a bar to move its sentence.
 - **Outline** and **Ideas** are views Claude divides for their purpose: the parts a reader would list in an outline, and the distinct ideas a reader takes away. Outline is a list; Ideas is cards.
 
-**Add a view** above the panes opens another pane. Each pane's menu changes its view, ‹ and › move it, × closes it, and ⇅ turns its scrolling with the other panes on or off. Drag the line between two panes, or focus it and press the arrow keys, to give one more width. Panes are never narrower than 300 pixels; when they do not fit the window, the row of panes scrolls sideways. The page keeps the arrangement in this browser, and a link can start with `#document`, `#split` (Document and Sentences), or `#sentences`.
+**Add a view** above the panes opens another pane. Each pane's menu changes its view, ‹ and › move it, × closes it, and ⇅ turns its scrolling with the other panes on or off. Drag the line between two panes, or focus it and press the arrow keys, to give one more width. Panes are never narrower than 300 pixels; when they do not fit the window, the row of panes scrolls sideways. A first visit opens Goals, How, and Document. The page keeps the arrangement in this browser, and a link can start with `#levels` (Goals, How, and Document), `#document`, `#split` (Document and Sentences), or `#sentences`.
 
 All views are linked:
 
@@ -30,7 +32,9 @@ Each view is a declaration, data that says what one piece is, how pieces are gro
 - Each division is saved in this browser by the document's text and the view's purpose, so a reload or a return to the same text asks again for nothing. On claude.ai, the views use a connection of their own, so a division never cancels autocomplete. The bridge and the Realtime API answer one request at a time, so there a division waits until the connection is free and tries again if autocomplete takes it.
 - Not connected, a view shows the last pieces it had, or paragraphs, and says so.
 
-**New view…** declares a view of your own: a name and what the view is for, a layout (list, cards, or bars), and whether pieces move by dragging and open with a double-click. The **Declaration** section shows the view as data; edit it to set any field a view can have, and the form follows it. Problems are named as you type, and Save waits until there are none. Your views are kept in this browser, and ✎ in a pane's bar edits the view, or deletes it.
+**Levels of goals.** A declaration with `"unit": "level"` and a `"level"` shows one level of a single map that every level view shares. Claude reads the document once and returns a tree: the main goals, then the steps that reach each goal, each with a goal and a method of its own, up to four levels. A goal reached in one step stands for itself on the levels below. Every level follows the same rules as a view Claude divides, and the pieces of each level fit inside the pieces of the level above, so all level views cut the text at the same places: hovering a goal marks exactly its steps. A view of a level deeper than the tree shows the deepest level. With `"group": "parent"`, a view sets its pieces under the name of the goal one level up, and `"show": "method"` puts each piece's method before its goal. The map is asked for once for all level views, then again after the text changes, and saved like any other division; a typed sentence joins the step and the goal before it on every level until the new map comes.
+
+**New view…** declares a view of your own: a name, and either what the view is for or a level of the map of goals; a layout (list, cards, or bars); and whether pieces move by dragging and open with a double-click. The **Declaration** section shows the view as data; edit it to set any field a view can have, and the form follows it. Problems are named as you type, and Save waits until there are none. Your views are kept in this browser, and ✎ in a pane's bar edits the view, or deletes it.
 
 Each feature in the Document view can be turned on or off from the **Intelligence** menu.
 
@@ -65,12 +69,12 @@ Language models can't count characters reliably, so when resizing, the app measu
 | `combine-core.js` | Combine prompt and sentence handling |
 | `selection-rewrite.js`, `rewrite-preview.js` | Resize handle and in-place previews |
 | `view-specs.js` | Built-in view declarations and the checks a declaration must pass |
-| `segment-core.js`, `segments.js` | Claude's division of the document for a view's purpose: the prompt, the checks and repairs of its reply, and the saved divisions |
+| `segment-core.js`, `segments.js` | Claude's division of the document for a view's purpose, and its map of the document's goals as levels: the prompts, the checks and repairs of each reply, and the saved divisions |
 | `panes.js` | The row of panes: add, close, move, resize, and remember them |
 | `doc-model.js` | The document as blocks and pieces, which every view reads |
 | `links.js` | What the views point at: hover, focus, drag, pending combine, scroll |
 | `doc-edits.js`, `operations.js` | Moves, combines, and removals planned on copies and made as native edits |
-| `piece-view.js` | A declared view of sentences or paragraphs |
+| `piece-view.js` | A declared view of sentences, paragraphs, Claude's pieces, or a level of goals |
 | `document-view.js`, `document-marks.js` | The editor as a view, and its highlights for the other views |
 | `realtime.js` | WebSocket connection to OpenAI |
 | `bridge-client.js` | Connection to the local bridge, for plan mode |
@@ -106,7 +110,7 @@ Open the link it prints, and keep it private while the bridge runs: its token pa
 
 **Rules.** Both routes are for one person using their own plan on their own computer. Never host the bridge for other people or share one sign-in. Anthropic's [legal and compliance page](https://code.claude.com/docs/en/legal-and-compliance) says it does not "prevent an end user from signing in to the unmodified Claude Code binary with their own Claude subscription", but it does not permit third-party developers "to route requests through Free, Pro, or Max plan credentials on behalf of their users", and says plan limits assume "ordinary, individual usage". Its Consumer Terms allow automated access only with an API key or where Anthropic explicitly permits it, the Agent SDK documentation says third-party developers may not offer Claude.ai login or rate limits without approval, and Anthropic reserves the right to enforce without notice. Whether a self-run bridge that sends a request on every typing pause counts as ordinary use is not settled, and these pages and the [usage-limit article](https://support.claude.com/en/articles/15036540) changed several times in 2026, so read them first. Sign in with ChatGPT is a preview under the [Sign in with ChatGPT Terms](https://openai.com/policies/sign-in-with-chatgpt-terms/), which require tokens to be stored locally under the user's control and consent before background use; a paid or remotely hosted app needs OpenAI's approval.
 
-**Security.** The bridge listens on `127.0.0.1` only. Every API call must come from the bridge's own page: the exact host and origin, the token in an `Authorization` header, and a JSON body. The page can only name an operation (autocomplete, paragraph, rewrite, combine, or segment) and send document text; the bridge builds the prompt with the same modules as the editor, caps the reply length, and runs one request at a time.
+**Security.** The bridge listens on `127.0.0.1` only. Every API call must come from the bridge's own page: the exact host and origin, the token in an `Authorization` header, and a JSON body. The page can only name an operation (autocomplete, paragraph, rewrite, combine, segment, or levels) and send document text; the bridge builds the prompt with the same modules as the editor, caps the reply length, and runs one request at a time.
 
 ## Test
 

@@ -246,13 +246,15 @@ export class DocumentModel {
       }));
   }
   // Pieces made of runs of sentences, numbered through the document from 1, as
-  // a segmentation gives them: [{first, last, label}].
+  // a segmentation gives them: [{first, last, label, method, parent}]. On a
+  // level of a tree of goals, `method` says how a piece reaches its goal, and
+  // `parent` is the number of the piece it fits inside on the level above.
   runs(runs, unit = 'claude') {
     const { version, blocks } = this.read();
     const sentences = blocks.flatMap(block =>
       block.sentences.map(sentence => ({ ...sentence, block: block.index })),
     );
-    return runs.map(({ first, last, label }) => {
+    return runs.map(({ first, last, label, method, parent }) => {
       const head = sentences[first - 1];
       const tail = sentences[last - 1];
       const own = sentences.slice(first - 1, last);
@@ -272,6 +274,8 @@ export class DocumentModel {
         last,
         whole,
         label: label || '',
+        method: method || '',
+        parent: parent ?? null,
         text: own.map(sentence => sentence.text).join(' '),
       };
     });

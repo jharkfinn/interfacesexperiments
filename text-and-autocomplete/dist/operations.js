@@ -5,7 +5,7 @@ import {
   planBlockMove,
   planCombine,
   planRemove,
-} from './doc-edits.js?v=7d8c83a79b6c';
+} from './doc-edits.js?v=94306e1b61a6';
 
 // The operations a view's gestures can name. Each one changes the document
 // through DocumentEdits, then chooses and flashes the text it changed, so every

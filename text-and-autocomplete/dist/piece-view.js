@@ -1,7 +1,9 @@
-import { overlaps } from './doc-model.js?v=c15b4514db7d';
+import { overlaps } from './doc-model.js?v=014942255fc1';
+import { topicFor } from './segments.js?v=b2f577a60210';
 
-// A declared view: the document's pieces (sentences, paragraphs, or pieces
-// Claude chose for the view's purpose), arranged as its declaration says, with
+// A declared view: the document's pieces (sentences, paragraphs, pieces Claude
+// chose for the view's purpose, or one level of Claude's tree of the goals the
+// text pursues), arranged as its declaration says, with
 // gestures that run the operations it names. It shows the shared links (hover,
 // focus, drag, pending combine, flash) on its pieces, sets them from its own
 // pieces, and scrolls with the other panes.
@@ -55,6 +57,12 @@ export function hintFor(spec) {
   const parts = [];
   if (spec.unit === 'claude') {
     parts.push(`Claude divides the document for this view: “${spec.purpose}”`);
+  } else if (spec.unit === 'level') {
+    parts.push(
+      spec.level > 1
+        ? `Claude maps what the text is trying to do. Each piece here is a step toward a goal one level up${spec.show === 'method' ? ', with how it takes that step' : ''}.`
+        : 'Claude maps what the text is trying to do. Each piece here is one of its main goals.',
+    );
   }
   if (drag.length) parts.push(`Drag a ${noun} ${drag.join(', or ')}.`);
   if (spec.on['double-click'] === 'open') {
@@ -64,15 +72,20 @@ export function hintFor(spec) {
   return parts.join(' ') || `Each ${noun} links to the same text in the other views.`;
 }
 
-// What the view says while Claude's pieces are not current.
-export function statusText(status, carried) {
+// What the view says while Claude's pieces are not current. Level views share
+// one map of the text's goals.
+export function statusText(status, carried, levels = false) {
   const stand = carried
     ? 'The last pieces stand in until then.'
     : 'Paragraphs stand in until then.';
   return {
-    waiting: `Claude is dividing the document for this view. ${stand}`,
+    waiting: levels
+      ? `Claude is mapping the goals of the text. ${stand}`
+      : `Claude is dividing the document for this view. ${stand}`,
     updating: 'Claude is updating the pieces after your changes.',
-    offline: `Connect to let Claude divide the document for this view. ${stand}`,
+    offline: levels
+      ? `Connect to let Claude map the goals of the text. ${stand}`
+      : `Connect to let Claude divide the document for this view. ${stand}`,
   }[status];
 }
 
@@ -99,6 +112,8 @@ export class PieceView {
   constructor({ id, spec, model, ops, links, segments }) {
     Object.assign(this, { id, spec, model, ops, links, segments });
     this.sentences = spec.unit === 'sentence';
+    // Pieces Claude chose, for a purpose or as a level of goals.
+    this.topic = spec.unit === 'claude' || spec.unit === 'level' ? topicFor(spec) : null;
     this.vertical = spec.layout === 'list' || spec.layout === 'bars';
     this.root = document.createElement('section');
     this.root.className = `piece-view page layout-${spec.layout} unit-${spec.unit}`;
@@ -132,9 +147,9 @@ export class PieceView {
       }),
       links.on((channel, value) => this.linked(channel, value)),
     ];
-    if (spec.unit === 'claude') {
+    if (this.topic) {
       this.cleanup.push(
-        segments.watch(spec.purpose, () => {
+        segments.watch(this.topic, () => {
           if (this.drag) this.stale = true;
           else this.render();
         }),
@@ -205,9 +220,10 @@ export class PieceView {
       if (this.links.get(channel)?.origin === this.id) this.links.set(channel, null);
     }
   }
-  // The view's pieces now, and the state of Claude's division for them.
+  // The view's pieces now, and the state of Claude's division for them. A level
+  // view also gets the pieces of the level above, which its pieces fit inside.
   source() {
-    if (this.spec.unit === 'claude') return this.segments.view(this.spec.purpose);
+    if (this.topic) return this.segments.view(this.topic, (this.spec.level || 1) - 1);
     return { pieces: this.model.pieces(this.spec.unit), status: 'ready' };
   }
   pieceOf(element) {
@@ -228,12 +244,14 @@ export class PieceView {
     const { blocks, version } = this.model.read();
     this.version = version;
     this.stale = false;
-    const { pieces, status, message } = this.source();
+    const { pieces, above, status, message } = this.source();
     this.pieces = new Map(pieces.map(piece => [piece.id, piece]));
     this.order = pieces;
-    const carried = spec.unit === 'claude' && pieces.some(piece => piece.label);
+    const carried = Boolean(this.topic) && pieces.some(piece => piece.label);
     const note =
-      status === 'failed' ? `${message} The last pieces stand in.` : statusText(status, carried);
+      status === 'failed'
+        ? `${message} The last pieces stand in.`
+        : statusText(status, carried, spec.unit === 'level');
     this.status.textContent = note || '';
     this.status.hidden = !note;
     const longest = Math.max(1, ...pieces.map(piece => words(piece.text)));
@@ -260,7 +278,7 @@ export class PieceView {
               (spec.unit === 'paragraph' ? blocks[piece.block].sentences[0]?.text : null) ||
                 piece.text,
             )
-          : spec.show === 'label'
+          : spec.show === 'label' || spec.show === 'method'
             ? opening(piece.text, EXCERPT_CHARS)
             : piece.text;
       if (spec.show !== 'text') element.title = piece.text;
@@ -276,13 +294,20 @@ export class PieceView {
         excerpt.textContent = spec.show === 'label' && piece.label ? piece.label : text;
         element.setAttribute('aria-label', `${count} words: ${piece.text}`);
         element.append(number, excerpt);
-      } else if (spec.show === 'label' && piece.label) {
+      } else if ((spec.show === 'label' || spec.show === 'method') && piece.label) {
         const label = document.createElement('strong');
         label.className = 'pv-label';
         label.textContent = piece.label;
         const excerpt = document.createElement('span');
         excerpt.className = 'pv-excerpt';
         excerpt.textContent = text;
+        if (spec.show === 'method' && piece.method) {
+          // How the piece reaches its goal, as a tag before the goal.
+          const method = document.createElement('span');
+          method.className = 'pv-method';
+          method.textContent = piece.method;
+          label.prepend(method);
+        }
         element.append(label, excerpt);
       } else element.textContent = text;
       return element;
@@ -314,11 +339,28 @@ export class PieceView {
         rows.push(row);
       }
     } else {
-      // One gap between each two pieces, and one at each end.
-      const row = document.createElement('div');
-      row.className = 'pv-row';
-      if (this.moves) row.append(gap(0));
+      // One gap between each two pieces, and one at each end. Grouped by the
+      // goal above, each goal's steps form a row under its name; the gap at the
+      // end of one row is the place before the next row's first piece.
+      const byParent = spec.group === 'parent' && above;
+      let row = null;
       pieces.forEach((piece, index) => {
+        if (!row || (byParent && piece.parent !== pieces[index - 1].parent)) {
+          row = document.createElement('div');
+          row.className = 'pv-row';
+          const goal = byParent ? above[piece.parent] : null;
+          const own = pieces.filter(other => other.parent === piece.parent);
+          // A goal reached in one step needs no name over that step.
+          if (goal?.label && !(own.length === 1 && own[0].label === goal.label)) {
+            row.classList.add('pv-group');
+            const name = document.createElement('p');
+            name.className = 'pv-group-label';
+            name.textContent = goal.label;
+            row.append(name);
+          }
+          if (this.moves && !index) row.append(gap(0));
+          rows.push(row);
+        }
         if (!this.moves) {
           row.append(chip(piece, index));
           return;
@@ -328,7 +370,12 @@ export class PieceView {
         unit.append(chip(piece, index), gap(index + 1));
         row.append(unit);
       });
-      rows.push(row);
+      if (!pieces.length) {
+        row = document.createElement('div');
+        row.className = 'pv-row';
+        if (this.moves) row.append(gap(0));
+        rows.push(row);
+      }
     }
     // Keep focus on the chosen piece when the list is rebuilt under it.
     const hadFocus = this.list.contains(document.activeElement);

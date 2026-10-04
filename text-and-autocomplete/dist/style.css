@@ -1291,6 +1291,35 @@ body:not(:has(.pane .document-view)) .toolbar .group:not(.history, .zoom-group) 
 :is(.layout-list, .layout-cards) .pv-piece:has(.pv-label) {
   font-size: 15px;
 }
+/* Levels of goals: how a piece reaches its goal, as a tag before the goal. */
+.pv-method {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #3d3524;
+  color: #eac384;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  vertical-align: 1px;
+}
+/* Steps grouped under the goal one level up that they reach. */
+.pv-group {
+  padding-left: 12px;
+  border-left: 2px solid #3b3d43;
+}
+.pv-group-label {
+  margin: 0;
+  color: #8e939e;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+}
+.layout-cards .pv-group-label {
+  margin-bottom: 4px;
+}
 /* Cards: pieces side by side, wrapping into rows. */
 .layout-cards .pv-row {
   line-height: 0;

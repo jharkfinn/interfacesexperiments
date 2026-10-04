@@ -15,7 +15,7 @@ for (const [file, dependencies] of [
   ['doc-edits.js', ['doc-model.js', 'combine-core.js']],
   ['operations.js', ['combine-core.js', 'doc-edits.js']],
   ['document-marks.js', ['rewrite-preview.js']],
-  ['piece-view.js', ['doc-model.js']],
+  ['piece-view.js', ['doc-model.js', 'segments.js']],
   ['document-view.js', ['document-marks.js', 'piece-view.js']],
   ['rewrite-core.js', ['compose-core.js']],
   ['selection-rewrite.js', ['rewrite-core.js', 'rewrite-preview.js']],

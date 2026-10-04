@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Pancakes for Dinner — Text and Autocomplete</title>
     <meta name="description" content="A quiet document editor with inline writing suggestions.">
-    <link rel="stylesheet" href="style.css?v=491d19b532fb">
+    <link rel="stylesheet" href="style.css?v=e387eeb77af8">
   </head>
   <body>
     <header class="app-header">
@@ -85,7 +85,7 @@
           <article id="document-page" class="page" aria-label="Document">
             <div class="editor-surface">
               <!-- The document itself: whitespace here is document text, so keep it on one line. -->
-              <div id="editor" class="document-body" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Document body" spellcheck="true"><h1>Pancakes for Dinner</h1><p>Pancakes are too good to stay stuck at breakfast. They take ten minutes, use things you already have in the kitchen, and nobody at the table ever complains. You can go sweet with syrup and berries, or savory with cheese, bacon, and a fried egg on top. After a long day, a warm stack feels like a small party on a plate. Dinner should be easy and fun, and pancakes are both.</p></div>
+              <div id="editor" class="document-body" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Document body" spellcheck="true"><h1>Pancakes for Dinner</h1><p>Pancakes are too good to stay stuck at breakfast. They take ten minutes, use things you already have in the kitchen, and nobody at the table ever complains. You can go sweet with syrup and berries, or savory with cheese, bacon, and a fried egg on top. After a long day, a warm stack feels like a small party on a plate. Dinner should be easy and fun, and pancakes are both.</p><h2>The basic batter</h2><p>Whisk a cup of flour with a spoon of sugar, two teaspoons of baking powder, and a pinch of salt. In a second bowl, beat one egg into a cup of milk and two spoons of melted butter. Pour the wet bowl into the dry one and stir only until the flour disappears. A few lumps are fine, and they keep the pancakes soft.</p><p>Heat a pan over medium heat and give it a thin coat of butter. Pour a quarter cup of batter for each pancake and wait for bubbles to cover the top. Flip once, cook for another minute, and keep the finished ones warm in a low oven.</p><h2>Turn it into dinner</h2><p>The toppings decide what kind of night it is. Fold grated cheddar and chopped scallions into the batter, then serve with a fried egg and hot sauce. Or keep the batter plain and pile on yogurt, sliced bananas, and honey. Leftover roast chicken or a spoon of salsa works too.</p><p>Some people will tell you pancakes are not a real dinner. Ask them to try one stack before they decide. Most of them come back for seconds.</p><p>So the next time you open the fridge and see nothing to cook, look again. If you have eggs, milk, and flour, you have dinner.</p></div>
             </div>
             <span id="suggestion" aria-hidden="true" hidden></span>
             <div id="style-tabs" aria-hidden="true" hidden></div>
@@ -110,9 +110,20 @@
         <h2 id="view-heading">New view</h2>
         <label for="view-title">Name</label>
         <input id="view-title" maxlength="40" autocomplete="off" spellcheck="false" placeholder="Claims and support">
-        <label for="view-purpose">What is this view for?</label>
-        <textarea id="view-purpose" maxlength="300" rows="3" aria-describedby="view-purpose-note" placeholder="Each claim the essay makes, with the evidence for it."></textarea>
-        <p id="view-purpose-note" class="view-note">Claude divides the document into pieces that suit this purpose, and names each piece. A piece is whole sentences: some inside one paragraph, or whole paragraphs.</p>
+        <label for="view-source">Pieces</label>
+        <select id="view-source" aria-describedby="view-source-note">
+          <option value="purpose">Claude divides the text for a purpose</option>
+          <option value="1">Goals, level 1: the main goals</option>
+          <option value="2">Goals, level 2: the steps toward each goal</option>
+          <option value="3">Goals, level 3: the steps toward each step</option>
+          <option value="4">Goals, level 4</option>
+        </select>
+        <p id="view-source-note" class="view-note">The goal views share one map of what the text is trying to do, so their pieces line up with each other.</p>
+        <div id="view-purpose-field" class="view-field">
+          <label for="view-purpose">What is this view for?</label>
+          <textarea id="view-purpose" maxlength="300" rows="3" aria-describedby="view-purpose-note" placeholder="Each claim the essay makes, with the evidence for it."></textarea>
+          <p id="view-purpose-note" class="view-note">Claude divides the document into pieces that suit this purpose, and names each piece. A piece is whole sentences: some inside one paragraph, or whole paragraphs.</p>
+        </div>
         <div class="view-options">
           <label>Layout <select id="view-layout"><option value="list">List</option><option value="cards">Cards</option><option value="bars">Bars, as long as each piece</option></select></label>
           <label><input type="checkbox" id="view-move" checked> Drag pieces to move them</label>
@@ -176,6 +187,6 @@
       </section>
     </dialog>
 
-    <script type="module" src="app.js?v=1cf465e8190e"></script>
+    <script type="module" src="app.js?v=d7e561d676b1"></script>
   </body>
 </html>
