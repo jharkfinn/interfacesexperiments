@@ -530,7 +530,10 @@ export class SentenceView {
   revealInDocument(range) {
     if (!range || !this.documentShown()) return;
     const rect = range.getBoundingClientRect();
-    const by = scrollToShow(rect.top, rect.bottom, 0, innerHeight, 80);
+    // A list docked along the bottom of a narrow window covers the document there.
+    const docked = getComputedStyle(this.root).bottom === '0px';
+    const end = docked ? Math.min(innerHeight, this.root.getBoundingClientRect().top) : innerHeight;
+    const by = scrollToShow(rect.top, rect.bottom, 0, end, Math.min(80, end / 6));
     if (!by) return;
     const smooth = !matchMedia('(prefers-reduced-motion: reduce)').matches;
     scrollBy({ top: by, behavior: smooth ? 'smooth' : 'auto' });
