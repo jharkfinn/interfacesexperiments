@@ -107,7 +107,9 @@ async function* sseEvents(body) {
 export class ChatGPTBackend {
   constructor({
     model = null,
-    reasoning = 'low',
+    // Measured on gpt-5.6-luna: about 1.4-2.0 s to the first word with none, 2 s with
+    // low, 3 s with the model default.
+    reasoning = 'none',
     configDir = defaultConfigDir(),
     authBase = AUTH_BASE,
     apiBase = API_BASE,
@@ -608,14 +610,16 @@ export class ChatGPTBackend {
       });
       if (response.ok) break;
       const error = await errorOf(response);
-      // Some models take no reasoning setting; drop it once and retry.
+      // Models accept different efforts. The error lists the ones this model takes,
+      // so retry once with the lowest of them, or with none set at all.
       if (
         !droppedReasoning &&
         this.reasoning &&
-        error.code === 'subscription_sharing_unsupported_capability' &&
+        error.status === 400 &&
         String(error.param || '').startsWith('reasoning')
       ) {
-        this.reasoning = null;
+        const listed = /Supported values are:(.*)$/s.exec(error.message || '')?.[1] || '';
+        this.reasoning = [...listed.matchAll(/'([a-z]+)'/g)].map(match => match[1])[0] || null;
         droppedReasoning = true;
         continue;
       }

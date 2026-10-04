@@ -25,7 +25,8 @@ const HELP = `Usage: node scripts/bridge.mjs [--provider claude|chatgpt] [option
   --claude <path>     Path to the claude executable (default: claude on PATH)
   --allow-api-key     Let Claude Code bill the API key it is signed in with
                       (claude auth login --console) instead of a Claude plan
-  --reasoning <level> ChatGPT reasoning effort (default low; "none" omits it)
+  --reasoning <level> ChatGPT reasoning effort (default none, the fastest; a model
+                      that does not take it uses its lowest; "default" sends none)
   --sign-out          ChatGPT: end the saved sign-in and exit
   --verbose           Log each request's operation (never its text)
 `;
@@ -37,7 +38,7 @@ const { values } = parseArgs({
     model: { type: 'string' },
     claude: { type: 'string', default: 'claude' },
     'allow-api-key': { type: 'boolean', default: false },
-    reasoning: { type: 'string', default: 'low' },
+    reasoning: { type: 'string', default: 'none' },
     'sign-out': { type: 'boolean', default: false },
     verbose: { type: 'boolean', default: false },
     help: { type: 'boolean', default: false },
@@ -63,7 +64,7 @@ if (values.provider === 'claude') {
 } else if (values.provider === 'chatgpt') {
   backend = new ChatGPTBackend({
     model: values.model || null,
-    reasoning: values.reasoning === 'none' ? null : values.reasoning,
+    reasoning: values.reasoning === 'default' ? null : values.reasoning,
   });
 } else {
   console.error(HELP);

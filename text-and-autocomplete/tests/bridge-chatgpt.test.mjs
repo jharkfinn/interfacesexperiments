@@ -274,7 +274,7 @@ test('inference streams from the Responses API with the documented body', async 
       input: [{ role: 'user', content: '{"before":"Hi"}' }],
       store: false,
       stream: true,
-      reasoning: { effort: 'low' },
+      reasoning: { effort: 'none' },
     });
     for (const field of ['max_output_tokens', 'temperature', 'metadata', 'conversation']) {
       assert.ok(!(field in request), `${field} is not supported on this route`);
@@ -545,3 +545,26 @@ test(
     assert.match(backend.notice, /readable only by you/);
   },
 );
+
+test('an effort the model does not take is replaced by its lowest supported one', async () => {
+  const fake = await fakeOpenAI();
+  try {
+    const { backend } = await signedIn(fake);
+    fake.state.overrides.responseError = {
+      status: 400,
+      code: 'unsupported_value',
+      param: 'reasoning.effort',
+      message:
+        "Unsupported value: 'none' is not supported with the 'gpt-6-luna' model. Supported values are: 'low', 'medium', and 'high'.",
+    };
+    fake.state.overrides.responseErrorOnce = true;
+    assert.equal(
+      await backend.run({ instructions: 'x', input: '{}', maxChars: 100 }),
+      'Hello world',
+    );
+    assert.deepEqual(fake.state.responses.at(-1).request.reasoning, { effort: 'low' });
+    backend.close();
+  } finally {
+    fake.server.close();
+  }
+});
