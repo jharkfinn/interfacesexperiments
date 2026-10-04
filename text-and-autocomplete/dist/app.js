@@ -18,7 +18,14 @@ import { BridgeCompose } from './bridge-client.js?v=ae40474645ea';
 import { RealtimeCompose } from './realtime.js?v=f6a116bc6cb8';
 import { readSavedKey, saveKey, forgetKey } from './key-storage.js?v=d7465de288af';
 import { SelectionRewrite } from './selection-rewrite.js?v=65913731007c';
-import { SentenceView } from './sentence-view.js?v=8bc2d84cbdee';
+import { DocumentModel } from './doc-model.js?v=7ef16fd28f8c';
+import { DocumentEdits } from './doc-edits.js?v=6ef60e76fe65';
+import { Links } from './links.js?v=39d5dc963aea';
+import { Operations } from './operations.js?v=4a97072d1e13';
+import { DocumentView } from './document-view.js?v=c854dd3f92e3';
+import { PieceView } from './piece-view.js?v=e43d9b5c99da';
+import { Workspace, restorePanes } from './panes.js?v=842d70368f0f';
+import { BUILT_IN, fullSpec } from './view-specs.js?v=b5636c05b183';
 
 const $ = id => document.getElementById(id);
 const editor = $('editor');
@@ -31,16 +38,14 @@ const styleTabs = $('style-tabs');
 const resize = $('resize');
 const rephrase = $('rephrase');
 const intelligence = $('intelligence');
-const documentPage = $('document-page');
-const layoutButtons = [...document.querySelectorAll('.layout-switch button')];
-// The document shows as written ('document'), as sentences to rearrange
-// ('sentences'), or both side by side ('split').
-const LAYOUTS = ['document', 'split', 'sentences'];
-const LAYOUT_KEY = 'text-and-autocomplete.layout';
-let layout = 'split';
-// The layout on screen now.
-let shown = 'document';
-document.body.dataset.layout = shown;
+const documentHolder = $('document-holder');
+// Links that open the page with a set of panes: #document, #split, #sentences.
+const PRESETS = {
+  document: ['document'],
+  split: ['document', 'sentences'],
+  sentences: ['sentences'],
+};
+const PANES_KEY = 'text-and-autocomplete.panes';
 const dialog = $('key-dialog');
 const keyInput = $('api-key');
 let completion = '';
@@ -73,12 +78,12 @@ let connectionAttempt = 0;
 let validHTML = editor.innerHTML;
 let beforeEdit = null;
 let rewriter = null;
-let combiner = null;
+let ops = null;
 // A rewrite or a combine owns the document until it lands or is abandoned.
-const working = () => Boolean(rewriter?.busy || combiner?.busy);
+const working = () => Boolean(rewriter?.busy || ops?.busy);
 const cancelWork = () => {
   rewriter?.cancel();
-  combiner?.cancel();
+  ops?.cancel();
 };
 let debugStorage;
 try {
@@ -641,7 +646,7 @@ function changed(event) {
   } else schedule();
 }
 editor.addEventListener('beforeinput', event => {
-  if (working() && !rewriter.applying && !combiner.applying) {
+  if (working() && !rewriter.applying && !ops.applying) {
     event.preventDefault();
     return;
   }
@@ -821,9 +826,10 @@ for (const button of document.querySelectorAll('[data-command]')) {
   button.onclick = () => command(button.dataset.command);
 }
 for (const action of ['undo', 'redo']) {
-  // A whole move or combine from the Sentences view is taken back in one step.
+  // A whole move or combine from another view is taken back in one step. With
+  // no Document pane, the editor cannot take a command, so the views undo.
   $(action).onclick = () =>
-    shown === 'sentences' || combiner.has(action) ? combiner[action]() : command(action);
+    ops.has(action) || !editor.getClientRects().length ? ops[action]() : command(action);
 }
 $('style').onchange = e => command('formatBlock', e.target.value);
 $('font').onchange = e => command('fontName', e.target.value);
@@ -836,10 +842,10 @@ $('size').onchange = e => {
   validHTML = editor.innerHTML;
 };
 $('zoom').onchange = e => {
-  document.querySelector('.page-stack').style.zoom = e.target.value;
+  $('panes').style.setProperty('--zoom', e.target.value);
   paintSuggestion();
   rewriter?.paint();
-  combiner?.relayout();
+  documentView?.paint();
 };
 window.addEventListener('resize', paintSuggestion);
 title.maxLength = 120;
@@ -910,7 +916,7 @@ async function connectKey(key, automatic = false) {
     await client.connect(key);
     if (attempt !== connectionAttempt) return;
     let message =
-      'Connected. Type for suggestions, select text and drag its handle, or double-click it to rephrase. Open Sentences to move and combine sentences.';
+      'Connected. Type for suggestions, select text and drag its handle, or double-click it to rephrase. Drag sentences in the Sentences pane to move and combine them.';
     try {
       if (planMode) localStorage.setItem(`${CONSENT_KEY}.${client.session?.provider}`, '1');
       else saveKey(key);
@@ -1262,144 +1268,167 @@ const rewriteOptions = {
 };
 rewriter = new SelectionRewrite(rewriteOptions);
 // Hidden, the editor has no layout: innerText loses its line breaks and editing
-// commands fail. The view shows it for the length of `run` and hides it again
-// before the browser paints, so the reader never sees it.
+// commands fail. While no pane shows the document, it is shown off screen for
+// the length of `run` and hidden again before the browser paints.
 function withDocument(run) {
-  if (!documentPage.hidden) return run();
+  if (editor.getClientRects().length) return run();
   const focused = document.activeElement;
-  const scroll = [scrollX, scrollY];
-  documentPage.hidden = false;
+  documentHolder.hidden = false;
   try {
     return run();
   } finally {
-    documentPage.hidden = true;
-    scrollTo(...scroll);
+    documentHolder.hidden = true;
     if (focused?.isConnected) focused.focus({ preventScroll: true });
   }
 }
-// The Sentences view is a second view of the same document. Its changes go
-// through the editor, so both views always show the same text.
-combiner = new SentenceView({
+// Native edits for the views. They scroll to what they changed, so an edit made
+// from another view puts every pane back where it was, and the views then show
+// the result themselves.
+function runEdit(work) {
+  const focused = document.activeElement;
+  const scrolls = [...document.querySelectorAll('.pane-body')].map(body => [body, body.scrollTop]);
+  withDocument(() => {
+    editor.focus({ preventScroll: true });
+    work();
+    validHTML = editor.innerHTML;
+    beforeEdit = null;
+    updateCount();
+  });
+  if (focused !== editor) {
+    for (const [body, top] of scrolls) body.scrollTop = top;
+    if (focused?.isConnected) focused.focus({ preventScroll: true });
+  }
+  disarm('view-edit');
+}
+// Every view reads the same model, points at text through the same links, and
+// changes the document through the same operations.
+const model = new DocumentModel(editor, document.documentElement.lang);
+const links = new Links();
+ops = new Operations({
   editor,
-  root: $('sentence-view'),
+  model,
+  edits: new DocumentEdits({ editor, run: runEdit }),
+  links,
   client,
   contextOf,
-  edit: run => {
-    const focused = document.activeElement;
-    const scroll = [scrollX, scrollY];
-    withDocument(() => {
-      editor.focus({ preventScroll: true });
-      run();
-      validHTML = editor.innerHTML;
-      beforeEdit = null;
-      updateCount();
-    });
-    // Native edits scroll to what they changed. An edit made from the list
-    // keeps the page where it was and lets the list show the result.
-    if (focused !== editor) {
-      scrollTo(...scroll);
-      if (focused?.isConnected) focused.focus({ preventScroll: true });
-    }
-    disarm('sentence-edit');
-  },
+  notify: showNotice,
+  connect: openSettings,
+  open: openInDocument,
+  // A rewrite still running in the document would land on moved text.
   interrupt: () => {
     rewriter.cancel();
     rewriter.hideControls();
   },
-  onJump: () => {
-    if (shown === 'sentences') setLayout('split');
-    else showInDocument(combiner.chosenRange());
-  },
-  flash: range => rewriter.flash(range),
-  notify: showNotice,
-  connect: openSettings,
-  locale: document.documentElement.lang,
 });
-// The caret goes to the end of the sentence the Sentences view had chosen,
-// which flashes, so the reader keeps their place across views.
-function showInDocument(range) {
-  editor.focus({ preventScroll: true });
-  const fallback = savedRange && editor.contains(savedRange.startContainer) ? savedRange : null;
-  const caret = (range || fallback)?.cloneRange();
-  if (!caret) {
-    placeAtEnd();
-    return;
+const documentView = new DocumentView({
+  root: $('document-view'),
+  holder: documentHolder,
+  editor,
+  model,
+  links,
+  ops,
+  flash: range => rewriter.flash(range),
+});
+const workspace = new Workspace({
+  root: $('panes'),
+  specs: () => BUILT_IN.map(fullSpec),
+  create: (spec, id) =>
+    spec.kind === 'document' ? documentView : new PieceView({ id, spec, model, ops, links }),
+  storageKey: PANES_KEY,
+  onChange: panesChanged,
+});
+const arrangementOf = views => views.map(view => ({ view, weight: 1, follows: true }));
+let documentOpen = false;
+function panesChanged() {
+  const open = workspace.has('document');
+  // Formatting acts on a selection in the editor, which needs a Document pane.
+  for (const control of document.querySelectorAll(
+    '.toolbar .group:not(.history, .zoom-group) :is(button, select)',
+  )) {
+    control.disabled = !open;
   }
+  if (open !== documentOpen) {
+    documentOpen = open;
+    trace('document-pane', { open });
+    cancelWork();
+    endCycle('document-pane');
+    disarm('document-pane');
+    rewriter.hideControls();
+  }
+  const add = $('add-view');
+  const options = BUILT_IN.map(spec => {
+    const option = document.createElement('option');
+    option.value = spec.id;
+    option.textContent = spec.title;
+    option.disabled = spec.id === 'document' && open;
+    return option;
+  });
+  add.replaceChildren(add.options[0] || new Option('Choose…', ''), ...options);
+  add.value = '';
+  paintSuggestion();
+  rewriter.paint();
+  documentView.paint();
+}
+$('add-view').onchange = event => {
+  if (event.target.value) workspace.add(event.target.value);
+  event.target.value = '';
+};
+// The caret goes to the end of a piece another view opened, and the piece
+// flashes. A Document pane opens first when there is none.
+function openInDocument(range) {
+  if (!workspace.has('document')) workspace.add('document', 0);
+  editor.focus({ preventScroll: true });
+  const caret = range.cloneRange();
   caret.collapse(false);
   const selection = window.getSelection();
   selection.removeAllRanges();
   selection.addRange(caret);
-  if (!range) return;
-  const rect = range.getBoundingClientRect();
-  if (rect.top < 120 || rect.bottom > innerHeight - 60) {
-    const smooth = !matchMedia('(prefers-reduced-motion: reduce)').matches;
-    scrollBy({
-      top: rect.top + rect.height / 2 - innerHeight / 2,
-      behavior: smooth ? 'smooth' : 'auto',
-    });
-  }
+  documentView.reveal(range);
   rewriter.flash(range);
 }
-function setLayout(name, { remember = true } = {}) {
-  layout = name;
-  if (remember) {
-    try {
-      localStorage.setItem(LAYOUT_KEY, name);
-    } catch {}
-    try {
-      history.replaceState(null, '', `${location.pathname}${location.search}#${name}`);
-    } catch {}
-  }
-  showLayout();
-}
-function showLayout() {
-  const next = layout;
-  for (const button of layoutButtons) {
-    button.setAttribute('aria-pressed', String(button.dataset.layout === next));
-  }
-  if (next === shown) return;
-  const before = shown;
-  shown = next;
-  trace('layout-changed', { layout: next });
-  cancelWork();
-  endCycle('layout-changed');
-  disarm('layout-changed');
-  rewriter.hideControls();
-  document.body.dataset.layout = next;
-  const sentencesShown = next !== 'document';
-  const documentShown = next !== 'sentences';
-  // Formatting acts on a selection in the editor, which the Sentences view hides.
-  for (const control of document.querySelectorAll(
-    '.toolbar .group:not(.history, .zoom-group) :is(button, select)',
-  )) {
-    control.disabled = !documentShown;
-  }
-  // Leaving the Sentences view on its own, the caret goes to its chosen sentence.
-  const chosen = before === 'sentences' && documentShown ? combiner.chosenRange() : null;
-  documentPage.hidden = !documentShown;
-  if (!sentencesShown) combiner.hide();
-  else if (!combiner.active) {
-    const at = savedRange && editor.contains(savedRange.startContainer) ? savedRange : null;
-    combiner.show(at && { node: at.startContainer, offset: at.startOffset }, {
-      focus: !documentShown,
-    });
-  } else combiner.relayout();
-  if (before === 'sentences' && documentShown) showInDocument(chosen);
-  paintSuggestion();
-  rewriter.paint();
-}
-for (const button of layoutButtons) button.onclick = () => setLayout(button.dataset.layout);
 window.addEventListener('hashchange', () => {
-  const name = location.hash.slice(1);
-  if (LAYOUTS.includes(name)) setLayout(name, { remember: false });
+  const preset = PRESETS[location.hash.slice(1)];
+  if (preset) workspace.set(arrangementOf(preset));
 });
+// Escape stops a combine from any view.
+document.addEventListener(
+  'keydown',
+  event => {
+    if (event.key !== 'Escape' || !ops.pending) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    ops.cancel(true);
+  },
+  true,
+);
+// Undo and Redo keys outside a text field take back what the views did. In the
+// editor, the browser undoes one native edit at a time, so a move or combine
+// still on record is taken back whole there too.
+document.addEventListener(
+  'keydown',
+  event => {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+    const key = event.key.toLowerCase();
+    if (key !== 'z' && key !== 'y') return;
+    const command = key === 'y' || event.shiftKey ? 'redo' : 'undo';
+    if (editor.contains(event.target)) {
+      if (!ops.has(command)) return;
+    } else if (event.target.closest?.('input, textarea, select, dialog, [contenteditable]')) {
+      return;
+    }
+    event.preventDefault();
+    ops[command]();
+  },
+  true,
+);
 // On claude.ai, a republish of this page keeps the document being written.
 function restoreDocument(data) {
   if (typeof data?.html !== 'string' || !data.html) return;
   editor.innerHTML = data.html;
   validHTML = editor.innerHTML;
-  combiner.forget();
-  if (combiner.active) combiner.render();
+  ops.forget();
+  links.clear();
+  model.refresh();
   if (typeof data.title === 'string') {
     title.value = data.title;
     title.dispatchEvent(new Event('input'));
@@ -1412,6 +1441,16 @@ try {
   if (hot?.ready) hot.ready(restoreDocument);
   else restoreDocument(hot?.data);
 } catch {}
+// A link can name a set of panes; otherwise the reader's last arrangement holds.
+{
+  const preset = PRESETS[location.hash.slice(1)];
+  const known = BUILT_IN.map(spec => spec.id);
+  workspace.set(
+    preset
+      ? arrangementOf(preset)
+      : restorePanes(workspace.saved(), known) || arrangementOf(PRESETS.split),
+  );
+}
 updateCount();
 const initialRange = document.createRange();
 initialRange.selectNodeContents(editor.lastElementChild || editor);
@@ -1420,16 +1459,6 @@ editor.focus();
 window.getSelection().removeAllRanges();
 window.getSelection().addRange(initialRange);
 savedRange = initialRange;
-// A link can name the layout; otherwise the reader's last choice holds.
-{
-  let name = location.hash.slice(1);
-  if (!LAYOUTS.includes(name)) {
-    try {
-      name = localStorage.getItem(LAYOUT_KEY);
-    } catch {}
-  }
-  setLayout(LAYOUTS.includes(name) ? name : 'split', { remember: false });
-}
 if (planMode) setupBridge();
 gate();
 if (planMode) {
@@ -1481,8 +1510,9 @@ if (document.modelContext?.registerTool) {
             }
             validHTML = editor.innerHTML;
             savedRange = null;
-            combiner.forget();
-            if (combiner.active) combiner.render();
+            ops.forget();
+            links.clear();
+            model.refresh();
             updateCount();
             return { updated: true, words: wordCount(input.text) };
           },

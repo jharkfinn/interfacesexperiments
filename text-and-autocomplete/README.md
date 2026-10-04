@@ -4,16 +4,22 @@ A document editor prototype from [Interfaces that think](https://tareqistyping.c
 
 ## What you can do
 
-The document has two views: **Document**, where you write, and **Sentences**, where you rearrange. The switch above the page shows either one, or both side by side with **Split**, the default. Split keeps the two columns at any window width, with less padding in a narrow window. Both views show the same text, and a change in one shows in the other at once, as you type. The page remembers your choice in this browser, and a link can name a layout with `#document`, `#split`, or `#sentences`.
+The document shows in **panes**, side by side, any number of them. Each pane shows one **view** of the same text, and a change in one view shows in the others at once, as you type.
 
-In a split, the views are linked:
+- **Document** is the editor, where you write. There is one Document pane at most.
+- **Sentences** shows each sentence as a piece you can drag, grouped by paragraph.
+- **Paragraphs** shows each paragraph by its first sentence.
 
-- The sentence under the pointer in either view is marked in the other.
-- The sentence at the caret is chosen in the Sentences view. A sentence you choose there is marked in the document, which scrolls to it.
-- The Sentences view stays on screen and scrolls with the document, so the paragraph at the top of the window is at the top of the list.
-- While you drag, the document marks the sentence you are moving, the sentence it will combine with, or the place it will move to.
+**Add a view** above the panes opens another pane. Each pane's menu changes its view, ‹ and › move it, × closes it, and ⇅ turns its scrolling with the other panes on or off. Drag the line between two panes, or focus it and press the arrow keys, to give one more width. Panes are never narrower than 300 pixels; when they do not fit the window, the row of panes scrolls sideways. The page keeps the arrangement in this browser, and a link can start with `#document`, `#split` (Document and Sentences), or `#sentences`.
 
-Switching to the Sentences view alone keeps your place the same way: the sentence at the caret is chosen there, and the sentence chosen there gets the caret when you go back.
+All views are linked:
+
+- The piece under the pointer in any view is marked in the others.
+- The sentence at the caret is chosen in every view. A piece you choose in one view is marked in the others, which scroll to it.
+- Panes scroll together, so the text at the top of one pane is at the top of the others.
+- While you drag, the other views mark the sentence you are moving, the sentence it will combine with, or the place it will move to.
+
+Each view is a declaration, data that says what one piece is (a sentence or a paragraph), how pieces are grouped and laid out, what each piece shows, and what each gesture does. `view-specs.js` holds the built-in declarations and the checks every declaration must pass. A declaration can only name operations from a fixed list, so it cannot run code.
 
 Each feature in the Document view can be turned on or off from the **Intelligence** menu.
 
@@ -22,14 +28,15 @@ Each feature in the Document view can be turned on or off from the **Intelligenc
 - **Drag to resize.** Select text and drag the handle at the end of the selection right or down to expand it, or left or up to shorten it (35–250%). The rewrite previews in place and is kept when you release. With the handle focused, arrow keys adjust, Enter keeps, Home returns to the original length, and Escape cancels.
 - **Double-click to rephrase.** Double-click a selection for new wording. Keep double-clicking to step through alternatives, like a thesaurus.
 
-In the **Sentences** view, each sentence is a piece you can drag with a mouse, a pen, or a finger (hold a finger on a sentence for a moment before you drag it).
+In the **Sentences** view, each sentence is a piece you can drag with a mouse, a pen, or a finger (hold a finger on a sentence for a moment before you drag it). Its declaration gives each gesture an operation:
 
 - **Move.** Drop a sentence between two others, or within 14 pixels of a sentence's left or right edge, to move it there. A paragraph or list item that loses its last sentence is removed.
 - **Combine.** Drop a sentence on the middle of another to merge the two into one sentence. Escape cancels a combine that is still running.
 - **Edit in the document.** Double-click a sentence, or press Enter, to put the caret at its end in the Document view.
+- **Remove.** Press Delete or Backspace on a sentence to remove it.
 - **Keyboard.** Arrow keys choose a sentence. Alt and an arrow key move it one place. Alt, Shift, and an arrow key combine it with the sentence beside it.
 
-AI edits and Sentences edits go through the browser's undo, so Undo restores the original, in either view. One Undo takes back a whole move or combine, from the toolbar, the Sentences view, or the keyboard in the document, until you make another change. After that, Undo goes one step at a time, and a move that spanned two paragraphs is two or three steps. Documents are limited to 500 words and are not saved between visits.
+AI edits and edits from the views go through the browser's undo, so Undo restores the original, in any view and with no Document pane open. One Undo takes back a whole move or combine, from the toolbar or the keyboard, until you make another change. After that, Undo goes one step at a time, and a move that spanned two paragraphs is two or three steps. Documents are limited to 500 words and are not saved between visits.
 
 ## How it works
 
@@ -46,8 +53,13 @@ Language models can't count characters reliably, so when resizing, the app measu
 | `rewrite-core.js` | Resize and rephrase prompts, and the length-measuring loop |
 | `combine-core.js` | Combine prompt and sentence handling |
 | `selection-rewrite.js`, `rewrite-preview.js` | Resize handle and in-place previews |
-| `sentence-view.js` | Sentences view: moving and combining sentences, and its links to the document |
-| `document-marks.js` | Highlights over the document for the Sentences view |
+| `view-specs.js` | Built-in view declarations and the checks a declaration must pass |
+| `panes.js` | The row of panes: add, close, move, resize, and remember them |
+| `doc-model.js` | The document as blocks and pieces, which every view reads |
+| `links.js` | What the views point at: hover, focus, drag, pending combine, scroll |
+| `doc-edits.js`, `operations.js` | Moves, combines, and removals planned on copies and made as native edits |
+| `piece-view.js` | A declared view of sentences or paragraphs |
+| `document-view.js`, `document-marks.js` | The editor as a view, and its highlights for the other views |
 | `realtime.js` | WebSocket connection to OpenAI |
 | `bridge-client.js` | Connection to the local bridge, for plan mode |
 | `sample-client.js` | Connection to Claude when the editor is a claude.ai page |

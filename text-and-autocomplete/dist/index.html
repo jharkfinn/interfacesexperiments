@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Pancakes for Dinner — Text and Autocomplete</title>
     <meta name="description" content="A quiet document editor with inline writing suggestions.">
-    <link rel="stylesheet" href="style.css?v=31896c5a225c">
+    <link rel="stylesheet" href="style.css?v=e68d3edb4a6f">
   </head>
   <body>
     <header class="app-header">
@@ -74,36 +74,28 @@
     </nav>
 
     <main class="workspace">
-      <div class="page-stack">
-        <div class="layout-switch" role="group" aria-label="Layout">
-          <button type="button" data-layout="document" aria-pressed="true">Document</button>
-          <button type="button" data-layout="split" aria-pressed="false">Split</button>
-          <button type="button" data-layout="sentences" aria-pressed="false">Sentences</button>
-        </div>
-        <article id="document-page" class="page" aria-label="Document">
-          <div class="editor-surface">
-            <!-- The document itself: whitespace here is document text, so keep it on one line. -->
-            <div id="editor" class="document-body" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Document body" spellcheck="true"><h1>Pancakes for Dinner</h1><p>Pancakes are too good to stay stuck at breakfast. They take ten minutes, use things you already have in the kitchen, and nobody at the table ever complains. You can go sweet with syrup and berries, or savory with cheese, bacon, and a fried egg on top. After a long day, a warm stack feels like a small party on a plate. Dinner should be easy and fun, and pancakes are both.</p></div>
-          </div>
-          <span id="suggestion" aria-hidden="true" hidden></span>
-          <div id="style-tabs" aria-hidden="true" hidden></div>
-        </article>
-        <section id="sentence-view" class="page sentence-view" aria-label="Sentences" hidden>
-          <div class="sv-header">
-            <p class="sv-hint">Drag a sentence onto another to combine them, or between two to move it. Double-click a sentence to edit it in the document.</p>
-            <div class="sv-actions">
-              <button class="sv-undo" type="button">Undo</button>
-              <button class="sv-redo" type="button">Redo</button>
+      <div class="workspace-bar">
+        <label class="add-view">Add a view <select id="add-view"><option value="">Choose…</option></select></label>
+      </div>
+      <div id="panes" class="panes" aria-label="Views of the document"></div>
+      <!-- The document lives here while no pane shows it, so the other views can still edit it. -->
+      <div id="document-holder" hidden>
+        <div id="document-view" class="document-view">
+          <article id="document-page" class="page" aria-label="Document">
+            <div class="editor-surface">
+              <!-- The document itself: whitespace here is document text, so keep it on one line. -->
+              <div id="editor" class="document-body" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Document body" spellcheck="true"><h1>Pancakes for Dinner</h1><p>Pancakes are too good to stay stuck at breakfast. They take ten minutes, use things you already have in the kitchen, and nobody at the table ever complains. You can go sweet with syrup and berries, or savory with cheese, bacon, and a fried egg on top. After a long day, a warm stack feels like a small party on a plate. Dinner should be easy and fun, and pancakes are both.</p></div>
             </div>
+            <span id="suggestion" aria-hidden="true" hidden></span>
+            <div id="style-tabs" aria-hidden="true" hidden></div>
+          </article>
+          <div class="page-bottom">
+            <button id="save-debug-log" title="Save recent suggestion diagnostics from this tab, including short text snippets">Save debug log</button>
+            <span>1 of 1</span>
           </div>
-          <p id="sv-keys" class="sr-only">Enter opens this sentence in the document. Alt and an arrow key move it. Alt, Shift, and an arrow key combine it with the sentence beside it.</p>
-          <div class="sv-list"></div>
-        </section>
-        <div class="page-bottom">
-          <button id="save-debug-log" title="Save recent suggestion diagnostics from this tab, including short text snippets">Save debug log</button>
-          <span>1 of 1</span>
         </div>
       </div>
+      <p id="pv-keys" class="sr-only">Enter opens this piece in the document. Alt and an arrow key move it. Alt, Shift, and an arrow key combine it with the piece beside it. Delete removes it.</p>
     </main>
 
     <div id="rewrite-controls" hidden>
@@ -156,6 +148,6 @@
       </section>
     </dialog>
 
-    <script type="module" src="app.js?v=0008983cff37"></script>
+    <script type="module" src="app.js?v=38322cd42a7c"></script>
   </body>
 </html>
