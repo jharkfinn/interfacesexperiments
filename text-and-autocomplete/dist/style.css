@@ -512,6 +512,11 @@ kbd {
   color: #cbd0da;
   font-size: 13px;
   z-index: 5;
+  /* The notice floats over the panes, so pointers pass through it to them. */
+  pointer-events: none;
+}
+.notice a {
+  pointer-events: auto;
 }
 .notice:empty {
   display: none;
@@ -1022,7 +1027,8 @@ dialog p a {
 }
 .pane-content {
   zoom: var(--zoom, 1);
-  padding: 12px;
+  /* Room at the end, so the last piece can scroll above the floating notice. */
+  padding: 12px 12px 72px;
 }
 .pane-divider {
   flex: none;
