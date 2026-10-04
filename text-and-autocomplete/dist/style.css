@@ -1628,7 +1628,9 @@ body:not(:has(.pane .document-view)) .toolbar .group:not(.history, .zoom-group) 
   font-size: 12px;
   letter-spacing: 0.01em;
 }
-.irac-section[data-part='caption'] {
+/* Sections with no analysis to check: the caption, and text such as a
+   contract excerpt or a narrative. */
+.irac-section:is([data-part='caption'], [data-part='other']) {
   opacity: 0.6;
 }
 .irac-part {
