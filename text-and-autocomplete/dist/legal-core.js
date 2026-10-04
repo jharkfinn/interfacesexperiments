@@ -96,7 +96,7 @@ export const DEFAULT_ROLE = {
 };
 
 export const LEGAL_INSTRUCTIONS = `You label each sentence of a legal document, such as an office memo or a brief, by the job it does in the legal analysis, the way a supervising attorney reviews it.
-The input has "paragraphs". ${DOCUMENT_SHAPE} A sentence may end with the citations that support it, such as "Lakeside, 455 F.3d at 159."; judge the sentence by what its words do. A sentence may carry "prior": the role and kind it had in an earlier reading.
+The input has "paragraphs". ${DOCUMENT_SHAPE} A sentence may end with the citations that support it, such as "Smith v. Jones, 123 F.3d 456, 460 (2d Cir. 2001)."; judge the sentence by what its words do. A sentence may carry "prior": the role and kind it had in an earlier reading.
 Return one JSON object and nothing else, in this shape:
 {"tags":[[1,"heading","framing"],[7,"issue","law"],[20,"application","application","explanation"]]}
 Give every sentence exactly one entry, in order: [n, role, kind], or [n, role, kind, also] when the sentence clearly does two jobs.
