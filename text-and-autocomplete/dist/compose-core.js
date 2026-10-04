@@ -1,8 +1,4 @@
-import {
-  cutAtCitation,
-  guardDraft,
-  guardInsertion,
-} from './citation-guard.js';
+import { cutAtCitation, guardDraft, guardInsertion } from './citation-guard.js';
 import { isAbbreviation } from './legal-text.js';
 
 export const MODEL = 'gpt-realtime-2.1-mini';
@@ -86,8 +82,7 @@ export function inspectCompletion(text, before, after, finished = true) {
   const reason =
     raw.trim() && !candidate.trim()
       ? 'citation-cut'
-      : guardInsertion(before + after, candidate) ||
-        insertionRejection(candidate, before, after);
+      : guardInsertion(before + after, candidate) || insertionRejection(candidate, before, after);
   return {
     text: reason ? '' : candidate,
     reason: !finished && reason === 'empty-insertion' ? 'waiting-for-word' : reason,

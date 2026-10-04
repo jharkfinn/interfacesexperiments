@@ -11,6 +11,7 @@ import {
   offsetAtPoint,
   surfacePlacement,
 } from './rewrite-preview.js?v=0ef16eccfb75';
+import { guardMessage, guardReplacement, selectionRefusal } from './citation-guard.js';
 
 // Masks and streamed text float over the untouched original selection. Only
 // the final replacement enters the editor, as one native undo operation.
@@ -213,6 +214,14 @@ export class SelectionRewrite {
   begin(rephrase = false) {
     if (this.session) return true;
     if (!this.selection) return false;
+    // A selection that cuts into a citation or quotation, or is mostly one, has no
+    // words Claude may change, so it is refused before anything is asked.
+    const { before, selected, after } = this.selection;
+    const refusal = selectionRefusal(before, selected, after, rephrase);
+    if (refusal) {
+      this.notify(refusal);
+      return false;
+    }
     if (!this.client.ready) {
       this.connect();
       return false;
@@ -253,6 +262,20 @@ export class SelectionRewrite {
     session.live = new LiveRewrite({
       context: original,
       rephrase: rephrasing,
+      // Every version must keep the selection's citations, quotations and open items.
+      guard: text => {
+        const reason = guardReplacement(
+          original.before + original.selected + original.after,
+          original.selected,
+          text,
+        );
+        return (
+          reason && {
+            reason,
+            message: guardMessage(reason, rephrase ? 'The new wording' : 'The rewrite'),
+          }
+        );
+      },
       request: (context, ratio, progress, revision) =>
         this.client.rewrite(context, ratio, progress, revision, rephrasing),
       cancel: () => this.client.cancel(),

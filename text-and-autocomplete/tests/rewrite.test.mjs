@@ -11,6 +11,7 @@ import {
   MAX_REVISIONS,
   VERSION_SEPARATOR,
 } from '../dist/rewrite-core.js';
+import { MAX_WORDS, MAX_CHARS, CITATION_RULE } from '../dist/compose-core.js';
 import { RealtimeCompose } from '../dist/realtime.js';
 
 const context = {
@@ -82,14 +83,16 @@ test('rewrite request carries original selected text, surrounding context and le
 });
 test('length budgets count surrounding words and support languages without spaces', () => {
   assert.equal(
-    rewriteTarget({ before: 'word '.repeat(490), selected: 'one two three', after: ' end' }, 2.5)
-      .target_words,
+    rewriteTarget(
+      { before: 'word '.repeat(MAX_WORDS - 10), selected: 'one two three', after: ' end' },
+      2.5,
+    ).target_words,
     8,
   );
   const input = { before: '', selected: '彼女は明日ここに来る予定です。', after: '' };
   assert.ok(rewriteTarget(input, 0.5).target_characters < input.selected.length);
   for (const ratio of [NaN, Infinity, 0, -1, 3]) assert.throws(() => rewriteTarget(context, ratio));
-  assert.throws(() => rewriteTarget({ ...context, selected: 'word '.repeat(501) }, 2));
+  assert.throws(() => rewriteTarget({ ...context, selected: 'word '.repeat(MAX_WORDS + 1) }, 2));
 });
 test('rewrite validation preserves boundary whitespace and rejects empty or over-limit output', () => {
   const input = { before: 'before', selected: '\n old text  ', after: 'after' };
@@ -97,8 +100,8 @@ test('rewrite validation preserves boundary whitespace and rejects empty or over
   assert.equal(rewriteText('New', input), '\n New  ');
   assert.equal(rewriteText('', input), '');
   assert.equal(rewriteText('```text\nno```', input), '');
-  assert.equal(rewriteText('word '.repeat(501), input), '');
-  assert.equal(rewriteText('x'.repeat(12001), input), '');
+  assert.equal(rewriteText('word '.repeat(MAX_WORDS + 1), input), '');
+  assert.equal(rewriteText('x'.repeat(MAX_CHARS + 1), input), '');
   assert.equal(
     rewriteText('<script>literal text</script>', input),
     '\n <script>literal text</script>  ',
@@ -214,7 +217,7 @@ test('revisiting a completed length reuses its result without another LLM call',
   s.live.close();
 });
 test('failed or over-limit responses never commit partial previews', async () => {
-  for (const result of ['', 'word '.repeat(501), new Error('Connection closed')]) {
+  for (const result of ['', 'word '.repeat(MAX_WORDS + 1), new Error('Connection closed')]) {
     const s = session();
     s.live.setRatio(2);
     await tick();
@@ -414,6 +417,14 @@ test('rephrase requests keep length only for more than two words', () => {
   assert.equal(fitted.direction, undefined);
   assert.match(long.response.instructions, /max_characters/);
   assert.equal(rephraseFitsLength('two words'), false);
+  // Every rewrite and rephrase prompt keeps the author's citations and quotations.
+  for (const event of [short, long, rewriteEvent('id', context, 0.5)]) {
+    assert.ok(event.response.instructions.includes(CITATION_RULE));
+    assert.match(
+      event.response.instructions,
+      /Keep every citation and quotation in selected, unchanged and in the same order/,
+    );
+  }
   assert.equal(rephraseFitsLength('now three words'), true);
 });
 function rephrasing(input, avoid = []) {
@@ -482,4 +493,58 @@ test('a sentence rephrase is revised until it matches the original length', asyn
   run.requests[1].resolve(`Join me Saturday.\n${VERSION_SEPARATOR}\n${fit}`);
   await tick();
   assert.deepEqual(run.results, [fit + ' ']);
+});
+test('versions the guard rejects are never used, and its message explains an empty result', async () => {
+  const guarded = (guard, rephrase = null, input = context) => {
+    const requests = [];
+    const results = [];
+    const errors = [];
+    const diagnosed = [];
+    const live = new LiveRewrite({
+      context: input,
+      delay: 0,
+      rephrase,
+      guard,
+      cancel: () => {},
+      diagnose: (event, data) => diagnosed.push([event, data]),
+      request: (_, ratio, progress, revision) =>
+        new Promise(resolve => requests.push({ ratio, revision, resolve })),
+      onPreview: () => {},
+      onReady: text => results.push(text),
+      onError: error => errors.push(error),
+    });
+    return { live, requests, results, errors, diagnosed };
+  };
+  const reject = () => ({
+    reason: 'citation-changed',
+    message: 'The rewrite changed a citation, so it was not used.',
+  });
+  const all = guarded(reject);
+  all.live.setRatio(0.5);
+  await tick();
+  all.live.release();
+  all.requests[0].resolve(SHORT);
+  await tick();
+  assert.deepEqual(all.results, []);
+  assert.equal(all.errors[0].message, 'The rewrite changed a citation, so it was not used.');
+  assert.equal(all.live.rejected.reason, 'citation-changed');
+  assert.deepEqual(all.diagnosed[0], ['rewrite-guard', { reason: 'citation-changed' }]);
+  // A guarded rephrase is not asked for again: claude.ai would replay the same answer.
+  const word = { before: 'a small ', selected: 'party', after: ' on a plate.' };
+  const once = guarded(reject, { avoid: [] }, word);
+  once.live.release();
+  once.requests[0].resolve('celebration');
+  await tick();
+  assert.equal(once.requests.length, 1);
+  assert.match(once.errors[0].message, /changed a citation/);
+  // Only the rejected version of a revision ladder is dropped.
+  const ladder = guarded(text => (text.includes('ticket') ? { reason: 'x', message: 'no' } : null));
+  ladder.live.setRatio(0.5);
+  await tick();
+  ladder.live.release();
+  ladder.requests[0].resolve('Join me.');
+  await tick();
+  ladder.requests[1].resolve(`I have a spare ticket. Join me.\n${VERSION_SEPARATOR}\n${SHORT}`);
+  await tick();
+  assert.deepEqual(ladder.results, [SHORT + ' ']);
 });

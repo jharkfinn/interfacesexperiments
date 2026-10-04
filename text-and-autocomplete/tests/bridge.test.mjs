@@ -7,7 +7,11 @@ import { join } from 'node:path';
 import { listFiles, createBridgeHandler } from '../scripts/bridge/server.mjs';
 import { buildRequest } from '../scripts/bridge/prompts.mjs';
 import { BridgeCompose } from '../dist/bridge-client.js';
-import { ALTERNATIVES_INSTRUCTIONS, PARAGRAPH_INSTRUCTIONS } from '../dist/compose-core.js';
+import {
+  ALTERNATIVES_INSTRUCTIONS,
+  PARAGRAPH_INSTRUCTIONS,
+  MAX_WORDS,
+} from '../dist/compose-core.js';
 import { COMBINE_INSTRUCTIONS } from '../dist/combine-core.js';
 
 const TOKEN = 'test-token-0123456789abcdefghijklmnop';
@@ -192,7 +196,7 @@ test('a run builds the prompt from the editor modules and streams it as NDJSON',
     for (const body of [
       { op: 'shell', command: 'ls' },
       { op: 'complete', before: 1, after: '' },
-      { op: 'complete', before: 'word '.repeat(501), after: '' },
+      { op: 'complete', before: 'word '.repeat(MAX_WORDS + 1), after: '' },
       { op: 'rewrite', before: '', selected: 'abc', after: '', ratio: 9 },
       { op: 'rewrite', before: '', selected: 'abc', after: '', ratio: 1, rephrase: { avoid: 'x' } },
       { op: 'combine', before: '', target: '', after: '', dragged: 'x' },

@@ -12,8 +12,17 @@ import {
   SUGGESTION_DELAY_MS,
   isSentenceBoundary,
   completionAnchor,
+  inspectCompletion,
+  contextWindow,
+  CONTEXT_BEFORE_WORDS,
+  CONTEXT_AFTER_WORDS,
+  MAX_WORDS,
+  MAX_CHARS,
+  CITATION_RULE,
+  COMPOSE_INSTRUCTIONS,
 } from '../dist/compose-core.js';
 import { RealtimeCompose } from '../dist/realtime.js';
+import { memoBlocks } from './fixtures/memo.mjs';
 import { readSavedKey, saveKey, forgetKey } from '../dist/key-storage.js';
 test('request uses the unchanged context, and sentence intent', () => {
   const before = 'The launch went well. ';
@@ -29,7 +38,7 @@ test('request uses the unchanged context, and sentence intent', () => {
   assert.deepEqual(event.response.output_modalities, ['text']);
   assert.equal(event.response.max_output_tokens, 256);
   assert.equal(SUGGESTION_DELAY_MS, 130);
-  assert.throws(() => responseEvent('bad', { before: 'x '.repeat(501), after: '' }));
+  assert.throws(() => responseEvent('bad', { before: 'x '.repeat(MAX_WORDS + 1), after: '' }));
 });
 test('literal suffix extraction preserves the original text at every caret position', () => {
   const passages = [
@@ -69,7 +78,11 @@ test('anchor mismatches and over-budget outputs are discarded, never repaired', 
     assert.equal(cleanCompletion(raw, before, ''), '', raw);
   }
   assert.equal(
-    cleanCompletion(completionAnchor('word '.repeat(500)) + 'extra', 'word '.repeat(500), ''),
+    cleanCompletion(
+      completionAnchor('word '.repeat(MAX_WORDS)) + 'extra',
+      'word '.repeat(MAX_WORDS),
+      '',
+    ),
     '',
   );
 });
@@ -85,10 +98,12 @@ test('anchor and decoder preserve whitespace, Unicode, and repetitions without g
       'iPhone',
       'écrit',
       '本です。',
-      'say "hello"',
+      'say hello',
     ]) {
       assert.equal(cleanCompletion(completionAnchor(before) + insert, before, ''), insert);
     }
+    // A quotation is the author's evidence, so the continuation stops before it.
+    assert.equal(cleanCompletion(completionAnchor(before) + 'say "hello"', before, ''), 'say');
   }
 });
 test('context anchor is a bounded exact Unicode suffix within the current paragraph', () => {
@@ -123,6 +138,15 @@ test('sentence intent and reuse remain context-bound without grammar heuristics'
     assert.ok(isSentenceBoundary(before));
   }
   for (const before of ['Done,', 'Done. N', 'Done.\n']) assert.ok(!isSentenceBoundary(before));
+  // A legal abbreviation ends in a period without ending the sentence.
+  for (const before of [
+    'This claim is against Lakeside Village LP v. ',
+    'See Lakeside, 455 F.',
+    'The Third Cir. ',
+  ]) {
+    assert.ok(!isSentenceBoundary(before), before);
+  }
+  assert.ok(isSentenceBoundary('Was it Inc.? '));
   assert.equal(
     reuseCompletion({ before: 'A', after: '' }, ' clear goal', { before: 'A cl', after: '' }),
     'ear goal',
@@ -160,22 +184,77 @@ test('sentence intent and reuse remain context-bound without grammar heuristics'
     '',
   );
 });
-test('word and character bounds cover huge single words and 500-word documents', () => {
+test('word and character bounds cover huge single words and documents at the limit', () => {
   assert.equal(wordCount(' hello\nworld  '), 2);
-  assert.ok(withinLimit('word '.repeat(500)));
-  assert.ok(!withinLimit('word '.repeat(501)));
-  assert.ok(!withinLimit('a'.repeat(12001)));
+  assert.ok(withinLimit('word '.repeat(MAX_WORDS)));
+  assert.ok(!withinLimit('word '.repeat(MAX_WORDS + 1)));
+  assert.ok(!withinLimit('a'.repeat(MAX_CHARS + 1)));
+  // The sample legal memo fits.
+  assert.ok(
+    withinLimit(
+      memoBlocks()
+        .map(block => block.text)
+        .join('\n'),
+    ),
+  );
 });
 test('paste and acceptance fit the remaining space, including selection replacement', () => {
-  const before = 'word '.repeat(499);
+  const before = 'word '.repeat(MAX_WORDS - 1);
   const fitted = fitInsertion(before, 'one two three', '');
   assert.equal(fitted.trim(), 'one');
   assert.ok(withinLimit(before + fitted));
   assert.equal(fitInsertion('hello ', 'there', ' world'), 'there');
-  assert.equal(fitInsertion('a'.repeat(12000), 'b', ''), '');
+  assert.equal(fitInsertion('a'.repeat(MAX_CHARS), 'b', ''), '');
   // One character of room must not keep half of a surrogate pair.
-  assert.equal(fitInsertion('a'.repeat(11999), '🌲🌲', ''), '');
-  assert.equal(fitInsertion('a'.repeat(11998), '🌲🌲', ''), '🌲');
+  assert.equal(fitInsertion('a'.repeat(MAX_CHARS - 1), '🌲🌲', ''), '');
+  assert.equal(fitInsertion('a'.repeat(MAX_CHARS - 2), '🌲🌲', ''), '🌲');
+});
+test('autocomplete stops before a citation, signal, or quotation it would begin', () => {
+  const before = 'The stay was short. Courts apply the test.';
+  const anchor = completionAnchor(before);
+  assert.deepEqual(inspectCompletion(anchor + ' See Lakeside, 455 F.3d at 158.', before, ''), {
+    text: '',
+    reason: 'citation-cut',
+  });
+  assert.equal(
+    cleanCompletion(anchor + ' It was significant. See id.', before, ''),
+    ' It was significant.',
+  );
+  // A case name is cut off where it begins.
+  assert.equal(
+    cleanCompletion(anchor + ' Smith was cited in Brown v. Board too', before, ''),
+    ' Smith was cited in',
+  );
+});
+test('the context window keeps the paragraphs nearest the caret', () => {
+  const short = { before: 'One.\nTwo three. ', after: ' four\nFive.' };
+  assert.deepEqual(contextWindow(short), short);
+  // 25 paragraphs of 40 words before the caret, 10 of 20 after it.
+  const paragraph = (n, words) =>
+    Array.from({ length: words }, (_, k) => `p${n}w${k}`).join(' ') + '.';
+  const before =
+    Array.from({ length: 25 }, (_, n) => paragraph(n, 40)).join('\n') + '\nThe last para';
+  const after = Array.from({ length: 10 }, (_, n) => paragraph(n, 20)).join('\n');
+  assert.equal(wordCount(before), 1003);
+  const window = contextWindow({ before, after });
+  assert.ok(wordCount(window.before) <= CONTEXT_BEFORE_WORDS);
+  assert.ok(wordCount(window.before) >= 150);
+  assert.ok(before.endsWith(window.before));
+  assert.equal(before[before.length - window.before.length - 1], '\n');
+  assert.equal(completionAnchor(window.before), completionAnchor(before));
+  assert.ok(wordCount(window.after) <= CONTEXT_AFTER_WORDS);
+  assert.ok(after.startsWith(window.after));
+  assert.equal(after[window.after.length], '\n');
+  // The request carries the window, with the anchor from the whole text.
+  const sent = JSON.parse(responseEvent('id', { before, after }).response.input[0].content[0].text);
+  assert.deepEqual(sent, {
+    ...window,
+    anchor: completionAnchor(before),
+    mode: 'continue_sentence',
+  });
+  // One paragraph longer than the window is cut at a word.
+  const long = paragraph(0, 1000);
+  assert.equal(wordCount(contextWindow({ before: long, after: '' }).before), CONTEXT_BEFORE_WORDS);
 });
 class FakeSocket {
   static instances = [];
@@ -443,6 +522,12 @@ test('multiple tab autocomplete requests and validates one alternative per line'
   const before = 'The cat sat';
   const event = responseEvent('request', { before, after: '' }, { alternatives: true });
   assert.equal(event.response.instructions, ALTERNATIVES_INSTRUCTIONS);
+  assert.ok(COMPOSE_INSTRUCTIONS.includes(CITATION_RULE));
+  assert.ok(ALTERNATIVES_INSTRUCTIONS.includes(CITATION_RULE));
+  assert.match(
+    ALTERNATIVES_INSTRUCTIONS,
+    /If the next words would begin a citation, a signal, or a quotation, return no text\./,
+  );
   assert.equal(event.response.max_output_tokens, 640);
   assert.equal(ALTERNATIVE_COUNT, 3);
   // The last streamed line is unfinished, so its partial word is withheld.
@@ -477,6 +562,7 @@ test('suggested paragraph requests styled alternatives and parses one per line',
   const after = '\nClosing paragraph.';
   const event = responseEvent('request', { before, after }, { paragraphs: true });
   assert.equal(event.response.instructions, PARAGRAPH_INSTRUCTIONS);
+  assert.ok(PARAGRAPH_INSTRUCTIONS.includes(CITATION_RULE));
   assert.equal(event.response.max_output_tokens, 1024);
   const done = inspectParagraphs(
     'Formal: This is one. It has two sentences.\ncasual: Here is another take.\n\nSentimental: A third one, warmly.\nextra: ignored fourth.',
@@ -508,5 +594,14 @@ test('suggested paragraph requests styled alternatives and parses one per line',
   assert.equal(
     inspectParagraphs('just prose without a label', before, after).reason,
     'paragraph-format',
+  );
+  // A draft may not bring numbers, quotations, or citations of its own.
+  assert.equal(
+    inspectParagraphs('formal: The stay lasted 4 years.', before, after).reason,
+    'new-number',
+  );
+  assert.equal(
+    inspectParagraphs('formal: The court said "no".', before, after).reason,
+    'new-quotation',
   );
 });

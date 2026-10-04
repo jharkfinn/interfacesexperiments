@@ -1,4 +1,5 @@
 import { combineText } from './combine-core.js?v=1c8f69eb2a6d';
+import { combineRefusal, guardMessage, guardReplacement } from './citation-guard.js';
 import {
   planMove,
   planSpanMove,
@@ -148,6 +149,13 @@ export class Operations {
     source = this.current(source);
     target = this.current(target);
     if (this.pending || !source || !target) return;
+    // A merge rewords both sentences, so neither may carry the author's evidence.
+    const refusal = combineRefusal(target.text, source.text);
+    if (refusal) {
+      this.client.diagnose?.('legal-guard', { operation: 'combine', reason: 'refused' });
+      this.notify(refusal);
+      return;
+    }
     if (!this.client.ready) {
       this.connect();
       return;
@@ -169,9 +177,24 @@ export class Operations {
     this.links.set('focus', { range: targetRange, origin });
     this.links.set('pending', { source: sourceRange, target: targetRange });
     this.notify('Combining…');
+    // The merged sentence may not add a citation, a quotation or a case name, drop a
+    // short quotation either passage had, or say what a court held. Either passage
+    // may come first in it.
+    const doc = request.before + request.target + request.after;
+    let rejected = null;
+    const guard = text => {
+      const reason =
+        guardReplacement(doc, `${request.target} ${request.dragged}`, text) &&
+        guardReplacement(doc, `${request.dragged} ${request.target}`, text);
+      if (reason) {
+        rejected = reason;
+        this.client.diagnose?.('legal-guard', { operation: 'combine', reason });
+      }
+      return reason;
+    };
     let text;
     try {
-      text = combineText(await this.client.combine(request), request);
+      text = combineText(await this.client.combine(request), request, guard);
     } catch (error) {
       // A cancelled combine has already said so.
       if (this.pending !== pending) return;
@@ -186,7 +209,9 @@ export class Operations {
     if (this.pending !== pending) return;
     this.settle();
     const problem = !text
-      ? 'No combined sentence came back. Try again.'
+      ? rejected
+        ? guardMessage(rejected, 'The combined sentence')
+        : 'No combined sentence came back. Try again.'
       : this.editor.innerHTML !== html
         ? 'The document changed.'
         : '';

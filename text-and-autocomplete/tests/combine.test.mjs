@@ -12,6 +12,7 @@ import {
   removalSpan,
   mergeSpans,
 } from '../dist/combine-core.js';
+import { CITATION_RULE } from '../dist/compose-core.js';
 import { RealtimeCompose } from '../dist/realtime.js';
 
 const TEXT =
@@ -47,6 +48,7 @@ test('combine request carries the receiving sentence, its context and the dragge
   assert.match(COMBINE_INSTRUCTIONS, /best first/);
   assert.match(COMBINE_INSTRUCTIONS, /never exceed max_words/);
   assert.match(COMBINE_INSTRUCTIONS, /drop the explanation of how the image works/);
+  assert.ok(COMBINE_INSTRUCTIONS.endsWith(CITATION_RULE));
 });
 test('the first simple version that carries both passages is kept', () => {
   assert.equal(
@@ -111,6 +113,21 @@ test('the first simple version that carries both passages is kept', () => {
   assert.equal(combineText('', context), '');
   assert.equal(combineText('word '.repeat(40), context), '');
   assert.equal(combineText(null, context), '');
+});
+test('a guard drops the versions it rejects', () => {
+  const short = 'Ten-minute pancakes make dinner fun.';
+  const cited = 'Smith v. Jones makes dinner fun in ten minutes.';
+  const reasons = [];
+  const guard = text => {
+    const reason = /v\./.test(text) ? 'new-case-name' : null;
+    if (reason) reasons.push(reason);
+    return reason;
+  };
+  assert.equal(combineText(`${cited}\n${COMBINE_SEPARATOR}\n${short}`, context, guard), short);
+  assert.equal(combineText(cited, context, guard), '');
+  assert.deepEqual(reasons, ['new-case-name', 'new-case-name']);
+  // Without a guard, nothing changes.
+  assert.equal(combineText(cited, context), cited);
 });
 test('the receiving sentence is found under an offset without its separating spaces', () => {
   assert.deepEqual(sentenceAt(TEXT, 0), span('Pancakes are quick.'));
