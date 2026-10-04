@@ -18,7 +18,7 @@ import { BridgeCompose } from './bridge-client.js?v=ae40474645ea';
 import { RealtimeCompose } from './realtime.js?v=f6a116bc6cb8';
 import { readSavedKey, saveKey, forgetKey } from './key-storage.js?v=d7465de288af';
 import { SelectionRewrite } from './selection-rewrite.js?v=65913731007c';
-import { SentenceView } from './sentence-view.js?v=3efac3de50fc';
+import { SentenceView } from './sentence-view.js?v=26a5e644616e';
 
 const $ = id => document.getElementById(id);
 const editor = $('editor');
@@ -32,9 +32,17 @@ const resize = $('resize');
 const rephrase = $('rephrase');
 const intelligence = $('intelligence');
 const documentPage = $('document-page');
-const viewTabs = [$('tab-document'), $('tab-sentences')];
-// 'document' or 'sentences': which view of the document is showing.
-let view = 'document';
+const layoutButtons = [...document.querySelectorAll('.layout-switch button')];
+// The document shows as written ('document'), as sentences to rearrange
+// ('sentences'), or both side by side ('split'), which needs a wide window. A
+// narrower window shows the Document view in place of the split.
+const LAYOUTS = ['document', 'split', 'sentences'];
+const LAYOUT_KEY = 'text-and-autocomplete.layout';
+const wideWindow = matchMedia('(min-width: 1080px)');
+let layout = 'split';
+// The layout on screen now.
+let shown = 'document';
+document.body.dataset.layout = shown;
 const dialog = $('key-dialog');
 const keyInput = $('api-key');
 let completion = '';
@@ -815,7 +823,9 @@ for (const button of document.querySelectorAll('[data-command]')) {
   button.onclick = () => command(button.dataset.command);
 }
 for (const action of ['undo', 'redo']) {
-  $(action).onclick = () => (view === 'sentences' ? combiner[action]() : command(action));
+  // A whole move or combine from the Sentences view is taken back in one step.
+  $(action).onclick = () =>
+    shown === 'sentences' || combiner.has(action) ? combiner[action]() : command(action);
 }
 $('style').onchange = e => command('formatBlock', e.target.value);
 $('font').onchange = e => command('fontName', e.target.value);
@@ -831,6 +841,7 @@ $('zoom').onchange = e => {
   document.querySelector('.page-stack').style.zoom = e.target.value;
   paintSuggestion();
   rewriter?.paint();
+  combiner?.relayout();
 };
 window.addEventListener('resize', paintSuggestion);
 title.maxLength = 120;
@@ -1276,6 +1287,8 @@ combiner = new SentenceView({
   client,
   contextOf,
   edit: run => {
+    const focused = document.activeElement;
+    const scroll = [scrollX, scrollY];
     withDocument(() => {
       editor.focus({ preventScroll: true });
       run();
@@ -1283,9 +1296,23 @@ combiner = new SentenceView({
       beforeEdit = null;
       updateCount();
     });
+    // Native edits scroll to what they changed. An edit made from the list
+    // keeps the page where it was and lets the list show the result.
+    if (focused !== editor) {
+      scrollTo(...scroll);
+      if (focused?.isConnected) focused.focus({ preventScroll: true });
+    }
     disarm('sentence-edit');
   },
-  onJump: () => showView('document'),
+  interrupt: () => {
+    rewriter.cancel();
+    rewriter.hideControls();
+  },
+  onJump: () => {
+    if (shown === 'sentences') setLayout(wideWindow.matches ? 'split' : 'document');
+    else showInDocument(combiner.chosenRange());
+  },
+  flash: range => rewriter.flash(range),
   notify: showNotice,
   connect: openSettings,
   locale: document.documentElement.lang,
@@ -1293,7 +1320,6 @@ combiner = new SentenceView({
 // The caret goes to the end of the sentence the Sentences view had chosen,
 // which flashes, so the reader keeps their place across views.
 function showInDocument(range) {
-  documentPage.hidden = false;
   editor.focus({ preventScroll: true });
   const fallback = savedRange && editor.contains(savedRange.startContainer) ? savedRange : null;
   const caret = (range || fallback)?.cloneRange();
@@ -1316,55 +1342,60 @@ function showInDocument(range) {
   }
   rewriter.flash(range);
 }
-function showView(name, { focusTab = false } = {}) {
-  if (name === view) return;
-  const sentences = name === 'sentences';
-  view = name;
-  trace('view-changed', { view: name });
-  cancelWork();
-  endCycle('view-changed');
-  disarm('view-changed');
-  rewriter.hideControls();
-  document.body.dataset.view = name;
-  for (const tab of viewTabs) {
-    const selected = tab.dataset.view === name;
-    tab.setAttribute('aria-selected', String(selected));
-    tab.tabIndex = selected ? 0 : -1;
+function setLayout(name, { remember = true } = {}) {
+  layout = name;
+  if (remember) {
+    try {
+      localStorage.setItem(LAYOUT_KEY, name);
+    } catch {}
+    try {
+      history.replaceState(null, '', `${location.pathname}${location.search}#${name}`);
+    } catch {}
   }
+  showLayout();
+}
+function showLayout() {
+  const next = layout === 'split' && !wideWindow.matches ? 'document' : layout;
+  for (const button of layoutButtons) {
+    button.hidden = button.dataset.layout === 'split' && !wideWindow.matches;
+    button.setAttribute('aria-pressed', String(button.dataset.layout === next));
+  }
+  if (next === shown) return;
+  const before = shown;
+  shown = next;
+  trace('layout-changed', { layout: next });
+  cancelWork();
+  endCycle('layout-changed');
+  disarm('layout-changed');
+  rewriter.hideControls();
+  document.body.dataset.layout = next;
+  const sentencesShown = next !== 'document';
+  const documentShown = next !== 'sentences';
   // Formatting acts on a selection in the editor, which the Sentences view hides.
   for (const control of document.querySelectorAll(
     '.toolbar .group:not(.history, .zoom-group) :is(button, select)',
   )) {
-    control.disabled = sentences;
+    control.disabled = !documentShown;
   }
-  if (sentences) {
+  // Leaving the Sentences view on its own, the caret goes to its chosen sentence.
+  const chosen = before === 'sentences' && documentShown ? combiner.chosenRange() : null;
+  documentPage.hidden = !documentShown;
+  if (!sentencesShown) combiner.hide();
+  else if (!combiner.active) {
     const at = savedRange && editor.contains(savedRange.startContainer) ? savedRange : null;
-    documentPage.hidden = true;
     combiner.show(at && { node: at.startContainer, offset: at.startOffset }, {
-      focus: !focusTab,
+      focus: !documentShown,
     });
-  } else showInDocument(combiner.hide());
-  if (focusTab) viewTabs.find(tab => tab.dataset.view === name).focus();
-  try {
-    history.replaceState(
-      null,
-      '',
-      location.pathname + location.search + (sentences ? '#sentences' : ''),
-    );
-  } catch {}
+  } else combiner.relayout();
+  if (before === 'sentences' && documentShown) showInDocument(chosen);
+  paintSuggestion();
+  rewriter.paint();
 }
-for (const tab of viewTabs) {
-  tab.onclick = () => showView(tab.dataset.view);
-  tab.addEventListener('keydown', event => {
-    const next = { ArrowLeft: 0, Home: 0, ArrowRight: 1, End: 1 }[event.key];
-    if (next === undefined) return;
-    event.preventDefault();
-    showView(viewTabs[next].dataset.view, { focusTab: true });
-  });
-}
+for (const button of layoutButtons) button.onclick = () => setLayout(button.dataset.layout);
+wideWindow.addEventListener('change', showLayout);
 window.addEventListener('hashchange', () => {
-  if (location.hash === '#sentences') showView('sentences');
-  else if (!location.hash || location.hash === '#document') showView('document');
+  const name = location.hash.slice(1);
+  if (LAYOUTS.includes(name)) setLayout(name, { remember: false });
 });
 // On claude.ai, a republish of this page keeps the document being written.
 function restoreDocument(data) {
@@ -1372,7 +1403,7 @@ function restoreDocument(data) {
   editor.innerHTML = data.html;
   validHTML = editor.innerHTML;
   combiner.forget();
-  if (view === 'sentences') combiner.render();
+  if (combiner.active) combiner.render();
   if (typeof data.title === 'string') {
     title.value = data.title;
     title.dispatchEvent(new Event('input'));
@@ -1393,7 +1424,16 @@ editor.focus();
 window.getSelection().removeAllRanges();
 window.getSelection().addRange(initialRange);
 savedRange = initialRange;
-if (location.hash === '#sentences') showView('sentences');
+// A link can name the layout; otherwise the reader's last choice holds.
+{
+  let name = location.hash.slice(1);
+  if (!LAYOUTS.includes(name)) {
+    try {
+      name = localStorage.getItem(LAYOUT_KEY);
+    } catch {}
+  }
+  setLayout(LAYOUTS.includes(name) ? name : 'split', { remember: false });
+}
 if (planMode) setupBridge();
 gate();
 if (planMode) {
@@ -1446,7 +1486,7 @@ if (document.modelContext?.registerTool) {
             validHTML = editor.innerHTML;
             savedRange = null;
             combiner.forget();
-            if (view === 'sentences') combiner.render();
+            if (combiner.active) combiner.render();
             updateCount();
             return { updated: true, words: wordCount(input.text) };
           },

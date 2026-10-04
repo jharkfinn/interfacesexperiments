@@ -931,13 +931,14 @@ dialog p a {
   box-shadow: 0 6px 20px #0006;
 }
 
-/* Views: the document as written, and its sentences as pieces to rearrange. */
-.view-tabs {
+/* Layouts: the document as written, its sentences as pieces to rearrange, or
+   both side by side. */
+.layout-switch {
   display: flex;
   gap: 4px;
   margin-bottom: 12px;
 }
-.view-tabs button {
+.layout-switch button {
   background: transparent;
   color: #a5aab4;
   font-size: 13px;
@@ -945,16 +946,16 @@ dialog p a {
   border: 1px solid transparent;
   border-radius: 999px;
 }
-.view-tabs button:hover {
+.layout-switch button:hover {
   background: #2a2c31;
   color: #dfe1e5;
 }
-.view-tabs button[aria-selected='true'] {
+.layout-switch button[aria-pressed='true'] {
   background: #303c50;
   border-color: #485971;
   color: #c0d6fa;
 }
-body[data-view='sentences'] .toolbar .group:not(.history, .zoom-group) {
+body[data-layout='sentences'] .toolbar .group:not(.history, .zoom-group) {
   opacity: 0.4;
 }
 .toolbar button:disabled,
@@ -1128,5 +1129,92 @@ body[data-view='sentences'] .toolbar .group:not(.history, .zoom-group) {
   }
   .sv-header {
     flex-direction: column;
+  }
+}
+
+/* Side by side: the document scrolls with the page, and the list stays beside
+   it in its own pane. The workspace must not be a scroll container, or the
+   pane could not stay in view. */
+body[data-layout='split'] .workspace {
+  overflow: visible;
+}
+body[data-layout='split'] .page-stack {
+  width: min(1500px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 20px;
+  align-items: start;
+}
+body[data-layout='split'] .layout-switch {
+  grid-column: 1 / -1;
+}
+body[data-layout='split'] #document-page {
+  grid-column: 1;
+  padding: 56px 52px;
+}
+body[data-layout='split'] .page-bottom {
+  grid-column: 1;
+}
+body[data-layout='split'] .sentence-view {
+  grid-column: 2;
+  grid-row: 2 / span 2;
+  position: sticky;
+  top: 16px;
+  min-height: 0;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 36px 36px;
+}
+body[data-layout='split'] .sv-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-top: 28px;
+  background: #242529;
+}
+
+/* Linked highlighting: what one view points at, the other marks. */
+.sv-sentence.sv-hover {
+  background: #2f3237;
+  border-color: #a8c7fa99;
+}
+.doc-mark {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.doc-mark span {
+  position: absolute;
+  border-radius: 3px;
+}
+.doc-mark-hover span {
+  background: #5474a833;
+}
+.doc-mark-current span {
+  background: #5474a855;
+  box-shadow: 0 1px 0 #a8c7fa;
+}
+.doc-mark-source span {
+  background: #8e939e1f;
+  outline: 1px dashed #8e939e;
+  outline-offset: -1px;
+}
+.doc-mark-target span {
+  background: #6cb6ff38;
+  box-shadow: 0 1px 0 #a8c7fa;
+}
+.doc-mark-insert span {
+  background: #a8c7fa;
+  border-radius: 1px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .doc-mark-pending span {
+    animation: doc-mark-pending 1.2s ease-in-out infinite;
+  }
+}
+@keyframes doc-mark-pending {
+  50% {
+    background: #6cb6ff12;
   }
 }

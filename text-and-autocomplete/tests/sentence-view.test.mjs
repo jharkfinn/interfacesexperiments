@@ -1,6 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sentencesIn, sentenceIndex, staysPut, joiner, plainHTML } from '../dist/sentence-view.js';
+import {
+  sentencesIn,
+  sentenceIndex,
+  staysPut,
+  joiner,
+  plainHTML,
+  samePosition,
+  scrollToShow,
+} from '../dist/sentence-view.js';
 
 const TEXT = 'Pancakes are quick.  They take ten minutes! Does anyone complain?';
 
@@ -57,4 +65,20 @@ test('the edit check ignores empty style attributes, and only in tags', () => {
   assert.equal(plainHTML('<p style="">A.</p><h1 style="">T</h1>'), '<p>A.</p><h1>T</h1>');
   assert.equal(plainHTML('<p style="color: red">A.</p>'), '<p style="color: red">A.</p>');
   assert.equal(plainHTML('<p>Type style="" here.</p>'), '<p>Type style="" here.</p>');
+});
+
+test('positions match by block and index, and two missing positions match', () => {
+  assert.ok(samePosition({ block: 1, index: 2 }, { block: 1, index: 2 }));
+  assert.ok(!samePosition({ block: 1, index: 2 }, { block: 2, index: 2 }));
+  assert.ok(!samePosition({ block: 0, index: 0 }, null));
+  assert.ok(samePosition(null, null));
+});
+
+test('a span is scrolled into the room only as far as it needs', () => {
+  // Room from 100 to 500 with a 10 pixel margin.
+  assert.equal(scrollToShow(200, 240, 100, 500, 10), 0);
+  assert.equal(scrollToShow(60, 100, 100, 500, 10), -50);
+  assert.equal(scrollToShow(480, 520, 100, 500, 10), 30);
+  // Taller than the room: its top goes to the start.
+  assert.equal(scrollToShow(300, 900, 100, 500, 10), 190);
 });

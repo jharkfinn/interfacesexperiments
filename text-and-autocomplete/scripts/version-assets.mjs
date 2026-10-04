@@ -9,7 +9,8 @@ const hash = file =>
     .slice(0, 12);
 for (const [file, dependencies] of [
   ['combine-core.js', ['compose-core.js']],
-  ['sentence-view.js', ['combine-core.js']],
+  ['document-marks.js', ['rewrite-preview.js']],
+  ['sentence-view.js', ['combine-core.js', 'document-marks.js']],
   ['rewrite-core.js', ['compose-core.js']],
   ['selection-rewrite.js', ['rewrite-core.js', 'rewrite-preview.js']],
   ['realtime.js', ['compose-core.js', 'rewrite-core.js', 'combine-core.js']],

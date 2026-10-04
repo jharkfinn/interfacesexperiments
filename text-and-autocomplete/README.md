@@ -4,7 +4,16 @@ A document editor prototype from [Interfaces that think](https://tareqistyping.c
 
 ## What you can do
 
-The document has two views, chosen with the tabs above the page: **Document**, where you write, and **Sentences**, where you rearrange. Both show the same text, and a change in one shows in the other. Switching views keeps your place: the sentence at the caret is chosen in Sentences, and the sentence chosen there gets the caret when you go back. Open the page at `#sentences` to start in the Sentences view.
+The document has two views: **Document**, where you write, and **Sentences**, where you rearrange. The switch above the page shows either one, or both **Side by side**, which is the default in a window at least 1080 pixels wide. Both views show the same text, and a change in one shows in the other at once, as you type. The page remembers your choice in this browser, and a link can name a layout with `#document`, `#split`, or `#sentences`.
+
+Side by side, the views are linked:
+
+- The sentence under the pointer in either view is marked in the other.
+- The sentence at the caret is chosen in the Sentences view. A sentence you choose there is marked in the document, which scrolls to it.
+- The Sentences view stays beside the document and scrolls with it, so the paragraph at the top of the window is at the top of the list.
+- While you drag, the document marks the sentence you are moving, the sentence it will combine with, or the place it will move to.
+
+Switching to the Sentences view alone keeps your place the same way: the sentence at the caret is chosen there, and the sentence chosen there gets the caret when you go back.
 
 Each feature in the Document view can be turned on or off from the **Intelligence** menu.
 
@@ -17,10 +26,10 @@ In the **Sentences** view, each sentence is a piece you can drag with a mouse, a
 
 - **Move.** Drop a sentence between two others, or within 14 pixels of a sentence's left or right edge, to move it there. A paragraph or list item that loses its last sentence is removed.
 - **Combine.** Drop a sentence on the middle of another to merge the two into one sentence. Escape cancels a combine that is still running.
-- **Open in the document.** Double-click a sentence, or press Enter, to show it in the Document view.
+- **Edit in the document.** Double-click a sentence, or press Enter, to put the caret at its end in the Document view.
 - **Keyboard.** Arrow keys choose a sentence. Alt and an arrow key move it one place. Alt, Shift, and an arrow key combine it with the sentence beside it.
 
-AI edits and Sentences edits go through the browser's undo, so Undo restores the original, in either view. In the Sentences view, one Undo takes back a whole move or combine. In the Document view, Undo goes one step at a time, and a change that spans two paragraphs is two or three steps. Documents are limited to 500 words and are not saved between visits.
+AI edits and Sentences edits go through the browser's undo, so Undo restores the original, in either view. One Undo takes back a whole move or combine, from the toolbar, the Sentences view, or the keyboard in the document, until you make another change. After that, Undo goes one step at a time, and a move that spanned two paragraphs is two or three steps. Documents are limited to 500 words and are not saved between visits.
 
 ## How it works
 
@@ -37,7 +46,8 @@ Language models can't count characters reliably, so when resizing, the app measu
 | `rewrite-core.js` | Resize and rephrase prompts, and the length-measuring loop |
 | `combine-core.js` | Combine prompt and sentence handling |
 | `selection-rewrite.js`, `rewrite-preview.js` | Resize handle and in-place previews |
-| `sentence-view.js` | Sentences view: moving and combining sentences |
+| `sentence-view.js` | Sentences view: moving and combining sentences, and its links to the document |
+| `document-marks.js` | Highlights over the document for the Sentences view |
 | `realtime.js` | WebSocket connection to OpenAI |
 | `bridge-client.js` | Connection to the local bridge, for plan mode |
 | `sample-client.js` | Connection to Claude when the editor is a claude.ai page |

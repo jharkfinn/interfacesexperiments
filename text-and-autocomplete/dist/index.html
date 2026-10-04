@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Pancakes for Dinner — Text and Autocomplete</title>
     <meta name="description" content="A quiet document editor with inline writing suggestions.">
-    <link rel="stylesheet" href="style.css?v=697545a04386">
+    <link rel="stylesheet" href="style.css?v=9a6844e045db">
   </head>
   <body>
     <header class="app-header">
@@ -75,11 +75,12 @@
 
     <main class="workspace">
       <div class="page-stack">
-        <div class="view-tabs" role="tablist" aria-label="Views of the document">
-          <button id="tab-document" role="tab" aria-selected="true" aria-controls="document-page" data-view="document">Document</button>
-          <button id="tab-sentences" role="tab" aria-selected="false" aria-controls="sentence-view" data-view="sentences" tabindex="-1">Sentences</button>
+        <div class="layout-switch" role="group" aria-label="Layout">
+          <button type="button" data-layout="document" aria-pressed="true">Document</button>
+          <button type="button" data-layout="split" aria-pressed="false">Side by side</button>
+          <button type="button" data-layout="sentences" aria-pressed="false">Sentences</button>
         </div>
-        <article id="document-page" class="page" role="tabpanel" aria-labelledby="tab-document">
+        <article id="document-page" class="page" aria-label="Document">
           <div class="editor-surface">
             <!-- The document itself: whitespace here is document text, so keep it on one line. -->
             <div id="editor" class="document-body" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Document body" spellcheck="true"><h1>Pancakes for Dinner</h1><p>Pancakes are too good to stay stuck at breakfast. They take ten minutes, use things you already have in the kitchen, and nobody at the table ever complains. You can go sweet with syrup and berries, or savory with cheese, bacon, and a fried egg on top. After a long day, a warm stack feels like a small party on a plate. Dinner should be easy and fun, and pancakes are both.</p></div>
@@ -87,9 +88,9 @@
           <span id="suggestion" aria-hidden="true" hidden></span>
           <div id="style-tabs" aria-hidden="true" hidden></div>
         </article>
-        <section id="sentence-view" class="page sentence-view" role="tabpanel" aria-labelledby="tab-sentences" hidden>
+        <section id="sentence-view" class="page sentence-view" aria-label="Sentences" hidden>
           <div class="sv-header">
-            <p class="sv-hint">Drag a sentence onto another to combine them, or between two to move it. Double-click a sentence to open it in the document.</p>
+            <p class="sv-hint">Drag a sentence onto another to combine them, or between two to move it. Double-click a sentence to edit it in the document.</p>
             <div class="sv-actions">
               <button class="sv-undo" type="button">Undo</button>
               <button class="sv-redo" type="button">Redo</button>
@@ -155,6 +156,6 @@
       </section>
     </dialog>
 
-    <script type="module" src="app.js?v=f3febd5fb7ed"></script>
+    <script type="module" src="app.js?v=0b2c93b52408"></script>
   </body>
 </html>
