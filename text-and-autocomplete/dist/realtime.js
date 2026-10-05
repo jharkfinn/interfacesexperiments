@@ -3,11 +3,11 @@ import {
   responseEvent,
   COMPOSE_INSTRUCTIONS,
   MAX_OUTPUT_TOKENS,
-} from './compose-core.js?v=576be38817a3';
-import { rewriteEvent } from './rewrite-core.js?v=3b9f63316aa6';
-import { combineEvent } from './combine-core.js?v=1c8f69eb2a6d';
-import { segmentEvent, levelsEvent } from './segment-core.js?v=bc5c5daaadea';
-import { legalEvent } from './legal-core.js';
+} from './compose-core.js?v=83c29be8e550';
+import { rewriteEvent } from './rewrite-core.js?v=b62b5166d5ee';
+import { combineEvent } from './combine-core.js?v=412285b0ee1b';
+import { segmentEvent, levelsEvent } from './segment-core.js?v=fb0d1bf505bc';
+import { legalEvent } from './legal-core.js?v=be1784b5bce5';
 
 // The Realtime API refuses a response asked to be longer than this. Requests
 // built for the bridge and claude.ai may ask for more, so they are capped here.

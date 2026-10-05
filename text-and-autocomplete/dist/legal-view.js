@@ -1,4 +1,4 @@
-import { ROLE_NAMES, KIND_NAMES } from './legal-core.js';
+import { ROLE_NAMES, KIND_NAMES } from './legal-core.js?v=be1784b5bce5';
 
 // What the IRAC and Sourcing views draw from the legal reading of the document
 // (legal-analysis.js). Every text shown here comes from the document itself or

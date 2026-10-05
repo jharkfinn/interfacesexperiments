@@ -6,7 +6,7 @@
 // made anywhere else in the document, so a link stays on its text while the
 // pieces around it are numbered again.
 
-import { legalSentences } from './legal-text.js';
+import { legalSentences } from './legal-text.js?v=d320b2da73d2';
 
 const BLOCK = /^(P|DIV|H[1-6]|LI|BLOCKQUOTE)$/;
 const LIST = /^(UL|OL)$/;

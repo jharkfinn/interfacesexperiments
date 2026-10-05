@@ -1,5 +1,5 @@
-import { numbered, readObject, DOCUMENT_SHAPE, DATA_ONLY } from './segment-core.js';
-import { textResponse } from './compose-core.js';
+import { numbered, readObject, DOCUMENT_SHAPE, DATA_ONLY } from './segment-core.js?v=fb0d1bf505bc';
+import { textResponse } from './compose-core.js?v=83c29be8e550';
 
 // Claude labels each sentence of a legal document with the job it does in the
 // analysis (its role) and what it asserts (its kind). Claude returns only

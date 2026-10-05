@@ -1,11 +1,11 @@
-import { cutAtCitation, guardDraft, guardInsertion } from './citation-guard.js';
+import { cutAtCitation, guardDraft, guardInsertion } from './citation-guard.js?v=5d0ebcbd173f';
 import {
   ALWAYS_JOIN,
   ENTITY_SUFFIXES,
   PREFIX_UNLESS_AFTER_NAME,
   isAbbreviation,
   isReporter,
-} from './legal-text.js';
+} from './legal-text.js?v=d320b2da73d2';
 
 export const MODEL = 'gpt-realtime-2.1-mini';
 // Room for a full legal memo, which runs to about 1,250 words.

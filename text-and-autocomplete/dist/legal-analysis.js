@@ -7,8 +7,8 @@ import {
   shortName,
   isCitationSentence,
   distinctiveName,
-} from './legal-text.js';
-import { ROLES, KINDS, ALLOWED, STRUCTURE_CHECKS } from './legal-core.js';
+} from './legal-text.js?v=d320b2da73d2';
+import { ROLES, KINDS, ALLOWED, STRUCTURE_CHECKS } from './legal-core.js?v=be1784b5bce5';
 
 // What the app works out for itself about a legal document, from its text and
 // Claude's labels: the sections its headings make, runs of sentences that do one
@@ -125,7 +125,7 @@ import { ROLES, KINDS, ALLOWED, STRUCTURE_CHECKS } from './legal-core.js';
 //   attentionCount,
 // }
 
-export { ROLE_NAMES, KIND_NAMES, STRUCTURE_CHECKS } from './legal-core.js';
+export { ROLE_NAMES, KIND_NAMES, STRUCTURE_CHECKS } from './legal-core.js?v=be1784b5bce5';
 
 const words = text => (text.match(/\S+/gu) || []).length;
 const squeeze = text => text.replace(/\s+/g, '').replace(/’/g, "'");

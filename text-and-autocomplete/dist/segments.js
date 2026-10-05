@@ -1,5 +1,5 @@
-import { parseSegments, parseLevels, remapLevels } from './segment-core.js?v=bc5c5daaadea';
-import { parseLegal, remapLegal } from './legal-core.js';
+import { parseSegments, parseLevels, remapLevels } from './segment-core.js?v=fb0d1bf505bc';
+import { parseLegal, remapLegal } from './legal-core.js?v=be1784b5bce5';
 
 // Claude's divisions of the document. A topic is what one division answers:
 // the purpose of a view ("purpose:" and its words), the tree of goals that

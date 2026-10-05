@@ -1,12 +1,12 @@
-import { combineText } from './combine-core.js?v=1c8f69eb2a6d';
-import { combineRefusal, guardMessage, guardReplacement } from './citation-guard.js';
+import { combineText } from './combine-core.js?v=412285b0ee1b';
+import { combineRefusal, guardMessage, guardReplacement } from './citation-guard.js?v=5d0ebcbd173f';
 import {
   planMove,
   planSpanMove,
   planBlockMove,
   planCombine,
   planRemove,
-} from './doc-edits.js?v=94306e1b61a6';
+} from './doc-edits.js?v=24a55d3f7fd1';
 
 // The operations a view's gestures can name. Each one changes the document
 // through DocumentEdits, then chooses and flashes the text it changed, so every

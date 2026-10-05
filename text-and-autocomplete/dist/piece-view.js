@@ -1,7 +1,7 @@
-import { overlaps } from './doc-model.js?v=014942255fc1';
-import { topicFor, usesClaude } from './segments.js?v=b2f577a60210';
-import { checksPanel, sectionName, roleChip, sourceChip, authoritiesPanel } from './legal-view.js';
-import { STRUCTURE_CHECKS } from './legal-core.js';
+import { overlaps } from './doc-model.js?v=7e31ea16557e';
+import { topicFor, usesClaude } from './segments.js?v=e0ae9f874bb3';
+import { checksPanel, sectionName, roleChip, sourceChip, authoritiesPanel } from './legal-view.js?v=c82803dc3672';
+import { STRUCTURE_CHECKS } from './legal-core.js?v=be1784b5bce5';
 
 // A declared view: the document's pieces (sentences, paragraphs, pieces Claude
 // chose for the view's purpose, one level of Claude's tree of the goals the

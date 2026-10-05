@@ -1,5 +1,5 @@
-import { DocumentMarks } from './document-marks.js?v=927a85939e84';
-import { scrollToShow, READING_LINE_PX } from './piece-view.js?v=0c6159076f73';
+import { DocumentMarks } from './document-marks.js?v=7f00142f2ecf';
+import { scrollToShow, READING_LINE_PX } from './piece-view.js?v=2cc930a55f3d';
 
 // The Document view is the editor itself. It is the one view a person types
 // in, so there is only one. It marks what the other views point at, tells them

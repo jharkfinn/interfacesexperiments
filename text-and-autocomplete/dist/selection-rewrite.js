@@ -3,7 +3,7 @@ import {
   LiveRewrite,
   MIN_RATIO,
   MAX_RATIO,
-} from './rewrite-core.js?v=3b9f63316aa6';
+} from './rewrite-core.js?v=b62b5166d5ee';
 import {
   RewritePreview,
   selectionRects,
@@ -11,7 +11,7 @@ import {
   offsetAtPoint,
   surfacePlacement,
 } from './rewrite-preview.js?v=0ef16eccfb75';
-import { guardMessage, guardReplacement, selectionRefusal } from './citation-guard.js';
+import { guardMessage, guardReplacement, selectionRefusal } from './citation-guard.js?v=5d0ebcbd173f';
 
 // Whether a selection takes any words of a block quotation. A <blockquote> is quoted by
 // its formatting, with no quotation marks for the text checks to see.

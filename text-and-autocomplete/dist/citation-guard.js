@@ -13,7 +13,7 @@ import {
   isReporter,
   quoteSpans,
   referenceNames,
-} from './legal-text.js';
+} from './legal-text.js?v=d320b2da73d2';
 
 // Contenteditable keeps typed spaces as nonbreaking ones; compare them as plain spaces.
 // Each replaced character is one character, so offsets stay the same.

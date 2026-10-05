@@ -1,5 +1,5 @@
-import { STRUCTURE_CHECKS } from './legal-core.js';
-import { MAX_PURPOSE_CHARS, MAX_LEVELS } from './segment-core.js?v=bc5c5daaadea';
+import { STRUCTURE_CHECKS } from './legal-core.js?v=be1784b5bce5';
+import { MAX_PURPOSE_CHARS, MAX_LEVELS } from './segment-core.js?v=fb0d1bf505bc';
 
 // A view is declared as data. The Document view is the editor itself; every
 // other view shows pieces of the document and says what gestures do to them.
