@@ -1,7 +1,8 @@
 import { overlaps } from './doc-model.js?v=7e31ea16557e';
 import { topicFor, usesClaude } from './segments.js?v=e0ae9f874bb3';
-import { checksPanel, sectionName, roleChip, sourceChip, authoritiesPanel } from './legal-view.js?v=c82803dc3672';
+import { checksPanel, sectionName, roleChip, sourceChip, authoritiesPanel } from './legal-view.js?v=6a1393d0b66a';
 import { STRUCTURE_CHECKS } from './legal-core.js?v=be1784b5bce5';
+import { planChecks } from './cite-check.js?v=651dd200c7d8';
 
 // A declared view: the document's pieces (sentences, paragraphs, pieces Claude
 // chose for the view's purpose, one level of Claude's tree of the goals the
@@ -64,7 +65,7 @@ export function hintFor(spec) {
     );
   } else if (spec.show === 'sources') {
     parts.push(
-      'The app finds citations and quotations itself; Claude only says what each sentence asserts. Nothing here checks that a case exists, that a quotation is exact, or that a source supports the sentence.',
+      'The app finds citations and quotations itself; Claude only says what each sentence asserts. With a Midpage connector, Check looks up each case and statute and compares its quotations word for word. Nothing here checks that a source supports the sentence.',
     );
   } else if (spec.unit === 'claude') {
     parts.push(`Claude divides the document for this view: “${spec.purpose}”`);
@@ -133,8 +134,8 @@ export function destination(pieces, index, source, firstStart, blockCount) {
 }
 
 export class PieceView {
-  constructor({ id, spec, model, ops, links, segments, legal = null }) {
-    Object.assign(this, { id, spec, model, ops, links, segments, legal });
+  constructor({ id, spec, model, ops, links, segments, legal = null, check = null }) {
+    Object.assign(this, { id, spec, model, ops, links, segments, legal, check });
     this.sentences = spec.unit === 'sentence';
     // Pieces Claude chose, for a purpose or as a level of goals, or the legal
     // labels the IRAC and Sourcing views share.
@@ -180,6 +181,15 @@ export class PieceView {
       }),
       links.on((channel, value) => this.linked(channel, value)),
     ];
+    // A table of authorities shows each Midpage check as it runs and ends.
+    if (check && spec.header === 'authorities') {
+      this.cleanup.push(
+        check.on(() => {
+          if (this.drag) this.stale = true;
+          else this.render();
+        }),
+      );
+    }
     if (this.topic) {
       this.cleanup.push(
         segments.watch(this.topic, () => {
@@ -533,6 +543,7 @@ export class PieceView {
         },
         this.attentionOnly,
         this.targets,
+        this.checkFor(reading),
       );
     }
     if (panel) {
@@ -543,6 +554,29 @@ export class PieceView {
       });
       this.header.replaceChildren(panel);
     } else this.header.replaceChildren();
+  }
+  // What the table of authorities needs to check its cases and statutes with
+  // Midpage, or null when this page cannot reach the reader's connectors.
+  checkFor(reading) {
+    const check = this.check;
+    if (!check?.available) return null;
+    if (this.plans?.reading !== reading) {
+      const { blocks } = this.model.read();
+      this.plans = {
+        reading,
+        value: new Map(planChecks(reading, blocks).map(plan => [plan.key, plan])),
+      };
+    }
+    const plans = this.plans.value;
+    return {
+      plans,
+      state: plan => check.state(plan),
+      run: (plan, fresh) => check.check(plan, { fresh }),
+      runAll: () => check.checkAll([...plans.values()]),
+      stop: () => check.stop(),
+      notice: check.notice,
+      running: check.running,
+    };
   }
   // Marks every link on the pieces it touches.
   paintLinks({ focus = false } = {}) {

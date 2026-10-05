@@ -351,7 +351,7 @@ test('a new view gets an id from its name, unlike the ids taken', () => {
   assert.equal(idFor('!!!', []), 'view');
 });
 
-test('the legal views say what they show, and that nothing checks the sources', () => {
+test('the legal views say what they show, and what the checks leave out', () => {
   const builtIn = id => fullSpec(BUILT_IN.find(spec => spec.id === id));
   assert.equal(
     hintFor(builtIn('irac')),
@@ -359,7 +359,7 @@ test('the legal views say what they show, and that nothing checks the sources', 
   );
   assert.equal(
     hintFor(builtIn('sourcing')),
-    'The app finds citations and quotations itself; Claude only says what each sentence asserts. Nothing here checks that a case exists, that a quotation is exact, or that a source supports the sentence. Drag a sentence between two to move it. Double-click a sentence to edit it in the document.',
+    'The app finds citations and quotations itself; Claude only says what each sentence asserts. With a Midpage connector, Check looks up each case and statute and compares its quotations word for word. Nothing here checks that a source supports the sentence. Drag a sentence between two to move it. Double-click a sentence to edit it in the document.',
   );
   assert.match(
     statusText('waiting', false, 'legal'),

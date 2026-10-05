@@ -11,6 +11,7 @@ for (const [file, dependencies] of [
   // Dependencies come before the files that import them, so each hash covers
   // the hashes inside it.
   ['legal-text.js', []],
+  ['cite-check.js', ['legal-text.js']],
   ['citation-guard.js', ['legal-text.js']],
   ['compose-core.js', ['citation-guard.js', 'legal-text.js']],
   ['doc-model.js', ['legal-text.js']],
@@ -25,7 +26,10 @@ for (const [file, dependencies] of [
   ['doc-edits.js', ['doc-model.js', 'combine-core.js']],
   ['operations.js', ['combine-core.js', 'doc-edits.js', 'citation-guard.js']],
   ['document-marks.js', ['rewrite-preview.js']],
-  ['piece-view.js', ['doc-model.js', 'segments.js', 'legal-view.js', 'legal-core.js']],
+  [
+    'piece-view.js',
+    ['doc-model.js', 'segments.js', 'legal-view.js', 'legal-core.js', 'cite-check.js'],
+  ],
   ['document-view.js', ['document-marks.js', 'piece-view.js']],
   ['rewrite-core.js', ['compose-core.js']],
   ['selection-rewrite.js', ['rewrite-core.js', 'rewrite-preview.js', 'citation-guard.js']],
@@ -56,6 +60,7 @@ for (const [file, dependencies] of [
       'view-specs.js',
       'segments.js',
       'legal-index.js',
+      'cite-check.js',
       'citation-guard.js',
       'diagnostics.js',
     ],

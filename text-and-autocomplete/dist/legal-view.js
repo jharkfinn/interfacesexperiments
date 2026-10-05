@@ -230,8 +230,20 @@ const LEVEL_NAMES = {
 };
 
 // Sourcing: the table of authorities, with a box per authority for the reader
-// to tick once they have read it, and the citations nothing resolves.
-export function authoritiesPanel(reading, read, onRead, onAttention, attentionOnly, targets) {
+// to tick once they have read it, and the citations nothing resolves. With
+// `check` (the reader's Midpage connector is reachable), each case and statute
+// can be checked against Midpage, one at a time or all at once:
+// check = {plans: Map of key → plan, state(plan), run(plan, fresh), runAll(),
+// stop(), notice, running: {done, total} or null}, as cite-check.js gives them.
+export function authoritiesPanel(
+  reading,
+  read,
+  onRead,
+  onAttention,
+  attentionOnly,
+  targets,
+  check = null,
+) {
   const panel = el('details', 'src-authorities');
   panel.open = true;
   const authorities = reading.authorities || [];
@@ -240,6 +252,7 @@ export function authoritiesPanel(reading, read, onRead, onAttention, attentionOn
   const summary = el('summary');
   summary.textContent = `Authorities · ${plural(count('cases'), 'case')} · ${plural(count('statutes'), 'statute')} · read ${done} of ${authorities.length}`;
   panel.append(summary);
+  if (check) panel.append(checkBar(check));
   if (authorities.length) {
     const table = el('table', 'src-toa');
     const body = el('tbody');
@@ -251,7 +264,9 @@ export function authoritiesPanel(reading, read, onRead, onAttention, attentionOn
       cell.colSpan = 2;
       heading.append(cell);
       body.append(heading);
-      for (const authority of rows) body.append(authorityRow(authority, read, onRead, targets));
+      for (const authority of rows) {
+        body.append(authorityRow(authority, read, onRead, targets, check));
+      }
     }
     table.append(body);
     panel.append(table);
@@ -279,7 +294,171 @@ export function authoritiesPanel(reading, read, onRead, onAttention, attentionOn
   return panel;
 }
 
-function authorityRow(authority, read, onRead, targets) {
+// Check all, its progress, and what the check sends.
+function checkBar(check) {
+  const bar = el('div', 'src-check-bar');
+  const plans = [...check.plans.values()].filter(plan => plan.how !== 'none');
+  if (check.running) {
+    const stop = el('button', 'src-check-all', 'Stop');
+    stop.type = 'button';
+    stop.onclick = () => check.stop();
+    bar.append(
+      stop,
+      el(
+        'span',
+        'src-check-progress',
+        `Checking with Midpage: ${check.running.done} of ${check.running.total} done`,
+      ),
+    );
+  } else {
+    const open = plans.filter(plan => {
+      const { status, result } = check.state(plan);
+      return status !== 'done' || result.verdict === 'error';
+    });
+    const all = el(
+      'button',
+      'src-check-all',
+      open.length < plans.length && open.length
+        ? 'Check the rest with Midpage'
+        : 'Check all with Midpage',
+    );
+    all.type = 'button';
+    all.disabled = !open.length;
+    all.onclick = () => check.runAll();
+    bar.append(all);
+    const counts = { ok: 0, warn: 0, problem: 0, partial: 0, error: 0 };
+    let checked = 0;
+    for (const plan of plans) {
+      const { status, result } = check.state(plan);
+      if (status !== 'done') continue;
+      checked++;
+      counts[result.verdict] = (counts[result.verdict] || 0) + 1;
+    }
+    if (checked) {
+      const parts = [`${checked} of ${plans.length} checked`];
+      if (counts.problem) parts.push(`${counts.problem} with problems`);
+      if (counts.warn) parts.push(`${counts.warn} to look at`);
+      if (counts.partial + counts.error)
+        parts.push(`${counts.partial + counts.error} not checked fully`);
+      bar.append(el('span', 'src-check-progress', parts.join(' · ')));
+    }
+  }
+  const about = el(
+    'p',
+    'src-check-about',
+    'Sends each citation, and the quotations the document gives it alone, to Midpage through your own connector. It never sends the document’s own sentences, so it does not check that a source supports them.',
+  );
+  bar.append(about);
+  if (check.notice) {
+    const notice = el('p', 'src-check-notice', check.notice);
+    notice.setAttribute('role', 'status');
+    bar.append(notice);
+  }
+  return bar;
+}
+
+const VERDICTS = {
+  ok: 'Found · matches',
+  warn: 'Found · see notes',
+  problem: 'Problem',
+  partial: 'Not checked fully',
+  error: 'Could not check',
+};
+const LINE_NAMES = {
+  ok: 'Matches',
+  warn: 'Note',
+  problem: 'Problem',
+  unknown: 'Not checked',
+  info: 'Info',
+};
+
+// How long ago, in words.
+function ago(time) {
+  const minutes = Math.round((Date.now() - time) / 60000);
+  if (!Number.isFinite(minutes) || minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return `${Math.round(hours / 24)} d ago`;
+}
+
+// One authority's check: its button, verdict and result lines.
+function checkCell(plan, check, targets) {
+  const holder = el('div', 'src-check');
+  if (plan.how === 'none') {
+    holder.append(el('span', 'src-check-none', `Midpage check: ${plan.why}`));
+    return holder;
+  }
+  const { status, result } = check.state(plan);
+  const head = el('div', 'src-check-head');
+  const button = el(
+    'button',
+    'src-check-one',
+    status === 'running' ? 'Checking…' : status === 'idle' ? 'Check' : 'Check again',
+  );
+  button.type = 'button';
+  button.disabled = status === 'running' || Boolean(check.running);
+  button.onclick = event => {
+    event.stopPropagation();
+    check.run(plan, status !== 'idle');
+  };
+  head.append(button);
+  if (result) {
+    const badge = el('span', 'src-verdict', VERDICTS[result.verdict] || VERDICTS.error);
+    badge.dataset.verdict = result.verdict;
+    head.append(badge);
+    const when = el(
+      'span',
+      'src-check-when',
+      status === 'stale'
+        ? 'Checked before the document changed'
+        : `Checked ${ago(result.checkedAt)}`,
+    );
+    head.append(when);
+    const url = result.url;
+    if (url) {
+      const link = el('a', 'src-check-link', 'Open in Midpage');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.onclick = event => event.stopPropagation();
+      head.append(link);
+    }
+  }
+  holder.append(head);
+  if (result) {
+    const list = el('ul', 'src-check-lines');
+    if (status === 'stale') list.classList.add('src-check-stale');
+    for (const item of result.lines) {
+      const row = el('li');
+      row.dataset.state = item.state;
+      row.append(
+        el('span', 'src-line-state', LINE_NAMES[item.state] || LINE_NAMES.info),
+        item.text,
+      );
+      const spans = item.spans || (item.span ? [item.span] : []);
+      if (spans.length && status !== 'stale') row.dataset.target = target(targets, spans);
+      if (item.url) {
+        const link = el('a', 'src-check-link', 'Passage');
+        link.href = item.url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.onclick = event => event.stopPropagation();
+        row.append(' ', link);
+      }
+      if (item.items?.length) {
+        const sub = el('ul');
+        for (const entry of item.items) sub.append(el('li', '', entry.text));
+        row.append(sub);
+      }
+      list.append(row);
+    }
+    holder.append(list);
+  }
+  return holder;
+}
+
+function authorityRow(authority, read, onRead, targets, checker = null) {
   const row = el('tr', 'src-toa-row');
   row.dataset.key = authority.key;
   row.dataset.target = target(
@@ -323,6 +502,8 @@ function authorityRow(authority, read, onRead, targets) {
   meta.append(el('span', 'src-toa-count', plural(authority.count, 'mention')));
   about.append(name, meta);
   for (const warning of authority.warnings || []) about.append(el('span', 'src-warn', warning));
+  const plan = checker?.plans.get(authority.key);
+  if (plan) about.append(checkCell(plan, checker, targets));
   row.append(box, about);
   return row;
 }

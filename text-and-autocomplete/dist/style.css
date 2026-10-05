@@ -1876,6 +1876,132 @@ body:not(:has(.pane .document-view)) .toolbar .group:not(.history, .zoom-group) 
   color: #ffd2cc;
 }
 
+/* Sourcing: checking the authorities with Midpage. */
+.src-check-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 6px 0 8px;
+}
+.src-check-all,
+.src-check-one {
+  border: 1px solid #45474d;
+  border-radius: 6px;
+  background: #2a2c31;
+  color: #d0d3d9;
+  font-size: 12px;
+  padding: 3px 10px;
+}
+.src-check-one {
+  padding: 1px 8px;
+}
+.src-check-all:hover:not(:disabled),
+.src-check-one:hover:not(:disabled) {
+  border-color: #7aa2f7;
+  color: #e2e3e7;
+}
+.src-check-all:disabled,
+.src-check-one:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.src-check-progress,
+.src-check-when {
+  color: #8e939e;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.src-check-about {
+  flex-basis: 100%;
+  margin: 0;
+  color: #8e939e;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.src-check-notice {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--support-incomplete);
+  font-size: 12px;
+}
+.src-check {
+  margin-top: 4px;
+}
+.src-check-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+.src-check-none {
+  color: #8e939e;
+  font-size: 12px;
+}
+.src-verdict {
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #1b1d21;
+  background: var(--support-muted);
+}
+.src-verdict[data-verdict='ok'] {
+  background: var(--support-ok);
+}
+.src-verdict[data-verdict='warn'] {
+  background: var(--support-weak);
+}
+.src-verdict[data-verdict='problem'] {
+  background: var(--support-missing);
+}
+.src-check-link {
+  color: #7aa2f7;
+  font-size: 12px;
+}
+.src-check-lines {
+  margin: 4px 0 2px;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #c9cdd6;
+}
+.src-check-lines > li {
+  padding: 1px 0 1px 8px;
+  border-left: 3px solid var(--support-muted);
+  margin-bottom: 2px;
+  overflow-wrap: anywhere;
+}
+.src-check-lines > li[data-state='ok'] {
+  border-left-color: var(--support-ok);
+}
+.src-check-lines > li[data-state='warn'] {
+  border-left-color: var(--support-weak);
+}
+.src-check-lines > li[data-state='problem'] {
+  border-left-color: var(--support-missing);
+}
+.src-check-lines > li[data-target]:hover {
+  background: #23262b;
+}
+.src-check-lines ul {
+  margin: 2px 0 0;
+  padding-left: 16px;
+  color: #a9aeb8;
+}
+.src-check-stale {
+  opacity: 0.6;
+}
+.src-line-state {
+  margin-right: 6px;
+  color: #8e939e;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 /* Sourcing: one sentence with what it asserts, its support, citations, and flags. */
 .src-piece {
   border-left: 3px solid transparent;

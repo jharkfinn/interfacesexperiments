@@ -22,8 +22,8 @@ import { DocumentModel } from './doc-model.js?v=7e31ea16557e';
 import { DocumentEdits } from './doc-edits.js?v=24a55d3f7fd1';
 import { Links } from './links.js?v=5aca2c6e7864';
 import { Operations } from './operations.js?v=e53f9e9333bd';
-import { DocumentView } from './document-view.js?v=687b5aa06b46';
-import { PieceView } from './piece-view.js?v=2cc930a55f3d';
+import { DocumentView } from './document-view.js?v=7101e38070e5';
+import { PieceView } from './piece-view.js?v=e90d562413a3';
 import { Workspace, restorePanes } from './panes.js?v=d23cd6c84cb1';
 import {
   BUILT_IN,
@@ -36,6 +36,7 @@ import {
   idFor,
 } from './view-specs.js?v=9ea68139b870';
 import { LegalIndex } from './legal-index.js?v=97a2dec467eb';
+import { CiteCheck } from './cite-check.js?v=651dd200c7d8';
 import { citationContext } from './citation-guard.js?v=5d0ebcbd173f';
 import { Segments } from './segments.js?v=e0ae9f874bb3';
 
@@ -1415,13 +1416,28 @@ const legal = new LegalIndex({
     }
   })(),
 });
+// Checks of the cited authorities against Midpage, through the reader's own
+// connector, where this page can reach it (a claude.ai page that declares the
+// `mcp` capability). Results are kept in this browser only.
+const citeCheck = claudePage
+  ? new CiteCheck({
+      load: () => window.claude.use('mcp'),
+      storage: (() => {
+        try {
+          return localStorage;
+        } catch {
+          return null;
+        }
+      })(),
+    })
+  : null;
 const workspace = new Workspace({
   root: $('panes'),
   specs: () => allSpecs().map(fullSpec),
   create: (spec, id) =>
     spec.kind === 'document'
       ? documentView
-      : new PieceView({ id, spec, model, ops, links, segments, legal }),
+      : new PieceView({ id, spec, model, ops, links, segments, legal, check: citeCheck }),
   storageKey: PANES_KEY,
   onChange: panesChanged,
   editable: spec => customViews.some(view => view.id === spec.id),
