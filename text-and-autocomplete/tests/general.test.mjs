@@ -1,6 +1,7 @@
-// Regression tests on seven documents unlike the sample memo (tests/fixtures/general):
-// two copies of a California appellate brief, a federal motion, a retaliation memo, a
-// statutory memo, a client email with a contract excerpt, and a magazine profile. Each
+// Regression tests on eight documents unlike the sample memo (tests/fixtures/general):
+// two copies of a California appellate brief, an Illinois appellate brief, a federal
+// motion, a retaliation memo, a statutory memo, a client email with a contract excerpt,
+// and a magazine profile. Each
 // test states what a careful reviewer expects of the IRAC and Sourcing views and of the
 // citation guard on that document, so the legal views stay general rather than fitted
 // to the memo the editor opens on.
@@ -79,6 +80,7 @@ test('each document splits into the sentences its labels were given for', () => 
   const counts = {
     'state-brief': 67,
     'state-brief-bluebook': 67,
+    'illinois-brief': 75,
     'federal-motion': 66,
     'full-memo': 63,
     statutory: 66,
@@ -128,6 +130,7 @@ test('briefs are read as briefs and everything else as memos', () => {
     [
       ['state-brief', 'brief'],
       ['state-brief-bluebook', 'brief'],
+      ['illinois-brief', 'brief'],
       ['federal-motion', 'brief'],
       ['full-memo', 'memo'],
       ['statutory', 'memo'],
@@ -448,6 +451,230 @@ test('Bluebook brief: the guard keeps parentheticals, parallels and pins', () =>
 });
 
 // ---------------------------------------------------------------------------
+// The Illinois brief
+// ---------------------------------------------------------------------------
+
+test('Illinois brief: Rule 341’s parts, with the argument’s two points under it', () => {
+  const { reading } = read('illinois-brief');
+  assert.deepEqual(sectionList(reading), [
+    'caption Caption',
+    'introduction Introduction',
+    'question Question',
+    'other Other',
+    'other Other',
+    'facts Facts',
+    'standard Standard',
+    'umbrella Umbrella',
+    'sub-issue I < Umbrella',
+    'sub-issue II < Umbrella',
+    'conclusion Conclusion',
+    'other Other',
+  ]);
+  // Jurisdiction, the statute involved and the certificate are parts with no analysis.
+  assert.deepEqual(
+    reading.sections.filter(section => section.part === 'other').map(section => section.label),
+    ['JURISDICTION', 'STATUTE INVOLVED', 'CERTIFICATE OF COMPLIANCE'],
+  );
+  // Each point states its rule, explains or applies it, and concludes.
+  for (const tag of ['I', 'II'])
+    assert.ok(
+      reading.sections.find(section => section.tag === tag).rail.every(step => step.state === 'ok'),
+      tag,
+    );
+  // The one check is a fair one: "Other courts agree" rests on a single Ohio case.
+  assert.deepEqual(checkList(reading), ['generalization I']);
+  assert.match(reading.checks[0].message, /rests on one authority \(Garrison\)\.$/);
+  assert.ok(reading.sections.every(section => section.rank === null));
+  // The client is Raman against Summit Ascent, and "climbing" is a word, not the client.
+  assert.deepEqual(clientNames(read('illinois-brief').blocks), [
+    'Priya Raman',
+    'Summit Ascent Climbing',
+    'Raman',
+    'Summit Ascent',
+  ]);
+});
+
+test('Illinois brief: public-domain cases, history, court and local rules, Restatements', () => {
+  const { reading } = read('illinois-brief');
+  assert.deepEqual(
+    reading.authorities.map(row => [row.group, row.name, row.level, row.count]),
+    [
+      ['cases', 'Doe', 'state-supreme', 3],
+      ['cases', 'Garrison', 'state-appellate', 1],
+      ['cases', 'Harris', 'state-supreme', 2],
+      ['cases', 'Hendricks', 'state-appellate', 5],
+      ['statutes', '735 ILCS 5/2-619', 'statute', 1],
+      ['statutes', '745 ILCS 10/1-210', 'statute', 1],
+      ['statutes', 'Cook Cnty. Cir. Ct. R. 2.1', 'statute', 1],
+      ['statutes', 'Ill. S. Ct. R. 301', 'statute', 1],
+      ['statutes', 'Ill. S. Ct. R. 303', 'statute', 1],
+      ['statutes', 'Ill. S. Ct. R. 341', 'statute', 1],
+      ['other', 'Restatement (Second) of Contracts', 'unknown', 1],
+      ['other', 'Restatement (Second) of Torts', 'unknown', 1],
+    ],
+  );
+  // Titles as written: the public-domain number, the Ohio district, the later history.
+  assert.deepEqual(
+    reading.authorities.filter(row => row.group === 'cases').map(row => [row.key, row.title]),
+    [
+      ['2019 IL 124321', 'Doe v. Lakeview Academy, 2019 IL 124321'],
+      ['2020 Ohio 4567', 'Garrison v. Ridgecrest Climbing Ctr., 2020-Ohio-4567 (10th Dist.)'],
+      ['119 Ill.2d 542', 'Harris v. Walker, 119 Ill. 2d 542 (1988)'],
+      [
+        '2018 ILApp(1st) 171234',
+        'Hendricks v. Lakeshore Fitness Club, Inc., 2018 IL App (1st) 171234, aff’d, 2019 IL 123987',
+      ],
+    ],
+  );
+  // The later decision is part of Hendricks's citation, not a case of its own.
+  assert.ok(!reading.authorities.some(row => row.key.startsWith('2019 IL 123987')));
+  assert.ok(reading.authorities.every(row => row.warnings.length === 0));
+  assert.deepEqual(reading.unresolved, []);
+  // Two rules in one string citation, each with its effective date.
+  assert.deepEqual(chips(sentenceWith(reading, 'This Court has jurisdiction')), [
+    'Ill. S. Ct. R. 301',
+    'Ill. S. Ct. R. 303',
+  ]);
+  // A string citation of a case's short form and a Restatement with its parenthetical
+  // stays with its claim, and the "see also" needs no parenthetical: it has one.
+  const policy = sentenceWith(reading, 'Illinois public policy forbids');
+  assert.deepEqual(chips(policy), ['Doe ¶ 30', 'Restatement (Second) of Contracts § 195(1)']);
+  assert.deepEqual(flagIds(policy), []);
+});
+
+test('Illinois brief: the record supports every fact, in Bluepages and Illinois form', () => {
+  const { reading } = read('illinois-brief');
+  const facts = reading.sections.find(section => section.part === 'facts');
+  for (const sentence of reading.sentences.slice(facts.first, facts.last)) {
+    assert.equal(sentence.support, 'record', sentence.text);
+    assert.equal(sentence.attention, false, sentence.text);
+  }
+  for (const [fragment, expected] of [
+    ['Summit Ascent runs', ['Compl. ¶ 4']],
+    ['When Raman joined', ['Compl. Ex. A, at 1-2']],
+    ['Its release covers', ['Id. → Compl. Ex. A']],
+    ['The device’s cable had frayed', ['Compl. ¶¶ 11–13', 'C. 61']],
+    ['A gym employee testified', ['Ortiz Dep. 31:4-19']],
+    ['Summit Ascent moved to dismiss', ['Def.’s Mot. Dismiss 3–5']],
+    ['Raman responded', ['Pl.’s Resp. to Def.’s Mot. Dismiss 4–9']],
+    ['After a hearing', ['R. 22', 'C. 141']],
+  ])
+    assert.deepEqual(chips(sentenceWith(reading, fragment)), expected, fragment);
+  // Public-domain pins are paragraphs, and an id. keeps the case it repeats.
+  assert.deepEqual(chips(sentenceWith(reading, 'A motion under section 2-619 admits')), [
+    'Doe ¶ 14',
+  ]);
+  assert.deepEqual(chips(sentenceWith(reading, 'This Court reviews')), ['Id. → Doe']);
+  assert.deepEqual(chips(sentenceWith(reading, 'Other courts agree')), ['Garrison ¶ 19']);
+  assert.equal(sentenceWith(reading, 'Other courts agree').support, 'direct');
+  assert.equal(sentenceWith(reading, 'But the release names falls').support, 'inferential');
+});
+
+test('Illinois brief: only the unsourced line of the nature of the case needs attention', () => {
+  const { reading, bare } = read('illinois-brief');
+  // The nature of the case tells the procedural story; one line of it has no record cite.
+  // The question presented quotes the release, and its source comes in the facts.
+  assert.deepEqual(attention(reading), numbersOf(reading, ['Raman appeals from that judgment']));
+  assert.equal(reading.attentionCount, 1);
+  const question = sentenceWith(reading, 'Whether a release of injuries');
+  assert.deepEqual(flagIds(question), ['quote', 'quote-unsourced']);
+  assert.equal(question.attention, false);
+  assert.equal(bare.attentionCount, 0);
+});
+
+test('Illinois brief: the guard keeps public-domain, record and rule citations exact', () => {
+  const key = 'illinois-brief';
+  const refused = (fragment, from, to) => {
+    const original = textOf(key, fragment);
+    assert.ok(original.includes(from), from);
+    return rewrite(key, original, original.replace(from, to));
+  };
+  for (const [fragment, from, to, reason] of [
+    ['This Court reviews', '¶ 15', '¶ 16', 'citation-changed'],
+    ['Whether a release bars a claim', '(1st)', '(2d)', 'new-citation'],
+    ['Whether a release bars a claim', 'aff’d', 'rev’d', 'citation-changed'],
+    ['Whether a release bars a claim', ', aff’d, 2019 IL 123987', '', 'citation-changed'],
+    ['An appellee who does not argue', ' (eff. Oct. 1, 2020)', '', 'citation-changed'],
+    ['An appellee who does not argue', '341(h)(7)', '341(h)(6)', 'citation-changed'],
+    ['After a hearing', 'C. 141', 'C. 142', 'new-citation'],
+    ['Here, the release speaks', 'Ex. A', 'Ex. B', 'new-citation'],
+    ['Illinois public policy', '§ 195(1)', '§ 195(2)', 'new-citation'],
+    ['Illinois public policy', 'intentionally or recklessly', 'negligently', 'citation-changed'],
+    ['The Restatement likewise', 'cmt. d', 'cmt. c', 'new-citation'],
+    ['A motion must also state', '2.1(c)', '2.1(d)', 'citation-changed'],
+    ['A motion must also state', 'Cir. Ct.', 'Super. Ct.', 'new-citation'],
+    ['Other courts agree', '(10th Dist.)', '(8th Dist.)', 'citation-changed'],
+    ['Other courts agree', 'Accord ', 'See ', 'citation-changed'],
+    ['After a hearing', 'R. 22', 'R. 23', 'new-citation'],
+    ['Like the treadmill', 'in Hendricks', 'in Harris', 'citation-changed'],
+    [
+      'In Hendricks, a fitness club',
+      'In Hendricks, a fitness club’s',
+      'As Hendricks held, a fitness club’s',
+      'holding-claim',
+    ],
+  ])
+    assert.equal(refused(fragment, from, to), reason, `${from} → ${to}`);
+  // Prose around the citations is the writer's to change.
+  for (const [fragment, from, to] of [
+    ['Summit Ascent runs', 'runs', 'operates'],
+    [
+      'She broke her pelvis',
+      'She broke her pelvis and her left wrist.',
+      'Her pelvis and left wrist were broken.',
+    ],
+    ['A frayed cable', 'very hazard', 'precise hazard'],
+  ])
+    assert.equal(refused(fragment, from, to), null, `${from} → ${to}`);
+  assert.ok(selection(key, '2019 IL 124321'));
+  assert.ok(selection(key, 'IL App (1st)'));
+  assert.ok(selection(key, 'Cook Cnty. Cir. Ct. R.'));
+  assert.ok(selection(key, 'C. 141'));
+  assert.ok(selection(key, 'aff’d'));
+  assert.equal(selection(key, 'frayed cable that no one inspected'), null);
+});
+
+test('Illinois brief: autocomplete stays quiet inside its citations and adds none', () => {
+  for (const before of [
+    'standard. Doe v. Lakeview Academy, 2019 IL ',
+    'de novo. Hendricks v. Lakeshore Fitness Club, Inc., 2018 IL App (1st) ',
+    'agree. Accord Garrison v. Ridgecrest Climbing Ctr., 2020-Ohio-',
+    'agreement. (Compl. Ex. A, at ',
+    'forfeits it. Ill. S. Ct. R. ',
+    'rests on. Cook Cnty. Cir. Ct. R. ',
+    'protects. Restatement (Second) of Torts § ',
+    'de novo. Hendricks v. Lakeshore Fitness Club, Inc., 2018 IL App (1st) 171234, ¶ 21, aff’d, ',
+    'failed to catch her. (C. 12',
+  ])
+    assert.equal(citationContext(before), 'inside-citation', before);
+  assert.equal(citationContext('The release bars neither'), null);
+  const { doc } = read('illinois-brief');
+  assert.equal(
+    cutAtCitation('The circuit court erred', ' because the release is ambiguous. (C. 141.)', doc),
+    ' because the release is ambiguous.',
+  );
+  assert.equal(cutAtCitation('The release is narrow', '. Ill. S. Ct. R. 341(h)(7).', doc), '.');
+  // A citation the brief already has may be written again; a new one, a new pin or a new
+  // number may not, nor a holding the brief does not state.
+  for (const [insertion, reason] of [
+    [' (C. 141.)', null],
+    [' Hendricks, 2018 IL App (1st) 171234, ¶ 24.', null],
+    [' Ill. S. Ct. R. 341(h)(7) (eff. Oct. 1, 2020).', null],
+    [' The fall was about 30 feet.', null],
+    [' (C. 142.)', 'new-citation'],
+    [' Hendricks, 2018 IL App (1st) 171234, ¶ 25.', 'new-citation'],
+    [' Ill. S. Ct. R. 342 (eff. Oct. 1, 2020).', 'new-citation'],
+    [' Restatement (Second) of Torts § 496C (Am. L. Inst. 1965).', 'new-citation'],
+    [' The fall was about 40 feet.', 'new-number'],
+    [
+      ', and the Illinois Supreme Court held that releases never cover equipment failures.',
+      'holding-claim',
+    ],
+  ])
+    assert.equal(guardInsertion(doc, insertion), reason, insertion);
+});
+
+// ---------------------------------------------------------------------------
 // The federal motion to dismiss
 // ---------------------------------------------------------------------------
 
@@ -682,9 +909,20 @@ test('retaliation memo: short names are the ones lawyers use', () => {
   assert.deepEqual(chips(sentenceWith(reading, 'along lines previously contemplated')), [
     'Breeden 272',
   ]);
+  // "Burlington N. & Santa Fe Ry. Co." goes by "Burlington Northern", as the memo itself
+  // calls it: the short name spells out the direction its name abbreviates.
   assert.deepEqual(
     reading.authorities.filter(authority => authority.group === 'cases').map(a => a.name),
-    ['Burlington', 'Breeden', 'Crawford', 'Galabya', 'Gorzynski', 'Hicks', 'Kwan', 'Nassar'],
+    [
+      'Burlington Northern',
+      'Breeden',
+      'Crawford',
+      'Galabya',
+      'Gorzynski',
+      'Hicks',
+      'Kwan',
+      'Nassar',
+    ],
   );
   // The client is Alvarez against Brightwater, not the statute in the RE line.
   assert.deepEqual(clientNames(blocks), [

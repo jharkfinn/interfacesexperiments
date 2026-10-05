@@ -1,7 +1,10 @@
-// Seven legal and non-legal documents unlike the sample memo, so the tests check that
+// Eight legal and non-legal documents unlike the sample memo, so the tests check that
 // the IRAC and Sourcing views read writing in general and not one memo:
 //   state-brief           a California Court of Appeal brief in California Style Manual form
 //   state-brief-bluebook  the same brief in Bluebook form
+//   illinois-brief        an Illinois Appellate Court brief under Supreme Court Rule 341, with
+//                         public-domain citations, record citations in Bluepages and Illinois
+//                         form, subsequent history, court and local rules, and Restatements
 //   federal-motion        a Southern District of New York motion to dismiss
 //   full-memo             a Title VII retaliation memo with record citations
 //   statutory             an ADA memo citing statutes, regulations, legislative history,
@@ -20,6 +23,7 @@ import { sentencesIn } from '../../../dist/doc-model.js';
 export const DOCUMENTS = [
   'state-brief',
   'state-brief-bluebook',
+  'illinois-brief',
   'federal-motion',
   'full-memo',
   'statutory',

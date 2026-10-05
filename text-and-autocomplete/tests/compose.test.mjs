@@ -249,13 +249,16 @@ test('autocomplete stops before a citation, signal, or quotation it would begin'
     reason: 'waiting-for-word',
   });
   assert.equal(previewCompletion(anchor + ' It applies, see ', before, ''), ' It applies, ');
+  // A number is offered only where the document has it (here, after the caret).
+  const days = ' The stay was 455 days.';
   assert.equal(
-    previewCompletion(anchor + ' It took 455 days to', before, ''),
+    previewCompletion(anchor + ' It took 455 days to', before, days),
     ' It took 455 days ',
   );
   // Ordinary prose that looks a little like a citation is kept.
+  const meeting = ' We meet at 3 PM on 5 May.';
   assert.equal(
-    cleanCompletion(anchor + ' See you at 3 PM on 5 May.', before, ''),
+    cleanCompletion(anchor + ' See you at 3 PM on 5 May.', before, meeting),
     ' See you at 3 PM on 5 May.',
   );
 });
@@ -310,31 +313,38 @@ test('autocomplete stops in other citation forms and leaves prose whole (GD-9, G
     ).text,
     '',
   );
-  // A signal before ordinary words, and a jersey number, are prose.
+  // A signal before ordinary words, and a jersey number, are prose. The number is one the
+  // document has (after the caret); a new one is not offered.
   const before = 'The shop is easy to find.';
+  const after = ' His number is 5.';
   for (const insertion of [
     ' See Halvorsen on Saturdays for the best rye.',
     ' Pruitt wore No. 5 for the River Otters.',
   ]) {
-    assert.equal(cleanCompletion(completionAnchor(before) + insertion, before, ''), insertion);
+    assert.equal(cleanCompletion(completionAnchor(before) + insertion, before, after), insertion);
     for (let end = 0; end <= insertion.length; end++) {
       const preview = previewCompletion(
         completionAnchor(before) + insertion.slice(0, end),
         before,
-        '',
+        after,
       );
       assert.ok(insertion.startsWith(preview), insertion.slice(0, end));
     }
   }
+  assert.equal(
+    inspectCompletion(completionAnchor(before) + ' Pruitt wore No. 5.', before, '').reason,
+    'new-number',
+  );
   // A streamed parenthesis waits until it closes: one a quotation or citation cuts goes
   // whole, so a preview never shows what the finished reply drops.
   const fees = 'Customer shall pay the fees in Order Form No.';
+  const form = '\nOrder Form No. 2023-014 is attached.';
   const reply = ' 2023-014 (collectively, the “Fees”), within thirty days.';
-  assert.equal(cleanCompletion(completionAnchor(fees) + reply, fees, ''), ' 2023-014');
+  assert.equal(cleanCompletion(completionAnchor(fees) + reply, fees, form), ' 2023-014');
   for (let end = 0; end <= reply.length; end++)
     assert.ok(
       ' 2023-014'.startsWith(
-        previewCompletion(completionAnchor(fees) + reply.slice(0, end), fees, ''),
+        previewCompletion(completionAnchor(fees) + reply.slice(0, end), fees, form),
       ),
       reply.slice(0, end),
     );
@@ -754,4 +764,51 @@ test('suggested paragraph requests styled alternatives and parses one per line',
     inspectParagraphs('formal: The court said "no".', before, after).reason,
     'new-quotation',
   );
+});
+test('autocomplete, its alternatives and a suggested paragraph bring no number of their own (2a)', async () => {
+  const { inspectAlternatives, inspectParagraphs } = await import('../dist/compose-core.js');
+  const before = 'The lease ran 24 months, from 2019 to 20';
+  const anchor = completionAnchor(before);
+  // The reply finishes a year: "20" + "24" is 2024, which the document does not have,
+  // though it has 24. One the document has may be finished.
+  assert.deepEqual(inspectCompletion(`${anchor}24.`, before, ''), {
+    text: '',
+    reason: 'new-number',
+  });
+  assert.deepEqual(inspectCompletion(`${anchor}21.`, before, ' It ended in 2021.'), {
+    text: '21.',
+    reason: null,
+  });
+  const sentence = 'The lease ran 24 months.';
+  assert.equal(
+    inspectCompletion(`${sentence} The rent rose by 5%.`, sentence, '').reason,
+    'new-number',
+  );
+  assert.equal(
+    cleanCompletion(`${sentence} It ran 24 months.`, sentence, ''),
+    ' It ran 24 months.',
+  );
+  // While a reply streams, a number the document lacks is not shown either.
+  assert.equal(previewCompletion(`${sentence} The rent was $1,850 a month`, sentence, ''), '');
+  // Alternatives keep the lines that pass.
+  assert.deepEqual(
+    inspectAlternatives(
+      `${sentence} It ran 6 months more.\n${sentence} It ran on.\n${sentence} It ended.`,
+      sentence,
+      '',
+    ).texts,
+    [' It ran on.', ' It ended.'],
+  );
+  // A suggested paragraph may use the document's numbers, and only those.
+  const paragraphs = inspectParagraphs(
+    'formal: The lease ran 24 months from 2019.\ncasual: It ran 36 months.',
+    'The lease ran 24 months from 2019.\n',
+    '',
+  );
+  assert.deepEqual(paragraphs.texts, ['The lease ran 24 months from 2019.']);
+  // Citations in forms no list has are still cut as citations, not refused as numbers.
+  assert.deepEqual(inspectCompletion(`${sentence} Joint Stip. ¶ 4.`, sentence, ''), {
+    text: '',
+    reason: 'citation-cut',
+  });
 });

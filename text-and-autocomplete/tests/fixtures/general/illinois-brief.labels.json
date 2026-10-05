@@ -1,0 +1,200 @@
+{
+  "BRIEF AND ARGUMENT FOR PLAINTIFF-APPELLANT": ["heading", "framing"],
+  "No. 1-23-1456": ["other", "framing"],
+  "IN THE APPELLATE COURT OF ILLINOIS": ["other", "framing"],
+  "FIRST JUDICIAL DISTRICT": ["other", "framing"],
+  "PRIYA RAMAN, Plaintiff-Appellant,": ["other", "framing"],
+  "v.": ["other", "framing"],
+  "SUMMIT ASCENT CLIMBING, LLC, Defendant-Appellee.": ["other", "framing"],
+  "Appeal from the Circuit Court of Cook County, Illinois, Law Division, No. 2022 L 004512, The Honorable Margaret A. Doyle, Judge Presiding": [
+    "other",
+    "framing"
+  ],
+  "NATURE OF THE CASE": ["heading", "framing"],
+  "Priya Raman was badly hurt when an automatic belay device at a climbing gym run by Summit Ascent Climbing, LLC, failed to catch her. (C. 12-14.)": [
+    "facts",
+    "client-fact"
+  ],
+  "She sued for negligence and for willful and wanton conduct. (C. 9-18.)": [
+    "facts",
+    "client-fact"
+  ],
+  "The circuit court dismissed both counts under section 2-619(a)(9) of the Code of Civil Procedure, holding that a release in her membership agreement barred them. (C. 141; R. 22.)": [
+    "facts",
+    "client-fact"
+  ],
+  "Raman appeals from that judgment.": ["facts", "client-fact"],
+  "No question is raised on the pleadings.": ["other", "framing"],
+  "ISSUES PRESENTED FOR REVIEW": ["heading", "framing"],
+  "1. Whether a release of injuries arising from “the inherent risks of climbing” bars a claim that the gym failed to maintain the equipment meant to protect climbers from those risks.": [
+    "issue",
+    "law"
+  ],
+  "2. Whether a release can bar a claim for willful and wanton conduct.": ["issue", "law"],
+  "JURISDICTION": ["heading", "framing"],
+  "The circuit court dismissed the complaint with prejudice on August 9, 2023. (C. 141.)": [
+    "facts",
+    "client-fact"
+  ],
+  "Raman filed her notice of appeal on September 6, 2023. (C. 144.)": ["facts", "client-fact"],
+  "This Court has jurisdiction over an appeal from a final judgment. Ill. S. Ct. R. 301 (eff. Feb. 1, 1994); Ill. S. Ct. R. 303 (eff. July 1, 2017).": [
+    "rule",
+    "law"
+  ],
+  "STATUTE INVOLVED": ["heading", "framing"],
+  "Section 2-619(a)(9) of the Code of Civil Procedure provides:": ["other", "framing"],
+  "“Defendant may, within the time for pleading, file a motion for dismissal of the action * * * [if] the claim asserted against defendant is barred by other affirmative matter avoiding the legal effect of or defeating the claim.” 735 ILCS 5/2-619(a)(9) (West 2022).": [
+    "rule",
+    "law"
+  ],
+  "STATEMENT OF FACTS": ["heading", "framing"],
+  "Summit Ascent runs an indoor climbing gym in Chicago. (Compl. ¶ 4.)": ["facts", "client-fact"],
+  "When Raman joined in January 2021, she signed a two-page membership agreement. (Compl. Ex. A, at 1-2.)": [
+    "facts",
+    "client-fact"
+  ],
+  "Its release covers “any injury arising from the inherent risks of climbing, including falls,” and says nothing about the gym’s equipment or its upkeep. (Id. at 2.)": [
+    "facts",
+    "client-fact"
+  ],
+  "On March 14, 2022, Raman was climbing a wall served by an auto-belay device, which lowers a climber who lets go. (Compl. ¶¶ 9–10.)": [
+    "facts",
+    "client-fact"
+  ],
+  "The device’s cable had frayed, and the gym’s inspection log shows that no one had checked it in eleven weeks, though the maker calls for a check every day. (Compl. ¶¶ 11–13; C. 61.)": [
+    "facts",
+    "client-fact"
+  ],
+  "When Raman let go at the top of the wall, the cable failed, and she fell about 30 feet to the floor. (Compl. ¶ 14.)": [
+    "facts",
+    "client-fact"
+  ],
+  "She broke her pelvis and her left wrist. (Compl. ¶ 15.)": ["facts", "client-fact"],
+  "A gym employee testified that the manager had told staff to skip the daily checks to save time. (Ortiz Dep. 31:4-19.)": [
+    "facts",
+    "client-fact"
+  ],
+  "Summit Ascent moved to dismiss under section 2-619(a)(9), relying on the release. (Def.’s Mot. Dismiss 3–5.)": [
+    "facts",
+    "client-fact"
+  ],
+  "Raman responded that the release did not reach the gym’s failure to maintain its equipment and could not bar Count II. (Pl.’s Resp. to Def.’s Mot. Dismiss 4–9.)": [
+    "facts",
+    "client-fact"
+  ],
+  "After a hearing, the court found the release “broad enough to cover any fall” and dismissed both counts with prejudice. (R. 22; C. 141.)": [
+    "facts",
+    "client-fact"
+  ],
+  "STANDARD OF REVIEW": ["heading", "framing"],
+  "A motion under section 2-619 admits the legal sufficiency of the complaint but raises an affirmative matter that defeats the claim. Doe v. Lakeview Academy, 2019 IL 124321, ¶ 14.": [
+    "rule",
+    "law"
+  ],
+  "This Court reviews a dismissal under section 2-619 de novo. Id. ¶ 15.": ["rule", "law"],
+  "Whether a release bars a claim is a question of contract interpretation, which is also reviewed de novo. Hendricks v. Lakeshore Fitness Club, Inc., 2018 IL App (1st) 171234, ¶ 21, aff’d, 2019 IL 123987.": [
+    "rule",
+    "law"
+  ],
+  "ARGUMENT": ["heading", "framing"],
+  "The release bars neither count.": ["conclusion", "conclusion"],
+  "It does not reach the gym’s failure to maintain its equipment, and no release can bar a claim for willful and wanton conduct.": [
+    "roadmap",
+    "framing"
+  ],
+  "I. The release does not reach Summit Ascent’s failure to maintain its auto-belay device.": [
+    "heading",
+    "conclusion"
+  ],
+  "An exculpatory clause is not favored and is strictly construed against the party it benefits. Harris v. Walker, 119 Ill. 2d 542, 548 (1988).": [
+    "rule",
+    "law"
+  ],
+  "It must spell out the parties’ intent with such clarity that the plaintiff knew the range of dangers she was assuming. Hendricks, 2018 IL App (1st) 171234, ¶ 24.": [
+    "rule",
+    "law"
+  ],
+  "The Restatement likewise reads a release of negligence against the party it protects. Restatement (Second) of Torts § 496B cmt. d (Am. L. Inst. 1965).": [
+    "rule",
+    "law"
+  ],
+  "In Hendricks, a fitness club’s release covered injuries “arising from the use of club facilities,” yet it did not reach a member’s injury from a treadmill the club knew was broken. Hendricks, 2018 IL App (1st) 171234, ¶¶ 26–28.": [
+    "explanation",
+    "precedent"
+  ],
+  "Other courts agree. Accord Garrison v. Ridgecrest Climbing Ctr., 2020-Ohio-4567, ¶ 19 (10th Dist.) (refusing to apply a climbing gym’s release to its failure to maintain belay equipment).": [
+    "explanation",
+    "precedent"
+  ],
+  "Here, the release speaks only of “the inherent risks of climbing, including falls.” (Compl. Ex. A, at 2.)": [
+    "application",
+    "application"
+  ],
+  "A frayed cable that no one inspected for eleven weeks is not an inherent risk of climbing; it is the very hazard the auto-belay device exists to remove.": [
+    "application",
+    "application"
+  ],
+  "Like the treadmill in Hendricks, the device failed because the gym did not maintain it.": [
+    "application",
+    "application"
+  ],
+  "Raman could not have known that she was giving up a claim for the gym’s failure to inspect its own safety equipment.": [
+    "application",
+    "application"
+  ],
+  "Summit Ascent argued below that every fall is a risk of climbing. (Def.’s Mot. Dismiss 4.)": [
+    "counter",
+    "client-fact"
+  ],
+  "But the release names falls as a risk of the sport, not falls caused by the gym’s neglect, and any doubt is resolved against the gym. See Harris, 119 Ill. 2d at 548.": [
+    "counter",
+    "application"
+  ],
+  "The release therefore does not bar Count I.": ["conclusion", "conclusion"],
+  "II. No release can bar a claim for willful and wanton conduct.": ["heading", "conclusion"],
+  "Illinois public policy forbids enforcing an exculpatory clause against a claim of willful and wanton conduct. Doe, 2019 IL 124321, ¶ 30; see also Restatement (Second) of Contracts § 195(1) (Am. L. Inst. 1981) (a term exempting a party from liability for harm caused intentionally or recklessly is unenforceable).": [
+    "rule",
+    "law"
+  ],
+  "Conduct is willful and wanton when it shows an utter indifference to or conscious disregard for the safety of others. 745 ILCS 10/1-210 (West 2022).": [
+    "rule",
+    "law"
+  ],
+  "Here, the complaint alleges that the manager told staff to skip the daily checks to save time, knowing that the cable carried each climber’s full weight. (Compl. ¶¶ 16–18; Ortiz Dep. 31:4-19.)": [
+    "application",
+    "application"
+  ],
+  "If proved, that is a conscious disregard for climbers’ safety.": ["application", "application"],
+  "A motion must also state each ground on which it rests. Cook Cnty. Cir. Ct. R. 2.1(c) (eff. Jan. 1, 2017).": [
+    "rule",
+    "law"
+  ],
+  "Summit Ascent’s motion gave no ground for dismissing Count II apart from the release. (Def.’s Mot. Dismiss 3–5.)": [
+    "application",
+    "client-fact"
+  ],
+  "An appellee who does not argue a point in its brief forfeits it. Ill. S. Ct. R. 341(h)(7) (eff. Oct. 1, 2020).": [
+    "rule",
+    "law"
+  ],
+  "The circuit court therefore erred in dismissing Count II.": ["conclusion", "conclusion"],
+  "CONCLUSION": ["heading", "framing"],
+  "For these reasons, Raman asks this Court to reverse the order dismissing her complaint and to remand for further proceedings.": [
+    "conclusion",
+    "conclusion"
+  ],
+  "Respectfully submitted,": ["other", "framing"],
+  "/s/ Daniel K. Mercer": ["other", "framing"],
+  "Daniel K. Mercer": ["other", "framing"],
+  "Mercer & Liu LLP": ["other", "framing"],
+  "Counsel for Plaintiff-Appellant": ["other", "framing"],
+  "CERTIFICATE OF COMPLIANCE": ["heading", "framing"],
+  "I certify that this brief conforms to the requirements of Rules 341(a) and (b).": [
+    "other",
+    "framing"
+  ],
+  "Its length, excluding the matters that Rule 341(c) leaves out, is 14 pages.": [
+    "other",
+    "framing"
+  ]
+}

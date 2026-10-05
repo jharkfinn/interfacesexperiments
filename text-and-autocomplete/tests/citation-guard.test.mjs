@@ -1462,6 +1462,235 @@ test('an email and a magazine article pass the guards untouched', () => {
   assert.ok(checked > 500);
 });
 
+// A recipe and an office email, with the numbers, abbreviations and acronyms of ordinary
+// prose, for the second round of generality tests.
+const RECIPE = [
+  'Makes 2 loaves. Prep time: approx. 45 min.; bake time 1 hr. 10 min.',
+  'Preheat the oven to 350 F. (175 C.) and grease two 9" x 5" pans. Mix 3 cups rye flour, 2 Tbsp. caraway seeds, 1 tsp. salt and 1 1/2 tsp. yeast. Knead for 8–10 min. on a floured board.',
+  'At 5,000 ft. or higher, cut the yeast by 1/4 tsp. and add 2 Tbsp. more water. Serves 12. See p. 4 of the booklet for the sourdough version.',
+].join('\n');
+const OFFICE = [
+  'Subject: Q3 planning, Room No. 12-3, Thu. Oct. 9 at 10 a.m. EST',
+  'Hi Dr. Ruiz and Ms. Patel, the Q3 numbers are in: revenue rose 4.5% to $1.2M, and the APAC team closed 14 deals (vs. 9 in Q2). Our CEO, Mr. Lee, wants the deck by Fri. Oct. 3, i.e., before the board meets at 9 a.m. PT.',
+  'Please send the FY2025 budget (v. 2.1) and the ISO 9001 audit notes. The U.S. Dept. of Labor visit is set for Nov. 12 at 1200 Market St., Ste. 400. Call me at ext. 4417.',
+  'Our 401(k) vendor moved us to Form 5500-SF, and Title IX training is due by Dec. 1. The Section 8 housing grant (Chapter 11 of the handbook) was approved; jersey No. 23 is retired. I bought 2 GB of storage for the team.',
+].join('\n');
+
+test('an insertion may not write a number the document does not have (2a)', () => {
+  const doc = 'The lease ran 24 months from 2019. Smith v. Jones, 1 F.3d 1, 2 (2d Cir. 1990).';
+  // Autocomplete, a suggested paragraph and a draft bring no number of their own.
+  assert.equal(guardInsertion(doc, ' and ended in 2021.'), 'new-number');
+  assert.equal(guardInsertion(doc, ' The rent was $1,850.'), 'new-number');
+  assert.equal(guardInsertion(doc, ' for 24 months after 2019.'), null);
+  assert.equal(guardDraft(doc, 'The tenant paid rent for 30 months.'), 'new-number');
+  // A citation-shaped span the document does not have is still a new citation.
+  for (const insertion of [
+    ' SAC ¶ 12.',
+    ' Joint Stip. ¶ 4.',
+    ' 735 ILCS 5/2-619.',
+    ' Pl.’s Mot. Summ. J. 5.',
+    ' Sup. Ct. R. 10.',
+  ])
+    assert.equal(guardInsertion(doc, insertion), 'new-citation', insertion);
+  // A number the insertion finishes is read with the digits at the caret: "to 20" + "24"
+  // writes 2024, which the document does not have, though it has 24.
+  const before = 'The lease ran 24 months, from 2019 to 20';
+  assert.equal(guardInsertion(before, '24.', before.length), 'new-number');
+  assert.equal(guardInsertion(before, '24.'), null);
+  assert.equal(guardInsertion(`${before}. It renewed in 2024.`, '24', before.length), null);
+  assert.equal(guardInsertion('Section 4', '.2 applies', 9), 'new-number');
+  // Ordinary prose that copies the document's own numbers passes.
+  for (const text of [RECIPE, OFFICE])
+    for (const sentence of sentencesIn(text.replace(/\n/g, ' '), 'en'))
+      assert.equal(guardInsertion(text, ` ${sentence.text}`), null, sentence.text);
+  assert.equal(
+    guardMessage('new-number', 'The suggestion', true),
+    'The suggestion added a number the document does not have, so it was not used.',
+  );
+  assert.equal(
+    guardMessage('new-number', 'The rewrite'),
+    'The rewrite changed a number or date, so it was not used.',
+  );
+  assert.equal(
+    guardMessage('new-citation', 'The draft', true),
+    'The draft added a citation that is not in the document, so it was not used.',
+  );
+});
+
+test('a rewrite keeps every citation-shaped run and the history after a case (2b)', () => {
+  const refused = [
+    // Runs the parser reads only in part: the second rule of a pair, a later subsection.
+    ['Both rules apply. Fed. R. Civ. P. 12(b)(6) and 9(b).', '9(b)', '9(c)'],
+    ['The rule applies. See Tex. R. Civ. P. 91a.1, 91a.3(c).', '(c)', '(d)'],
+    // History the parser leaves outside the citation, with no later decision cited.
+    [
+      'The rule is settled. Doe v. Roe, 1 F.3d 1, 2 (2d Cir. 1990), vacated as moot.',
+      'vacated',
+      'remanded',
+    ],
+    // The verifier's forms: letters are part of a citation as much as digits are.
+    ['The deadline is thirty days. Fed. R. App. P. 4(a)(1)(A).', '(A)', '(B)'],
+    ['The deadline is thirty days. 12 C.F.R. pt. 1026, supp. I.', 'supp. I', 'supp. II'],
+    ['The claim fails. SAC ¶ 12.', 'SAC', 'FAC'],
+    ['The motion was untimely. Pl.’s Mot. Summ. J. 5.', 'Pl.’s', 'Def.’s'],
+    [
+      'It is settled. Doe v. Roe, 1 F.3d 1, 2 (2d Cir. 1990), aff’d, 500 U.S. 1 (1991).',
+      'aff’d',
+      'rev’d',
+    ],
+    [
+      'It is settled. Doe v. Roe, 1 F.3d 1, 2 (2d Cir. 1990), cert. denied, 500 U.S. 1 (1991).',
+      'cert. denied',
+      'cert. granted',
+    ],
+    ['The facts are agreed. Joint Stip. ¶ 4(a).', '(a)', '(b)'],
+  ];
+  for (const [original, from, to] of refused) {
+    const rewrite = original.replace(from, to);
+    // Changed, or new to the document, which is the original here.
+    assert.match(
+      String(guardReplacement(original, original, rewrite)),
+      /^(?:citation-changed|new-citation)$/,
+      rewrite,
+    );
+    // The prose before it may still change.
+    const prose = original.replace(/^\S+/, 'Here,');
+    assert.equal(guardReplacement(original, original, prose), null, prose);
+  }
+  // A selection takes the whole run or leaves it alone, and a merge leaves it be.
+  const rules = 'Both rules apply. See Fed. R. Evid. 401, 403. The court agreed.';
+  const at = rules.indexOf('403');
+  assert.equal(
+    selectionRefusal(rules.slice(0, at), '403', rules.slice(at + 3), true),
+    'Select the whole citation or quotation, or none of it.',
+  );
+  assert.ok(combineRefusal('Both rules apply. Fed. R. Civ. P. 12(b)(6) and 9(b).', 'Done.'));
+  // The sentence before a record citation is not part of it, nor is the next sentence of a
+  // citation with no space after it.
+  const facts = 'Plaintiff lives in Queens. Compl. ¶ 9. She moved to Bronx. Id. ¶ 10.';
+  for (const sentence of ['Plaintiff lives in Queens.', 'She moved to Bronx.']) {
+    const start = facts.indexOf(sentence);
+    assert.equal(
+      selectionRefusal(facts.slice(0, start), sentence, facts.slice(start + sentence.length), true),
+      null,
+      sentence,
+    );
+  }
+  const family = '"Family" includes a single individual. 42 U.S.C. § 3602(c).';
+  assert.equal(selectionRefusal('', family, 'The key term is “reside.”', false), null);
+  assert.equal(selectionRefusal(...select(S[25].slice(0, 20)), true), null);
+});
+
+test('citationContext is inside a citation partway into any citation-shaped run (2c)', () => {
+  for (const before of [
+    'People v. Doe, 2020 IL ',
+    'State v. Doe, 2021-Ohio-',
+    'The deadline applies. (Cal. Rules of Court, rule ',
+    'The order is binding. Exec. Order No. ',
+    'The aisle was wet. (Ibid',
+    'The aisle was wet. (Id',
+    'The motion was late. (AOB ',
+    'The motion was late. Pl.’s Mot. Summ. J. ',
+    'He said so. Trial Tr. vol. 2, ',
+    'The claim is barred. Mass. Gen. Laws ch. ',
+    'The rule applies. 735 ILCS ',
+    'He admitted it. Resp. to Interrog. No. ',
+    'The rule is settled. Smith v. Jones, 123 F.3d 456, 460 (2d Cir. 2001), aff’d, ',
+    'Smith v. Jones, 123 F.3d 456 (2d Cir. 2001), cert. denied, ',
+    'Smith v. Jones, 123 F.3d 456 (2d Cir. 2001), abrogated on other grounds by ',
+    'Coverage is broad. Pub. L. No. 110-325, § 2(b)(5), 122 ',
+    'See Crawford v. Metro. Gov’t of ',
+    'It was retaliation. Univ. of Tex. Sw. Med. Ctr. ',
+    'See Meridian Produce Co. v. Talbot Freight Sys., Inc., No. 18-cv-7702 (TZW), 2019 ',
+    '…matter of law.” (Code Civ. Proc., § 437c, ',
+  ])
+    assert.equal(citationContext(before), 'inside-citation', before);
+  for (const before of [
+    'It rained during the Yankees v.',
+    'The family lives in Section ',
+    'The company filed for Chapter ',
+    'She wore jersey No. ',
+    'He called it Rule ',
+    'The visit is set with the U.S. Dept. of Labor ',
+    'Appeal from the Superior Court, No. 22CECG01957, Hon. Thomas R. ',
+    'I. THE FRAUDULENT INDUCEMENT CLAIM (COUNT ',
+    'a link can start with `#legal` (IRAC, ',
+    'The code is released under the [MIT ',
+    'The motion is under Fed. R. Civ. P. 12(b)(6) and ',
+    'Under 9 U.S.C. § 1 et seq. Nothing ',
+    'COVID 19 ',
+    'I bought 2 GB ',
+    'We use ISO 9001 ',
+    'In 2020 IL ',
+    'She has visited 48 U.S. ',
+    'The meeting is at 10 a.m. EST ',
+    'Dear Dr. Ruiz and Ms. Patel ',
+    'The judgment was vacated ',
+    'On May 3, 2020, the order was vacated, ',
+    'She moved to Idaho. (Ida',
+    'We stayed in Room No. 12-',
+    'It cost $45 at ',
+    'Please send the FY2025 budget (v. ',
+    'The team closed 14 deals (vs. ',
+    'The S&P 500 closed at 5,200 and NASDAQ: AAPL ',
+    'He spoke about SDG 13 and COP 28 ',
+    'Mix 3 cups rye flour, 2 Tbsp.',
+  ])
+    assert.equal(citationContext(before), null, before);
+  // Every word of the recipe and the office email leaves autocomplete free.
+  for (const text of [RECIPE, OFFICE])
+    for (const paragraph of text.split('\n'))
+      for (const m of paragraph.matchAll(/\S+\s*/g)) {
+        const before = paragraph.slice(0, m.index + m[0].length);
+        // A signal waits for the word after it ("See p. 4").
+        if (/\bSee\s*$/.test(before)) continue;
+        assert.notEqual(citationContext(before), 'inside-citation', before);
+        assert.notEqual(citationContext(before.trimEnd()), 'inside-citation', before);
+      }
+  // A reply that stops partway into such a run is cut before it.
+  assert.equal(cutAtCitation('The motion was untimely', ' as Pl.’s Mot. Summ. J.'), ' as');
+  assert.equal(cutAtCitation('The order binds', ' under Exec. Order No.'), ' under');
+  // History after a case is part of its citation, so autocomplete does not write it.
+  const smith = 'The rule is settled. Smith v. Jones, 123 F.3d 456 (2d Cir. 2001)';
+  for (const reply of [', aff’d,', ', vacated as moot.', ', cert. denied.'])
+    assert.equal(cutAtCitation(smith, reply), '', reply);
+  assert.equal(cutAtCitation(smith, ', which the court followed.'), ', which the court followed.');
+});
+
+test('reference names compare in any case, and a word the document uses is not one (2d)', () => {
+  // "Brown" names a case, but where it starts a sentence it may become "brown" mid-sentence.
+  const brown = 'Brown v. Bd. of Educ., 347 U.S. 483 (1954). Brown paper covered the exhibits.';
+  const paper = 'Brown paper covered the exhibits.';
+  assert.equal(guardReplacement(brown, paper, 'The exhibits were covered in brown paper.'), null);
+  // The name is still the name: dropping it, or another case's name, is a change.
+  assert.equal(guardReplacement(brown, paper, 'Paper covered the exhibits.'), 'citation-changed');
+  // A one-word name the document also uses in lowercase is a word there.
+  const hardy =
+    'Hardy v. Smith, 1 F.3d 1 (2d Cir. 1990). These plants are hardy. Hardy plants live.';
+  const at = hardy.lastIndexOf('Hardy');
+  assert.equal(selectionRefusal(hardy.slice(0, at), 'Hardy', hardy.slice(at + 5), true), null);
+  assert.deepEqual(protectedSpans('Hardy plants are hardy.', new Map()), []);
+  // The verifier's rewrites in documents citing Chevron, Bonds and Friends of the Earth.
+  for (const [doc, original, rewrite] of [
+    [
+      'Chevron U.S.A. Inc. v. Natural Res. Def. Council, Inc., 467 U.S. 837 (1984).',
+      'Natural gas prices rose in 2022.',
+      'Prices for natural gas rose in 2022.',
+    ],
+    [
+      'In re Marriage of Bonds, 24 Cal. 4th 1, 5 (2000).',
+      'Marriage is a contract under state law.',
+      'Under state law, marriage is a contract.',
+    ],
+    [
+      'Friends of the Earth, Inc. v. Laidlaw Env’t Servs., 528 U.S. 167 (2000).',
+      'Friends of the plaintiff testified at trial.',
+      'At trial, friends of the plaintiff testified.',
+    ],
+  ])
+    assert.equal(guardReplacement(`${doc} ${original}`, original, rewrite), null, rewrite);
+});
+
 test('a cut stays fast before a citation that ends a long insertion', () => {
   // Each unclosed parenthesis or article left before the citation was stripped in a pass
   // over the whole insertion: half a second for 20,000 characters.
@@ -1472,6 +1701,43 @@ test('a cut stays fast before a citation that ends a long insertion', () => {
     cutAtCitation('x', insertion);
     assert.ok(performance.now() - at < 50, `${unit}: ${performance.now() - at} ms`);
   }
+});
+
+test('a named docket number waits for its court, and cut history leaves no word behind', () => {
+  // "No. 13-114-J," after a case name: the court and date (or a database cite) come next.
+  for (const before of [
+    'The rule is settled. Smith v. Salvation Army, No. 13-114-J, ',
+    'See Doe v. Roe, Nos. 20-1, 20-2, ',
+  ])
+    assert.equal(citationContext(before), 'inside-citation', before);
+  // A finished docket citation, and a docket-shaped number in prose, are not.
+  assert.equal(
+    citationContext('Smith v. Salvation Army, No. 13-114-J, 2015 WL 1, at *2 (W.D. Pa. 2015). '),
+    null,
+  );
+  assert.equal(citationContext('She wore jersey No. 23, '), null);
+  // History words go with the later decision they introduce.
+  for (const insertion of [
+    ', aff’d, 535 U.S. 1 (2002).',
+    ', cert. denied, 535 U.S. 1000 (2002).',
+    ', rev’d on other grounds, 535 U.S. 1 (2002).',
+    ', vacated, 535 U.S. 1 (2002).',
+  ])
+    assert.equal(cutAtCitation('The motion was untimely', insertion), '', insertion);
+  assert.equal(
+    cutAtCitation('The motion', ' was vacated, and the case went on. Smith v. Jones, 1 F.3d 1.'),
+    ' was vacated, and the case went on.',
+  );
+});
+
+test('California’s "Accord," is kept as written', () => {
+  const doc = 'The rule is settled. (Accord, Doe v. Roe (1990) 2 Cal.4th 2, 3.)';
+  assert.equal(guardReplacement(doc, doc, doc.replace('Accord, ', '')), 'citation-changed');
+  assert.equal(guardReplacement(doc, doc, doc.replace('Accord, ', 'See ')), 'citation-changed');
+  assert.equal(
+    guardReplacement(doc, doc, doc.replace('The rule is settled.', 'The rule is clear.')),
+    null,
+  );
 });
 
 test('the guards stay fast on long adversarial text', () => {
@@ -1505,6 +1771,31 @@ test('the guards stay fast on long adversarial text', () => {
     'California Civil Code ',
     'January 3, ',
     'two hundred ',
+    // Citation-shaped runs, history and names (2b-2d).
+    'Pl.’s Mot. ',
+    'SAC ¶ ',
+    '2020 IL ',
+    '2021-Ohio-',
+    '(AOB ',
+    '1990), aff’d, ',
+    'cert. denied, ',
+    'Mass. Gen. Laws ch. ',
+    'Exec. Order No. ',
+    'Bronx. Id. ',
+    '(Ibid ',
+    '(1st) ',
+    'Joint Stip. ¶ 4 ',
+    'v. Doe, 2020 ',
+    'Lakeside ',
+    '1,2,',
+    // The third round: docket numbers, history, paragraph short forms, articles, addresses.
+    'Smith v. Doe, No. 1-2, ',
+    ', aff’d',
+    'Jones at [',
+    'Doe at para ',
+    'Id. art. II, § ',
+    'CA 94103, ',
+    'Queens. Compl. ',
   ]) {
     const text = unit.repeat(Math.ceil(20000 / unit.length)).slice(0, 20000);
     for (const [name, call, limit] of [
@@ -1513,7 +1804,9 @@ test('the guards stay fast on long adversarial text', () => {
       ['cutAtCitation', () => cutAtCitation('x', text, doc), 100],
       ['cutAtCitation', () => cutAtCitation(text.slice(0, 10000), text.slice(10000), doc), 100],
       ['guardInsertion', () => guardInsertion(doc, text), 100],
+      ['guardInsertion at', () => guardInsertion(text, ' 12 more', 10000), 100],
       ['guardReplacement', () => guardReplacement(`${doc}\n${text}`, doc, doc), 100],
+      ['guardReplacement long', () => guardReplacement(doc, text, text), 100],
       [
         'selectionRefusal',
         () => selectionRefusal(text.slice(0, 10000), 'x', text.slice(10000)),

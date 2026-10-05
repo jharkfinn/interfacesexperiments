@@ -13,9 +13,14 @@ import {
   shortName,
   stripLead,
   NOT_NAME,
+  CASE_NAME_WORDS,
+  citationRuns,
+  citationTokenClass,
+  distinctiveName,
 } from '../dist/legal-text.js';
 import { sentencesIn } from '../dist/doc-model.js';
 import { memoBlocks } from './fixtures/memo.mjs';
+import { blocksOf, documentText } from './fixtures/general/documents.mjs';
 
 // Sentences that trip a plain sentence splitter in legal writing:
 // [text, expected sentences, options?]
@@ -1214,8 +1219,10 @@ test('AN-13: the name a case goes by', () => {
       'Sargon',
     ],
   );
-  // Without the document, Twombly goes by its plaintiff; a nameless cite by its book.
-  assert.equal(shortName(fulls[0]), 'Bell');
+  // Without the document, Twombly goes by its plaintiff, with the region its name
+  // abbreviates spelled out (Bluebook table T6: "Atl." is "Atlantic"); a nameless cite by
+  // its book.
+  assert.equal(shortName(fulls[0]), 'Bell Atlantic');
   assert.equal(shortName(only('1 F.3d 2.')), '1 F.3d');
   const names = referenceNames(cites);
   for (const name of [
@@ -1269,11 +1276,707 @@ test('findCitations stays fast on long adversarial text', () => {
     'Abc Dep. ',
     'EEOC, Abc, ',
     'Abc Act 1999, s ',
+    // The forms of the second generality round, and the citation-shaped runs.
+    '2020 IL ',
+    '2021-Ohio-',
+    '1-ER-',
+    '2019 SCC ',
+    'Abc. Def. 1 ',
+    'Abc. 1 Abc. 1 ',
+    "Pl.'s Mot. Summ. J. Abc ",
+    'Resp. to Interrog. ',
+    '(1 Abc. ',
+    'SAC ¶ 1, ',
+    ', aff’d in part, ',
+    'Smith v. Jones, 1 F.3d 1 (2d Cir. 1990), aff’d, ',
+    'The Lease says § 1. ',
+    '§ 1 of the Statement of Work of ',
+    'S.D.N.Y. Local Civ. R. ',
+    'U.C.C. § 1 (Am. ',
+    'Witkin, Abc (1st ed. 2017) Abc, ',
+    'This Court in ',
+    'ABC ABC 1 ',
+    // The third round: paragraph short forms, articles, bills, addresses, run edges.
+    'Jones Smith Doe at [',
+    'Abc Def at para 1 ',
+    'Id. art. I, § ',
+    'H.R. 1, 1st Cong. § ',
+    'Exec. Order No. 1,234, § 1, ',
+    'CA 94103 ',
+    'Abc. Compl. ',
+    '1.Abc ',
+    '(S.D.N.Y. filed ',
+    // Unclosed parentheticals after citations, each once read to the end of the text.
+    'Id. at 1 (',
+    'Smith, supra, at 1 (',
+    'Abc v. Def, 1 F.3d 1 (',
   ]) {
     const text = fill(unit);
     findCitations(text);
+    citationRuns(text);
     const at = performance.now();
     findCitations(text);
+    citationRuns(text);
     assert.ok(performance.now() - at < 100, unit);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Generality, second round: the forms the verifier's break tests found unread, and the
+// citation-shaped fallback that keeps the guard and the views safe from the next ones
+// ---------------------------------------------------------------------------
+
+const types = text => findCitations(text).map(cite => [cite.type, cite.text]);
+// A recipe and an office email: prose with numbers, abbreviations and acronyms in it.
+const RECIPE = `Grandma's Apple Cake
+Serves 8. Prep 20 min.; bake 45 min. at 350 F. (175 °C).
+Ingredients: 2 1/4 cups (280 g) flour, 1 tsp. baking soda, 1/2 tsp. salt, 2 Tbsp. butter, 3 large eggs, 1 lb. apples (about 4 medium), 12 oz. sour cream, and approx. 3/4 cup sugar.
+Step 1. Heat the oven to 350°F. Grease a 9 x 13 in. pan.
+Step 2. Beat the butter for 2 min. on medium, then add the eggs one at a time.
+Step 3. Bake 45 to 50 min., until a toothpick comes out clean. Cool for 1 hr. 15 min.
+Note: at high altitude (above 3,000 ft.), add 2 Tbsp. flour. Keeps 3 days at room temp. or 1 wk. in the fridge.
+From Vol. 2, No. 7 of the church cookbook, p. 14 (1987 ed.), via Mrs. Dalton at St. Mark's.`;
+const EMAIL = `Subject: Re: Q3 offsite, Fri. Oct. 13
+Hi team,
+We're booked at the Hilton, 1234 Market St., Ste. 500, San Francisco, CA 94103, from 9 a.m. to 5 p.m. PT on Fri., Oct. 13, 2023. Room No. 12-3 is ours all day; the A/V tech (Ext. 4471) arrives at 8:30 AM.
+Budget: $12,500 total (about $250/person for 50 people), i.e. 15% under FY 2023. The COVID 19 policy is unchanged, and the ISO 9001:2015 audit moved to Nov. 2.
+Agenda: 9:00 kickoff with Dr. Patel; 10:30 the 2024 roadmap (v. 2.1 of the deck, slides 4-12); 2:00 breakouts in Rooms 3A and 3B. Bring your W-2 questions, and the 401(k) folks will be there too.
+Call me at (415) 555-0199 or Tel. 415-555-0100. Our new office is at 50 Fremont St., Washington, D.C. 20001, Apt. 4B.
+Section 8 of the handbook covers travel; Chapter 11 of last year's report is a good read too. Title IX training is due by Dec. 1. She wore jersey No. 23, and the U.S. 50 states map is on p. 3. He met Pat. 3 of us left. I read Gen. 1:1 and 2 GB of MP3 files. He scored 30 PTS and 12 REB.
+Thanks,
+Jordan R. Lee, Ph.D.
+VP, Operations | ACME Corp. | 2 Embarcadero Ctr., 10th Fl. | Tel. (415) 555-0123`;
+
+test('a citation in a form the parser does not know is kept as unparsed', () => {
+  // Citation-shaped runs: numbers, marks, abbreviations and acronyms together.
+  for (const [text, run] of [
+    ['The parties agree. Joint Stip. ¶ 4.', 'Joint Stip. ¶ 4'],
+    ['Congress acted. H.R. 1234.', 'H.R. 1234'],
+    ['The record shows it. Admin. R. 45.', 'Admin. R. 45'],
+    ['The court so ordered. Order Granting Mot. ¶ 3.', 'Order Granting Mot. ¶ 3'],
+  ]) {
+    const cites = findCitations(text).filter(cite => cite.type === 'unparsed');
+    assert.deepEqual(
+      cites.map(cite => cite.text),
+      [run],
+      text,
+    );
+    assert.equal(citationKey(cites[0]), `unparsed:${run.replace(/\s+/g, '')}`);
+    // It attaches to the claim it supports, like any citation.
+    assert.equal(attached(text).length, 1, text);
+    assert.ok(isCitationSentence(text.slice(text.indexOf(run))), run);
+  }
+  // An unparsed run never overlaps a citation the parser read.
+  assert.deepEqual(types('Smith v. Jones, 1 F.3d 2, 3 (2d Cir. 1990); Admin. R. 45.'), [
+    ['full', 'Smith v. Jones, 1 F.3d 2, 3 (2d Cir. 1990)'],
+    ['unparsed', 'Admin. R. 45'],
+  ]);
+  // Nor does the title before it run back into a sentence word or the sentence before.
+  assert.deepEqual(types('In Joint Stip. ¶ 4, they agreed.'), [['unparsed', 'Joint Stip. ¶ 4']]);
+  assert.deepEqual(types('The Joint Stip. ¶ 4 says so.'), [['unparsed', 'Joint Stip. ¶ 4']]);
+  // A string of them is two, split at the semicolon, and a signal is read as for any other.
+  const two = findCitations('See Joint Stip. ¶ 4; Admin. R. 45.');
+  assert.deepEqual(
+    two.map(cite => [cite.type, cite.text, cite.signal]),
+    [
+      ['unparsed', 'Joint Stip. ¶ 4', 'See'],
+      ['unparsed', 'Admin. R. 45', null],
+    ],
+  );
+  // An id. after one refers to it.
+  const id = 'The record shows it. Admin. R. 45. The agency agreed. Id. at 46.';
+  const resolved = resolveCitations(id, findCitations(id));
+  assert.equal(resolved.at(-1).refersTo, 0);
+  // A suggestion with a new one is caught as unseen.
+  assert.deepEqual(
+    unseenCitations('The record shows it. Admin. R. 45.', 'It agreed. Admin. R. 46.').map(
+      cite => cite.text,
+    ),
+    ['Admin. R. 46'],
+  );
+});
+
+test('ordinary prose has no citation-shaped runs', () => {
+  for (const text of [RECIPE, EMAIL]) assert.deepEqual(types(text), [], text.slice(0, 30));
+  // The informal and non-legal fixtures: every citation in them is one the parser reads.
+  for (const key of ['informal', 'non-legal'])
+    assert.deepEqual(
+      findCitations(documentText(blocksOf(key))).filter(cite => cite.type === 'unparsed'),
+      [],
+      key,
+    );
+  for (const phrase of [
+    'The family lives in Section 8 housing.',
+    'The company filed for Chapter 11 protection.',
+    'She called the Title IX coordinator.',
+    'Its Form 10-K reports the loss.',
+    'He rolled over his 401(k) plan.',
+    'She wore jersey No. 23 in the final.',
+    'They met in Room No. 12-3 on the third floor.',
+    'It closes at 3 p.m. on Mar. 3, 2023, and costs $40, or 5% more.',
+    'Bake at 350 F. for 20 min.',
+    'She has visited 48 U.S. states.',
+    'He was born in the U.S. 2020 was hard.',
+    'He met Smith. 5 days later he left.',
+  ])
+    assert.deepEqual(types(phrase), [], phrase);
+  // No sentence of them reads as a citation to attach to the one before.
+  for (const text of [RECIPE, EMAIL])
+    assert.deepEqual(attached(text), texts(legalSentences(text, 'en')));
+});
+
+test('citationRuns finds every citation-shaped run, read or not', () => {
+  const text = 'The deadline is thirty days. Fed. R. App. P. 4(a)(1)(A). See SAC ¶ 12.';
+  assert.deepEqual(
+    citationRuns(text).map(([start, end]) => text.slice(start, end)),
+    ['Fed. R. App. P. 4(a)(1)(A)', 'SAC ¶ 12'],
+  );
+  // A parenthetical with a number sits inside a run; one without ends it.
+  const code = 'Model Penal Code § 2.02 (Am. L. Inst. 1985) (defining mens rea).';
+  assert.deepEqual(
+    citationRuns(code).map(([start, end]) => code.slice(start, end)),
+    ['§ 2.02 (Am. L. Inst. 1985)'],
+  );
+  assert.deepEqual(
+    ['45:3-9', '§', 'Pl.’s', 'Stip.', 'ILCS', 'at', 'the', 'p.m.', '$40', 'Dr.'].map(
+      citationTokenClass,
+    ),
+    ['num', 'mark', 'abbr', 'word.', 'acro', 'inside', null, null, null, null],
+  );
+});
+
+test('R1: record citations in Bluepages and other forms', () => {
+  for (const record of [
+    "Pl.'s Mot. Summ. J. 5",
+    'Def.’s Mem. Supp. Mot. Dismiss 12',
+    "Appellant's Opening Br. 12",
+    'Trial Tr. vol. 2, 45:3-9',
+    'Tr. of Oral Arg. 12:4',
+    'SAC ¶ 12',
+    'FAC ¶¶ 3–5',
+    'Answer ¶ 5',
+    'Second Am. Compl. ¶ 12',
+    'Doc. 45 at 3',
+    'ECF No. 45-2, at 3',
+    'ECF No. 12, PageID.345',
+    'PX 12 at 3',
+    "Pl.'s Ex. 5 at 2",
+    '2-ER-123',
+    'App. 45',
+    "Pl.'s Resp. to Interrog. No. 3",
+    'Resp. to Interrog. No. 3',
+    "Def.'s Resp. to Req. for Admis. No. 4",
+  ]) {
+    const cite = only(`${record}.`);
+    assert.equal(cite.type, 'record', record);
+    assert.equal(cite.text, record);
+    assert.deepEqual(attached(`The motion was filed late. ${record}.`).length, 1, record);
+  }
+  assert.deepEqual(types('The motion was filed late. (R. 45.)'), [['record', 'R. 45']]);
+  assert.deepEqual(types("Pl.'s Reply 5."), [['record', "Pl.'s Reply 5"]]);
+  assert.deepEqual(types("Plaintiff's Reply 3 days late was struck."), []);
+  // Facts with Bluepages record cites are two sentences, each with its record.
+  assert.deepEqual(
+    attached("Doe signed in 2020. Pl.'s Mot. Summ. J. 5. Roe never paid. SAC ¶ 9."),
+    ["Doe signed in 2020. Pl.'s Mot. Summ. J. 5.", 'Roe never paid. SAC ¶ 9.'],
+  );
+  // A court's "App." and a page in prose are not the appendix or the record.
+  assert.deepEqual(
+    types('Smith v. Jones, 123 Cal. App. 4th 45, 50 (2004).').map(([type]) => type),
+    ['full'],
+  );
+  assert.deepEqual(types('He met John R. 45 times.'), []);
+});
+
+test('R2: US public-domain citations, slip opinions, Lexis short forms and history', () => {
+  const doe = only('People v. Doe, 2020 IL 124112, ¶ 20.');
+  assert.deepEqual(
+    [doe.type, doe.name, doe.volume, doe.reporter, doe.page, doe.pin, doe.court, doe.year],
+    ['full', 'People v. Doe', '2020', 'IL', '124112', '¶ 20', 'Ill.', '2020'],
+  );
+  assert.equal(doe.neutral, true);
+  assert.equal(citationKey(doe), '2020 IL 124112');
+  const ohio = only('State v. Doe, 2021-Ohio-1234, ¶ 15 (8th Dist.).');
+  assert.deepEqual(
+    [ohio.reporter, ohio.page, ohio.pin, ohio.court],
+    ['Ohio', '1234', '¶ 15', 'Ohio Ct. App. (8th Dist.)'],
+  );
+  assert.equal(only('People v. Roe, 2019 IL App (1st) 123456-U, ¶ 12.').court, 'Ill. App. Ct.');
+  const roe = only('State v. Roe, 2015 WI 50, ¶ 10, 362 Wis. 2d 1, 864 N.W.2d 1.');
+  assert.deepEqual(
+    [roe.name, roe.pin, roe.court, roe.parallel.map(p => `${p.volume} ${p.reporter} ${p.page}`)],
+    ['State v. Roe', '¶ 10', 'Wis.', ['362 Wis. 2d 1', '864 N.W.2d 1']],
+  );
+  // Its short form repeats it after the name, and resolves to it.
+  const text = 'People v. Doe, 2020 IL 124112, ¶ 20. The rule holds. Doe, 2020 IL 124112, ¶ 22.';
+  const cites = resolveCitations(text, findCitations(text));
+  assert.deepEqual(
+    cites.map(cite => [cite.type, cite.antecedent, cite.pin, cite.refersTo]),
+    [
+      ['full', null, '¶ 20', undefined],
+      ['short', 'Doe', '¶ 22', 0],
+    ],
+  );
+  // Different decisions of one year are different authorities.
+  assert.notEqual(citationKey(only('2019 SCC 65.')), citationKey(only('2019 SCC 66.')));
+  // A slip opinion's page; a Lexis cite is a database number, so its short form resolves.
+  const slip = only('Smith v. Jones, No. 21-1234, slip op. at 5 (2d Cir. Mar. 3, 2022).');
+  assert.deepEqual(
+    [slip.type, slip.docket, slip.pin, slip.court],
+    ['docket', 'No. 21-1234', '5', '2d Cir.'],
+  );
+  const lexis =
+    'Doe v. Roe, 2021 U.S. Dist. LEXIS 12345, at *5 (D. Mass. Jan. 5, 2021). Doe, 2021 U.S. Dist. LEXIS 12345, at *7.';
+  const read = resolveCitations(lexis, findCitations(lexis));
+  assert.deepEqual(
+    read.map(cite => [cite.type, citationKey(cite), cite.refersTo]),
+    [
+      ['docket', '2021 U.S. Dist. LEXIS 12345', undefined],
+      ['short', '2021 U.S. Dist. LEXIS 12345', 0],
+    ],
+  );
+  // Subsequent history is part of the citation it follows.
+  const history = only(
+    'Smith v. Jones, 123 F.3d 456, 460 (2d Cir. 2001), aff’d in part, rev’d in part, 535 U.S. 1 (2002), cert. denied, 536 U.S. 2 (2003).',
+  );
+  assert.deepEqual(
+    [history.name, citationKey(history), history.pin, history.history],
+    [
+      'Smith v. Jones',
+      '123 F.3d',
+      '460',
+      ['aff’d in part, rev’d in part, 535 U.S. 1 (2002)', 'cert. denied, 536 U.S. 2 (2003)'],
+    ],
+  );
+  assert.deepEqual(only('Smith v. Jones, 123 F.3d 456 (2d Cir. 2001), cert. denied.').history, [
+    'cert. denied',
+  ]);
+  const abrogated = only(
+    'See Doe v. Roe, 1 F.3d 1, 2 (2d Cir. 1990), abrogated on other grounds by Poe v. Moe, 2 F.3d 2 (2d Cir. 1991).',
+  );
+  assert.deepEqual(abrogated.history, [
+    'abrogated on other grounds by Poe v. Moe, 2 F.3d 2 (2d Cir. 1991)',
+  ]);
+  // Texas's petition history stays in the court parenthetical, and the court is read.
+  const texas = only(
+    'Smith v. Jones, 123 S.W.3d 456, 460 (Tex. App.—Houston [14th Dist.] 2003, pet. denied).',
+  );
+  assert.deepEqual(
+    [texas.court, texas.year, texas.history],
+    ['Tex. App.—Houston [14th Dist.]', '2003', ['pet. denied']],
+  );
+  assert.equal(only('Hadley v Baxendale [1854] EWHC J70 (Exch).').name, 'Hadley v Baxendale');
+});
+
+test('R3: California footnotes, notes, opinions, treatises and jury instructions attach', () => {
+  const full = 'The duty is owed to invitees. (Smith v. Jones (2001) 1 Cal.4th 1, 5.)';
+  for (const cite of [
+    '(Id. at p. 6, fn. 3.)',
+    '(Smith, supra, 1 Cal.4th at p. 6, italics added.)',
+    '(Smith, supra, 1 Cal.4th at pp. 6–7, conc. opn. of Kennard, J.)',
+    '(See generally 6 Witkin, Summary of Cal. Law (11th ed. 2017) Torts, § 1234.)',
+    '(Weil & Brown, Cal. Practice Guide: Civil Procedure Before Trial (The Rutter Group 2020) ¶ 9:123.)',
+    '(CACI No. 1001.)',
+    '(Rest.2d Torts, § 402A, com. c.)',
+  ])
+    assert.equal(attached(`${full} Further, the rule is settled. ${cite}`).length, 2, cite);
+  assert.equal(only('Id. at p. 6, fn. 3.').pin, '6, fn. 3');
+  const supra = only('Smith, supra, 1 Cal.4th at pp. 6–7, conc. opn. of Kennard, J.');
+  assert.deepEqual(supra.parentheticals, ['conc. opn. of Kennard, J.']);
+  const witkin = only('6 Witkin, Summary of Cal. Law (11th ed. 2017) Torts, § 1234.');
+  assert.deepEqual(
+    [witkin.type, witkin.author, witkin.title, witkin.pin, witkin.year],
+    ['secondary', 'Witkin', 'Summary of Cal. Law', '§ 1234', '2017'],
+  );
+});
+
+test('R4: case names after a court, ex parte, family matters, firms, and common words', () => {
+  assert.equal(
+    only('This Court in Smith v. Jones, 1 F.3d 1, 2 (2d Cir. 1990), held otherwise.').name,
+    'Smith v. Jones',
+  );
+  const called = text => {
+    const cites = findCitations(text);
+    return [cites[0].name, shortName(cites[0], cites), [...referenceNames(cites).keys()]];
+  };
+  assert.deepEqual(called('See Ex parte Young, 209 U.S. 123, 159 (1908).'), [
+    'Ex parte Young',
+    'Young',
+    ['Young'],
+  ]);
+  assert.deepEqual(called('In re Marriage of Bonds, 24 Cal. 4th 1, 5 (2000).'), [
+    'In re Marriage of Bonds',
+    'Bonds',
+    ['Bonds', 'Marriage of Bonds'],
+  ]);
+  assert.equal(
+    called('NLRB v. Jones & Laughlin Steel Corp., 301 U.S. 1, 30 (1937).')[1],
+    'Jones & Laughlin',
+  );
+  // A common word that begins a case name is not a name on its own; the whole name is.
+  for (const [text, not, is] of [
+    [
+      'Chevron U.S.A. Inc. v. Natural Res. Def. Council, Inc., 467 U.S. 837, 842 (1984).',
+      'Natural',
+      'Chevron',
+    ],
+    ['In re Marriage of Bonds, 24 Cal. 4th 1, 5 (2000).', 'Marriage', 'Marriage of Bonds'],
+    [
+      'Am. Express Co. v. Italian Colors Rest., 570 U.S. 228, 233 (2013).',
+      'Italian',
+      'Italian Colors Rest.',
+    ],
+    [
+      'Friends of the Earth, Inc. v. Laidlaw Env’t Servs., 528 U.S. 167, 180 (2000).',
+      'Friends',
+      'Friends of the Earth',
+    ],
+    ['Citizens United v. FEC, 558 U.S. 310, 340 (2010).', 'Citizens', 'Citizens United'],
+    [
+      'Students for Fair Admissions, Inc. v. President & Fellows of Harvard Coll., 600 U.S. 181, 200 (2023).',
+      'Students',
+      'Students for Fair Admissions',
+    ],
+  ]) {
+    const names = referenceNames(findCitations(text));
+    assert.ok(!names.has(not), not);
+    assert.ok(names.has(is), is);
+  }
+  assert.ok(CASE_NAME_WORDS.has('Natural') && CASE_NAME_WORDS.has('County'));
+  assert.equal(distinctiveName('Natural'), false);
+  assert.equal(distinctiveName('Natural Res. Def. Council'), true);
+  assert.equal(distinctiveName('Lakeside'), true);
+  // A one-word name the document also uses in lowercase is a word there, not a name.
+  const brown = 'Brown v. Bd. of Educ., 347 U.S. 483, 495 (1954). He wore brown shoes.';
+  assert.equal(distinctiveName('Brown', brown), false);
+  assert.ok(referenceNames(findCitations(brown)).has('Brown'));
+  assert.ok(!referenceNames(findCitations(brown), brown).has('Brown'));
+});
+
+test('R5: a document’s sections are internal; "Claim No." is no docket', () => {
+  for (const [text, internal] of [
+    ['Under Code of Conduct § 2, employees must report gifts.', 'Conduct § 2'],
+    ['Statement of Work § 3 lists the deliverables.', 'Work § 3'],
+    ['Term Sheet § 2 sets the valuation.', 'Sheet § 2'],
+    ['Terms of Service § 4 bars scraping.', 'Service § 4'],
+    ['Under § 4.2 of the Statement of Work, the vendor must deliver.', '§ 4.2'],
+    ['The Lease says the deposit is forfeited under § 3.', '§ 3'],
+  ])
+    assert.deepEqual(types(text), [['internal', internal]], text);
+  // A sentence that also names a code, or a statute's acronym, keeps the section a statute's.
+  assert.deepEqual(types('Under the Lease and Penal Code § 1671, the deposit is forfeited.'), [
+    ['section', '§ 1671'],
+  ]);
+  assert.deepEqual(types('The Plan violated ERISA § 404.'), [['section', '§ 404']]);
+  assert.deepEqual(types('Claim No. 2023-0045 was denied by the insurer.'), []);
+});
+
+test('R9: rules, regulations and other authority in their usual forms', () => {
+  for (const [text, type] of [
+    ['Fed. R. App. P. 4(a)(1)(A)', 'statute'],
+    ['Sup. Ct. R. 10', 'statute'],
+    ['S.D.N.Y. Local Civ. R. 6.3', 'statute'],
+    ['N.D. Cal. Civ. L.R. 7-3', 'statute'],
+    ['Treas. Reg. § 1.162-1(a) (2023)', 'statute'],
+    ['12 C.F.R. pt. 1026, supp. I', 'statute'],
+    ['735 Ill. Comp. Stat. 5/2-619 (2022)', 'statute'],
+    ['735 ILCS 5/2-619(a)(9)', 'statute'],
+    ['Mass. Gen. Laws ch. 93A', 'statute'],
+    ['G.L. c. 93A, § 2', 'statute'],
+    ['U.C.C. § 2-207 (Am. L. Inst. & Unif. L. Comm’n 2022)', 'statute'],
+    ['Model Penal Code § 2.02 (Am. L. Inst. 1985)', 'statute'],
+    ['Exec. Order No. 14,028, 86 Fed. Reg. 26,633 (May 12, 2021)', 'statute'],
+    ['Stats. 2019, ch. 296, § 2', 'statute'],
+    ['Assem. Bill No. 5 (2019–2020 Reg. Sess.) § 2', 'legislative'],
+    ['Rev. Rul. 2004-1, 2004-1 C.B. 1', 'secondary'],
+  ]) {
+    const cite = only(`(${text}.)`);
+    assert.deepEqual([cite.type, cite.text], [type, text]);
+    assert.deepEqual(attached(`The deadline is thirty days. ${text}.`).length, 1, text);
+  }
+  const key = text => citationKey(only(text));
+  assert.equal(key('735 ILCS 5/2-619.'), key('735 Ill. Comp. Stat. 5/2-619 (2022).'));
+  assert.notEqual(key('735 ILCS 5/2-619.'), key('735 ILCS 5/2-615.'));
+  assert.notEqual(key('Mass. Gen. Laws ch. 93A, § 2.'), key('Mass. Gen. Laws ch. 93, § 2.'));
+  assert.equal(key('Exec. Order No. 14,028.'), key('Exec. Order 14028, 86 Fed. Reg. 26,633.'));
+  const bill = only('Assem. Bill No. 5 (2019–2020 Reg. Sess.) § 2.');
+  assert.deepEqual([bill.pin, bill.year], ['§ 2', '2019']);
+});
+
+// ---------------------------------------------------------------------------
+// The long tail, third round (tests/long-tail.test.mjs has the verifier's cases)
+// ---------------------------------------------------------------------------
+
+test('a court parenthetical’s "filed" is not the court, and old English divisions are read', () => {
+  const docket = only('Doe v. Roe, No. 1:20-cv-1234 (S.D.N.Y. filed Jan. 5, 2021).');
+  assert.deepEqual([docket.court, docket.date, docket.year], ['S.D.N.Y.', 'Jan. 5, 2021', '2021']);
+  assert.equal(
+    only('Smith v. Jones, 1 F.3d 1, 2 (2d Cir. decided Mar. 3, 1990).').court,
+    '2d Cir.',
+  );
+  // A retrospective neutral citation keeps its court, as "[2019] EWHC 123 (Ch)" does.
+  const hadley = only('Hadley v Baxendale [1854] EWHC J70 (Exch).');
+  assert.deepEqual(
+    [hadley.court, hadley.text],
+    ['EWHC (Exch)', 'Hadley v Baxendale [1854] EWHC J70 (Exch)'],
+  );
+});
+
+test('California’s "Accord," is a signal, with or without its comma', () => {
+  assert.equal(only('(Accord, Doe v. Roe (1990) 2 Cal.4th 2, 3.)').signal, 'Accord');
+  assert.equal(only('(Accord Doe v. Roe (1990) 2 Cal.4th 2, 3.)').signal, 'Accord');
+  assert.equal(only('Accord Doe v. Roe, 1 F.3d 1, 2 (2d Cir. 1990).').signal, 'Accord');
+});
+
+test('English and Canadian short forms give the name and a paragraph', () => {
+  for (const [text, antecedent, pin, signal] of [
+    ['Doe at para 6.', 'Doe', 'para 6', null],
+    ['See Jones at [47]–[48].', 'Jones', '[47]–[48]', 'See'],
+    ['In Oakes at paras 5–7, the Court said so.', 'Oakes', 'paras 5–7', null],
+  ]) {
+    const cite = only(text);
+    assert.deepEqual(
+      [cite.type, cite.antecedent, cite.volume, cite.pin, cite.signal],
+      ['supra', antecedent, null, pin, signal],
+      text,
+    );
+  }
+  // It stands for the case its name names, and attaches to the claim before it.
+  const text =
+    'The rule is settled. Jones v Smith [2020] EWCA Civ 1234 at [45]. It applies. Jones at [47].';
+  assert.equal(resolveCitations(text, findCitations(text)).at(-1).refersTo, 0);
+  assert.deepEqual(attached('It applies. Doe at para 6.'), ['It applies. Doe at para 6.']);
+  // A letter or a number is no case's name, and neither is prose.
+  for (const prose of [
+    'Annex B at para 4 says so.',
+    'Schedule 2 at [3] lists them.',
+    'They met at [the] park.',
+  ])
+    assert.deepEqual(types(prose), [], prose);
+});
+
+test('short names spell out a direction and keep "Estate of"', () => {
+  const short = text => {
+    const cites = findCitations(text);
+    return shortName(cites[0], cites);
+  };
+  assert.equal(
+    short('Burlington N. & Santa Fe Ry. Co. v. White, 548 U.S. 53, 68 (2006).'),
+    'Burlington Northern',
+  );
+  assert.equal(short('Union Pac. R.R. Co. v. Price, 360 U.S. 601, 602 (1959).'), 'Union Pacific');
+  assert.equal(short('Estate of Smith v. Jones, 1 F.3d 1, 2 (2d Cir. 1990).'), 'Estate of Smith');
+  assert.equal(
+    short('Estate of John Gonzalez v. Hickman, 1 F.3d 1 (9th Cir. 1990).'),
+    'Estate of John Gonzalez',
+  );
+  // Another word after the first is not spelled out, and "Burlington Indus." stays "Burlington".
+  assert.equal(
+    short('Burlington Indus., Inc. v. Ellerth, 524 U.S. 742, 765 (1998).'),
+    'Burlington',
+  );
+  const names = referenceNames(
+    findCitations('Burlington N. & Santa Fe Ry. Co. v. White, 548 U.S. 53, 68 (2006).'),
+  );
+  assert.ok(names.has('Burlington Northern') && names.has('Burlington'));
+});
+
+test('an executive order’s section and a bill by its Congress stay one citation', () => {
+  const order = only('Exec. Order No. 14,028, § 2, 86 Fed. Reg. 26,633, 26,634 (May 12, 2021).');
+  assert.deepEqual(
+    [order.type, order.text, citationKey(order)],
+    [
+      'statute',
+      'Exec. Order No. 14,028, § 2, 86 Fed. Reg. 26,633, 26,634 (May 12, 2021)',
+      'Exec.OrderNo.14028',
+    ],
+  );
+  for (const [text, pin, year] of [
+    ['H.R. 1234, 117th Cong. § 3 (2021)', '§ 3', '2021'],
+    ['S. 1, 118th Cong. (2023)', null, '2023'],
+    ['H.R.J. Res. 7, 117th Cong. § 2(a) (2021)', '§ 2(a)', '2021'],
+  ]) {
+    const bill = only(`Congress tried. ${text}.`);
+    assert.deepEqual([bill.type, bill.text, bill.pin, bill.year], ['legislative', text, pin, year]);
+  }
+  // A bill with no Congress is still a citation, in a form the parser does not know.
+  assert.deepEqual(types('Congress acted. H.R. 1234.'), [['unparsed', 'H.R. 1234']]);
+});
+
+test('Virgin Islands and unhyphenated New Mexico public-domain citations', () => {
+  for (const [text, court, key] of [
+    ['Smith v. Jones, 2018 VI 12, ¶ 5.', 'V.I.', '2018 VI 12'],
+    ['State v. Doe, 2018 NMSC 12, ¶ 5.', 'N.M.', '2018 NMSC 12'],
+    ['State v. Doe, 2018 NMCA 3, ¶ 9.', 'N.M. Ct. App.', '2018 NMCA 3'],
+  ]) {
+    const cite = only(text);
+    assert.deepEqual(
+      [cite.type, cite.court, cite.pin, citationKey(cite)],
+      ['full', court, cite.pin, key],
+    );
+    assert.equal(cite.text, text.slice(0, -1));
+  }
+});
+
+test('an id. may cite a constitution’s other article or amendment', () => {
+  for (const [text, id, pin] of [
+    ['The President executes the laws. Id. art. II, § 3.', 'Id. art. II, § 3', 'art. II, § 3'],
+    ['The Senate tries impeachments. Id. art. I.', 'Id. art. I', 'art. I'],
+    ['The States may not deny it. Id. amend. XIV, § 1.', 'Id. amend. XIV, § 1', 'amend. XIV, § 1'],
+    [
+      'Speech is protected. (Id., art. I, § 2, subd. (a).)',
+      'Id., art. I, § 2, subd. (a)',
+      'art. I, § 2, subd. (a)',
+    ],
+  ]) {
+    const cite = only(text);
+    assert.deepEqual([cite.type, cite.text, cite.pin], ['id', id, pin], text);
+  }
+  assert.deepEqual(types('Id. articles were filed.'), [['id', 'Id.']]);
+});
+
+test('citation-shaped runs: the sentence before, a missing space, and an address', () => {
+  const runs = text => citationRuns(text).map(([start, end]) => text.slice(start, end));
+  // The word that ends the sentence before a citation is not part of it.
+  assert.deepEqual(runs('She lives in Queens. Compl. ¶ 9.'), ['Compl. ¶ 9']);
+  assert.deepEqual(runs('He worked in the Bronx. Id. ¶¶ 12–14.'), ['Id. ¶¶ 12–14']);
+  // An unlisted abbreviation still counts beside a mark or after a listed one.
+  assert.deepEqual(runs('The parties agree. Joint Stip. ¶ 4.'), ['Joint Stip. ¶ 4']);
+  assert.deepEqual(runs('He answered. Resp. to Interrog. No. 3.'), ['Resp. to Interrog. No. 3']);
+  // A sentence written with no space after a citation does not run into it.
+  assert.deepEqual(runs('The rule is in § 3602(c).The court agreed.'), ['§ 3602(c)']);
+  assert.deepEqual(runs('See SAC ¶ 12.The court agreed.'), ['SAC ¶ 12']);
+  // A state's postal code and a ZIP code are an address, not a citation.
+  for (const text of [
+    'Mail it to San Francisco, CA 94103, U.S.A.',
+    'Send it to 1 Main St., San Francisco, CA 94103, U.S.A. today.',
+    'Our office is at 10 Wacker Dr., Chicago, IL 60606-1234.',
+  ]) {
+    assert.deepEqual(runs(text), [], text);
+    assert.deepEqual(types(text), [], text);
+  }
+  // A public-domain citation is no address.
+  assert.deepEqual(
+    types('People v. Doe, 2020 IL 12411.').map(([type]) => type),
+    ['full'],
+  );
+});
+
+test('Illinois briefs: the record by its volume letter, and court and local rules', () => {
+  // The common-law record, the report of proceedings, the appendix and supplements.
+  assert.deepEqual(types('Raman fell. (C. 45-47; R. 12.)'), [
+    ['record', 'C. 45-47'],
+    ['record', 'R. 12'],
+  ]);
+  for (const record of ['A. 3', 'Sup. C. 3', 'SR 4'])
+    assert.deepEqual(types(`Raman fell. (${record}.)`), [['record', record]], record);
+  assert.deepEqual(attached('Raman fell. (C. 45.)'), ['Raman fell. (C. 45.)']);
+  // A letter and a number in parentheses with words after them is prose.
+  assert.deepEqual(types('He ate the rest (C. 45 apples).'), []);
+  // A complaint's exhibit, by page or paragraph.
+  assert.deepEqual(types('It says so. (Compl. Ex. A, at 2.)'), [['record', 'Compl. Ex. A, at 2']]);
+  assert.deepEqual(types('It says so. (Compl. Ex. A ¶ 7.)'), [['record', 'Compl. Ex. A ¶ 7']]);
+  // Illinois Supreme Court and Appellate Court rules, with their effective dates.
+  for (const [rule, key] of [
+    ['Ill. S. Ct. R. 341(h)(7) (eff. Oct. 1, 2020)', 'Ill.S.Ct.R.341'],
+    ['Ill. S. Ct. R. 303', 'Ill.S.Ct.R.303'],
+    ['Ill. App. Ct. R. 1', 'Ill.App.Ct.R.1'],
+    // A local court's rules, by its place and level.
+    ['Cook Cnty. Cir. Ct. R. 2.1(c) (eff. Jan. 1, 2017)', 'CookCnty.Cir.Ct.R.2.1'],
+    ['Cook County Cir. Ct. R. 2.1', 'CookCountyCir.Ct.R.2.1'],
+    ['Cir. Ct. Cook Cnty. R. 2.3', 'Cir.Ct.CookCnty.R.2.3'],
+    ['L.A. Super. Ct. Local R. 3', 'L.A.Super.Ct.LocalR.3'],
+    ['D.C. Super. Ct. Civ. R. 12(b)', 'D.C.Super.Ct.Civ.R.12'],
+  ]) {
+    const cite = only(`The rule applies. ${rule}.`);
+    assert.deepEqual([cite.type, cite.text, citationKey(cite)], ['statute', rule, key], rule);
+    assert.deepEqual(attached(`The rule applies. ${rule}.`).length, 1, rule);
+  }
+  // A Restatement's subsection is part of its section.
+  const restatement = only('Restatement (Second) of Contracts § 195(1) (Am. L. Inst. 1981).');
+  assert.deepEqual(
+    [restatement.text, restatement.pin],
+    ['Restatement (Second) of Contracts § 195(1) (Am. L. Inst. 1981)', '§ 195(1)'],
+  );
+});
+
+test('statutes, rules, books and the record take their explanatory parentheticals', () => {
+  for (const [text, body, parenthetical] of [
+    [
+      '28 U.S.C. § 1291 (granting jurisdiction over final decisions)',
+      '28 U.S.C. § 1291',
+      'granting jurisdiction over final decisions',
+    ],
+    [
+      'Fed. R. Civ. P. 12(b)(6) (allowing dismissal)',
+      'Fed. R. Civ. P. 12(b)(6)',
+      'allowing dismissal',
+    ],
+    [
+      'Restatement (Second) of Torts § 343 (Am. L. Inst. 1965) (duty to invitees)',
+      'Restatement (Second) of Torts § 343 (Am. L. Inst. 1965)',
+      'duty to invitees',
+    ],
+    [
+      'Black’s Law Dictionary (11th ed. 2019) (defining “release”)',
+      'Black’s Law Dictionary (11th ed. 2019)',
+      'defining “release”',
+    ],
+    ['Compl. ¶ 9 (alleging the fall)', 'Compl. ¶ 9', 'alleging the fall'],
+    ['Joint Stip. ¶ 4 (agreeing to the facts)', 'Joint Stip. ¶ 4', 'agreeing to the facts'],
+    ['Civ. Code, § 1714, subd. (a) [duty of care]', 'Civ. Code, § 1714, subd. (a)', 'duty of care'],
+  ]) {
+    const sentence = `The rule is settled. ${text}.`;
+    const cite = only(sentence);
+    assert.deepEqual(
+      [cite.text, cite.body, cite.parentheticals.at(-1)],
+      [text, body, parenthetical],
+    );
+    // Its key is its body's, so a later mention without the parenthetical is the same one.
+    assert.equal(citationKey(cite), citationKey(only(`${body}.`)), text);
+    assert.deepEqual(attached(sentence), [sentence], text);
+  }
+  // A citation inside the parenthetical is nested in it.
+  const quoting = findCitations(
+    '28 U.S.C. § 1291 (quoting Smith v. Jones, 1 F.3d 1, 2 (2d Cir. 1990)).',
+  );
+  assert.deepEqual(
+    quoting.map(cite => [cite.type, Boolean(cite.nested)]),
+    [
+      ['statute', false],
+      ['full', true],
+    ],
+  );
+  // A string citation ending in one stays with its claim.
+  const string =
+    'Releases of reckless conduct are void. Doe v. Roe, 2019 IL 124321, ¶ 30; see also Restatement (Second) of Contracts § 195(1) (Am. L. Inst. 1981) (a term exempting a party from liability for reckless harm is unenforceable).';
+  assert.deepEqual(attached(string), [string]);
+});
+
+test('shortName takes the name the document uses in running text', () => {
+  const cites = findCitations('Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009).');
+  assert.equal(shortName(cites[0], cites), 'Ashcroft');
+  assert.equal(shortName(cites[0], cites, 'Under Iqbal, a claim must be plausible.'), 'Iqbal');
+  assert.equal(shortName(cites[0], cites, 'Ashcroft and Iqbal both appear.'), 'Ashcroft');
+  // The writer's own short form still wins.
+  const twombly = findCitations(
+    'Bell Atl. Corp. v. Twombly, 550 U.S. 544, 570 (2007). Twombly, 550 U.S. at 555.',
+  );
+  assert.equal(shortName(twombly[0], twombly, 'Bell Atlantic argued otherwise.'), 'Twombly');
+});
+
+test('legalSentences stays fast on thousands of breaks after initials', () => {
+  // Each break once split the last 400 characters into words to read the last two; on
+  // "A. A. A. …" that took 60 ms. The best of three runs is well under 40 ms now.
+  for (const unit of ['A. ', 'A. 1 ', 'C. 1 ', 'J. Smith. ']) {
+    const text = unit.repeat(Math.ceil(20000 / unit.length)).slice(0, 20000);
+    legalSentences(text, 'en', { attachCitations: true });
+    let best = Infinity;
+    for (let k = 0; k < 3; k++) {
+      const at = performance.now();
+      legalSentences(text, 'en', { attachCitations: true });
+      best = Math.min(best, performance.now() - at);
+    }
+    assert.ok(best < 40, `${unit}: ${best} ms`);
   }
 });

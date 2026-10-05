@@ -2117,3 +2117,753 @@ test('a case cited only by its neutral citation is named by all of it', () => {
     ['[2019] UKSC 5 [41]', '[2019] UKSC 5'],
   );
 });
+
+// ---------------------------------------------------------------------------
+// The second generality round: forms the parser does not know, and the forms it learned
+// ---------------------------------------------------------------------------
+
+test('a citation in a form the parser does not know is shown, listed and never judged', () => {
+  const reading = analyzeLegal(
+    doc([
+      ['h2', 'Statement of Facts'],
+      [
+        'p',
+        'The parties agreed on the price. Joint Stip. ¶ 4. They agreed on delivery too. Id. ¶ 5.',
+      ],
+      ['h2', 'Discussion'],
+      [
+        'p',
+        'Congress meant to reach these sales. H.R. 1234. Courts read the bill broadly. H.R. 1234. The bill reaches “every sale of goods in commerce.” H.R. 1234. Other bills agree. See also H.R. 5678. Here the sale is covered. Id. The seller is likely liable.',
+      ],
+    ]),
+    tags(
+      'heading/framing facts/client-fact facts/client-fact heading/framing rule/law rule/law rule/law rule/law application/application conclusion/conclusion',
+    ),
+  );
+  // A client fact's citation is taken for its record; anything else is cited, unjudged.
+  assert.deepEqual(supports(reading), [
+    'n/a',
+    'record',
+    'record',
+    'n/a',
+    'cited',
+    'cited',
+    'cited',
+    'cited',
+    'cited',
+    'n/a',
+  ]);
+  // No pin, parenthetical, new-law or generalization complaint rests on a form the app
+  // cannot read, and nothing needs attention for it.
+  assert.deepEqual(
+    reading.sentences.map(item => flagIds(item).filter(id => id !== 'quote')),
+    reading.sentences.map(() => []),
+  );
+  assert.deepEqual(reading.checks, []);
+  assert.equal(reading.attentionCount, 0);
+  // An id. after one repeats it, and is not unresolved.
+  assert.deepEqual(chips(3, reading), ['Id. → Joint Stip. ¶ 4']);
+  assert.deepEqual(chips(9, reading), ['Id. → H.R. 5678']);
+  assert.deepEqual(reading.unresolved, []);
+  assert.deepEqual(
+    reading.authorities.map(row => [
+      row.group,
+      row.name,
+      row.title,
+      row.level,
+      row.count,
+      row.warnings,
+    ]),
+    [
+      ['other', 'H.R. 1234', 'H.R. 1234', 'unknown', 3, ['Form not recognized: check it by hand']],
+      ['other', 'H.R. 5678', 'H.R. 5678', 'unknown', 2, ['Form not recognized: check it by hand']],
+      [
+        'other',
+        'Joint Stip. ¶ 4',
+        'Joint Stip. ¶ 4',
+        'unknown',
+        2,
+        ['Form not recognized: check it by hand'],
+      ],
+    ],
+  );
+  // A rule an umbrella cites in such a form is a cited rule.
+  const umbrella = analyzeLegal(
+    doc([
+      ['h2', 'Discussion'],
+      [
+        'p',
+        'The seller is likely liable. The bill reaches every sale. H.R. 1234. We address coverage, then remedies.',
+      ],
+      ['h3', 'A. Coverage'],
+      ['p', 'The bill covers it. Smith v. Jones, 1 F.3d 1, 5 (2d Cir. 1990). Here it is covered.'],
+      ['h3', 'B. Remedies'],
+      ['p', 'Damages follow. Smith, 1 F.3d at 6. Here damages follow.'],
+    ]),
+    tags(
+      'heading/framing conclusion/conclusion rule/law roadmap/framing heading/conclusion rule/law application/application heading/conclusion rule/law application/application',
+    ),
+  );
+  assert.deepEqual(rail(umbrella.sections[0]), { P: 'ok', R: 'ok', M: 'ok' });
+});
+
+test('an id. right after a citation of more than one source is ambiguous (Bluebook 4.1)', () => {
+  const lastOf = text => {
+    const reading = analyzeLegal(doc([['p', text]]), null);
+    return { reading, item: reading.sentences.at(-1) };
+  };
+  for (const text of [
+    'The duty runs to invitees. Smith v. Jones, 1 F.3d 1, 5 (2d Cir. 1990); Doe v. Roe, 2 F.3d 2, 3 (2d Cir. 1991). The store must inspect. Id. at 4.',
+    'The duty runs. See Smith v. Jones, 1 F.3d 1, 5 (2d Cir. 1990); see also Doe v. Roe, 2 F.3d 2, 3 (2d Cir. 1991) (holding so). The store must inspect. Id. at 4.',
+    'The duty runs. (Smith v. Jones (2001) 1 Cal.4th 1, 5; Doe v. Roe (2002) 2 Cal.4th 2, 3.) The store must inspect. (Ibid.)',
+    'Courts split. Compare Smith v. Jones, 1 F.3d 1, 5 (2d Cir. 1990), with Doe v. Roe, 2 F.3d 2, 3 (2d Cir. 1991). The store must inspect. Id. at 4.',
+  ]) {
+    const { reading, item } = lastOf(text);
+    assert.deepEqual(flagIds(item), ['ambiguous-id'], text);
+    assert.equal(item.flags[0].text, 'Id. after more than one source is ambiguous');
+    assert.ok(item.cites[0].state === 'unresolved' && item.attention, text);
+    assert.match(
+      reading.unresolved[0].text,
+      /: the citation before it cites more than one source, so it could mean any of them\.$/,
+    );
+  }
+  // An id. after it is no clearer.
+  const twice = analyzeLegal(
+    doc([
+      [
+        'p',
+        'The duty runs. Smith v. Jones, 1 F.3d 1, 5 (2d Cir. 1990); Doe v. Roe, 2 F.3d 2, 3 (2d Cir. 1991). It must inspect. Id. at 4. It must warn. Id. at 5.',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(chips(3, twice), ['Id. · unresolved']);
+  assert.deepEqual(flagIds(twice.sentences[2]), ['ambiguous-id']);
+  // One source cited twice, an id. inside the string, a case it quotes, or two record
+  // citations of one document leave the id. clear.
+  assert.deepEqual(
+    chips(
+      2,
+      lastOf(
+        'The duty runs. Smith v. Jones, 1 F.3d 1, 5 (2d Cir. 1990); Smith, 1 F.3d at 7. The store must inspect. Id. at 4.',
+      ).reading,
+    ),
+    ['Id. → Smith'],
+  );
+  assert.deepEqual(
+    chips(
+      1,
+      lastOf(
+        'The duty runs. Smith v. Jones, 1 F.3d 1, 5 (2d Cir. 1990); id. at 7; Doe v. Roe, 2 F.3d 2, 3 (2d Cir. 1991).',
+      ).reading,
+    ),
+    ['Smith 5', 'id. → Smith', 'Doe 3'],
+  );
+  assert.deepEqual(
+    chips(
+      2,
+      lastOf(
+        'The duty runs. Smith v. Jones, 1 F.3d 1, 5 (2d Cir. 1990) (quoting Doe v. Roe, 2 F.3d 2, 3 (2d Cir. 1991)). The store must inspect. Id. at 4.',
+      ).reading,
+    ),
+    ['Id. → Smith'],
+  );
+  const record = analyzeLegal(
+    doc([
+      ['h2', 'Facts'],
+      ['p', 'Doe slipped. Compl. ¶ 4; Ex. A at 2. The aisle was wet. Id. at 3.'],
+      ['p', 'The floor was mopped. Compl. ¶ 4; Compl. ¶ 6. It was wet. Id. ¶ 7.'],
+    ]),
+    tags('heading/framing facts/client-fact facts/client-fact facts/client-fact facts/client-fact'),
+  );
+  assert.deepEqual(flagIds(record.sentences[2]), ['ambiguous-id']);
+  assert.deepEqual(chips(5, record), ['Id. → Compl.']);
+  assert.equal(record.sentences[4].support, 'record');
+});
+
+test('headings for a prayer for relief, the nature of the case, a counterstatement and more', () => {
+  const partFor = heading =>
+    sectionsOf(
+      doc([
+        ['h1', 'Brief'],
+        ['h2', heading],
+        ['p', 'Text.'],
+        ['h2', 'Argument'],
+        ['p', 'Rule.'],
+      ]),
+    )[1].part;
+  const expected = {
+    conclusion: ['PRAYER FOR RELIEF', 'RELIEF REQUESTED', 'Request for Relief', 'Relief Sought'],
+    introduction: ['NATURE OF THE CASE', 'Nature of the Action'],
+    facts: ['COUNTERSTATEMENT OF FACTS', 'Counter-Statement of the Facts', 'FACTUAL ALLEGATIONS'],
+    answer: ['Executive Summary'],
+    standard: ['Applicable Law', 'II. The Applicable Law'],
+    other: ['Next Steps', 'Assumptions', 'Statement Regarding Oral Argument'],
+  };
+  for (const [part, headings] of Object.entries(expected)) {
+    for (const heading of headings) assert.equal(partFor(heading), part, heading);
+  }
+  // A memo with an Executive Summary and Factual Allegations has its answer and facts.
+  const memo = analyzeLegal(
+    doc([
+      ['h2', 'Question Presented'],
+      ['p', 'Whether Doe can recover.'],
+      ['h2', 'Executive Summary'],
+      ['p', 'Probably yes.'],
+      ['h2', 'Factual Allegations'],
+      ['p', 'Doe slipped on ice. Compl. ¶ 4.'],
+      ['h2', 'Discussion'],
+      [
+        'p',
+        'A store owes invitees care. Smith v. Jones, 1 F.3d 1, 2 (2d Cir. 1990). Here the store knew of the ice. Doe can likely recover.',
+      ],
+    ]),
+    tags(
+      'heading/framing issue/framing heading/framing conclusion/conclusion heading/framing facts/client-fact heading/framing rule/law application/application conclusion/conclusion',
+    ),
+  );
+  assert.deepEqual(shape(memo), [
+    'question Question',
+    'answer Answer',
+    'facts Facts',
+    'sub-issue Part 1',
+  ]);
+  assert.ok(!memo.checks.some(check => check.id === 'facts-section'));
+});
+
+test('New York’s “POINT I:” headings take their numerals', () => {
+  const points = sectionsOf(
+    doc([
+      ['h2', 'ARGUMENT'],
+      ['h3', 'POINT I: THE CLAIM FAILS'],
+      ['p', 'a.'],
+      ['h3', 'POINT II — THE DEFENSE APPLIES'],
+      ['p', 'b.'],
+      ['h3', 'Point III\nTHE FEE CLAIM FAILS'],
+      ['p', 'c.'],
+      ['h3', 'Pointless Delay'],
+      ['p', 'd.'],
+    ]),
+  );
+  assert.deepEqual(
+    points.map(section => [section.tag, section.label]),
+    [
+      ['Umbrella', 'ARGUMENT'],
+      ['I', 'THE CLAIM FAILS'],
+      ['II', 'THE DEFENSE APPLIES'],
+      ['III', 'THE FEE CLAIM FAILS'],
+      ['Part 4', 'Pointless Delay'],
+    ],
+  );
+});
+
+test('US public-domain citations: keyed and titled as written, with their courts’ levels', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'One. People v. Doe, 2020 IL 124112, ¶ 20. Two. Doe, 2020 IL 124112, ¶ 22. Three. Smith v. Jones, 2020 IL App (1st) 123456, ¶ 5. Four. State v. Roe, 2021-Ohio-1234, ¶ 15 (8th Dist.). Five. State v. Poe, 2015 WI 50, ¶ 10, 362 Wis. 2d 1, 864 N.W.2d 1. Six. Moe v. Hoe, 2018 ND App 12, ¶ 3. Seven. Fox v. State, 2018 OK CR 12, ¶ 4. Eight. It leaned on 2019-NMSC-012.',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(
+    reading.authorities.map(row => [row.key, row.name, row.title, row.level]),
+    // Sorted by title, so the number of the one cited by its number alone comes first.
+    [
+      ['2019 NMSC 012', '2019-NMSC-012', '2019-NMSC-012', 'state-supreme'],
+      ['2018 OKCR 12', 'Fox', 'Fox v. State, 2018 OK CR 12', 'state-supreme'],
+      ['2018 NDApp 12', 'Moe', 'Moe v. Hoe, 2018 ND App 12', 'state-appellate'],
+      ['2020 IL 124112', 'Doe', 'People v. Doe, 2020 IL 124112', 'state-supreme'],
+      [
+        '2020 ILApp(1st) 123456',
+        'Smith',
+        'Smith v. Jones, 2020 IL App (1st) 123456',
+        'state-appellate',
+      ],
+      [
+        '2015 WI 50',
+        'Poe',
+        'State v. Poe, 2015 WI 50, 362 Wis. 2d 1, 864 N.W.2d 1',
+        'state-supreme',
+      ],
+      ['2021 Ohio 1234', 'Roe', 'State v. Roe, 2021-Ohio-1234 (8th Dist.)', 'state-appellate'],
+    ],
+  );
+  // Its number names the case, so a chip without a pin shows none.
+  assert.deepEqual(
+    reading.sentences.flatMap(item => item.cites.map(cite => cite.label)),
+    [
+      'Doe ¶ 20',
+      'Doe ¶ 22',
+      'Smith ¶ 5',
+      'Roe ¶ 15',
+      'Poe ¶ 10',
+      'Moe ¶ 3',
+      'Fox ¶ 4',
+      '2019-NMSC-012',
+    ],
+  );
+  // Other courts named like a federal district court or a court of appeals.
+  const levels = analyzeLegal(
+    doc([
+      [
+        'p',
+        'One. Doe v. Roe, 1 A.3d 1, 5 (D.C. 2010). Two. Poe v. State, 1 S.W.3d 1, 5 (Tex. Crim. App. 2010). Three. Fox v. Hen, 1 F. Supp. 3d 1, 5 (D.D.C. 2010). Four. Ash v. Oak, 2018 Guam 12, ¶ 3.',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(
+    levels.authorities.map(row => [row.name, row.level]),
+    [
+      ['Ash', 'state-supreme'],
+      ['Doe', 'state-supreme'],
+      ['Fox', 'district'],
+      ['Poe', 'state-supreme'],
+    ],
+  );
+});
+
+test('titles keep subsequent history, an English report its court, and the High Court its division', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'One. Smith v. Jones, 123 F.3d 456, 460 (2d Cir. 2001), aff’d, 535 U.S. 1 (2002). Two. Smith v. Roe, 123 S.W.3d 456, 460 (Tex. App.—Houston [14th Dist.] 2003, pet. denied). Three. Doe v. Roe, 2021 U.S. Dist. LEXIS 12345, at *5 (D. Mass. Jan. 5, 2021), aff’d, 1 F.4th 1 (1st Cir. 2022). Four. Donoghue v Stevenson [1932] AC 562 (HL). Five. Poe v Moe [2019] EWHC 123 (Ch).',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(
+    reading.authorities.map(row => row.title),
+    [
+      'Doe v. Roe, 2021 U.S. Dist. LEXIS 12345 (D. Mass. Jan. 5, 2021), aff’d, 1 F.4th 1 (1st Cir. 2022)',
+      'Donoghue v Stevenson [1932] AC 562 (HL)',
+      'Poe v Moe [2019] EWHC 123 (Ch)',
+      'Smith v. Jones, 123 F.3d 456 (2d Cir. 2001), aff’d, 535 U.S. 1 (2002)',
+      'Smith v. Roe, 123 S.W.3d 456 (Tex. App.—Houston [14th Dist.] 2003, pet. denied)',
+    ],
+  );
+  // The later decision is part of the citation, not a row of its own; a report's page is a
+  // page, but a neutral citation's number is not.
+  assert.equal(reading.authorities.length, 5);
+  assert.deepEqual(
+    [4, 5].flatMap(n => chips(n, reading)),
+    ['Donoghue 562', 'Poe'],
+  );
+});
+
+test('a slip opinion’s page and full date make a complete citation', () => {
+  const reading = analyzeLegal(
+    doc([['p', 'Courts split. Smith v. Roe, No. 21-1234, slip op. at 5 (2d Cir. Mar. 3, 2022).']]),
+    null,
+  );
+  assert.equal(reading.sentences[0].support, 'direct');
+  assert.deepEqual(chips(1, reading), ['Smith slip op. 5']);
+  assert.deepEqual(reading.authorities[0].warnings, []);
+  assert.equal(reading.authorities[0].level, 'circuit');
+});
+
+test('executive orders and California bills are named and titled by their numbers', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'Agencies must act. Exec. Order No. 14,028, 86 Fed. Reg. 26,633 (May 12, 2021). The bill says so. (Assem. Bill No. 5 (2019–2020 Reg. Sess.) § 2.)',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(
+    reading.authorities.map(row => [row.group, row.name, row.title]),
+    [
+      [
+        'statutes',
+        'Exec. Order No. 14,028',
+        'Exec. Order No. 14,028, 86 Fed. Reg. 26,633 (May 12, 2021)',
+      ],
+      ['other', 'Assem. Bill No. 5', 'Assem. Bill No. 5 (2019–2020 Reg. Sess.)'],
+    ],
+  );
+  assert.deepEqual(chips(1, reading), ['Exec. Order No. 14,028']);
+});
+
+test('a short section a client fact cites is the client’s document, not a statute elsewhere', () => {
+  const reading = analyzeLegal(
+    doc([
+      ['p', 'Federal law requires enforcement of arbitration agreements. 9 U.S.C. § 2.'],
+      ['p', 'The Fees are payable as provided in § 2.'],
+      ['p', 'Delgado sued under § 12940.'],
+      ['p', 'Retaliation is barred. Cal. Gov’t Code § 12940(h).'],
+    ]),
+    tags('rule/law facts/client-fact facts/client-fact rule/law'),
+  );
+  assert.deepEqual(supports(reading), ['direct', 'record', 'direct', 'direct']);
+  assert.deepEqual(
+    reading.authorities.map(row => [row.title, row.count]),
+    [
+      ['9 U.S.C. § 2', 1],
+      ['Cal. Gov’t Code § 12940(h)', 2],
+    ],
+  );
+  // In the statute's own paragraph it is the statute's.
+  const same = analyzeLegal(
+    doc([
+      [
+        'p',
+        'Federal law requires enforcement of arbitration agreements. 9 U.S.C. § 2. The Fees are payable as provided in § 2.',
+      ],
+    ]),
+    tags('rule/law facts/client-fact'),
+  );
+  assert.equal(same.authorities[0].count, 2);
+});
+
+test('record citations in the forms the parser learned support facts, and an id. names them', () => {
+  const reading = analyzeLegal(
+    doc([
+      ['h2', 'Statement of Facts'],
+      ['p', "Doe signed in 2020. Pl.'s Mot. Summ. J. 5. Roe never paid. SAC ¶ 9."],
+      [
+        'p',
+        'The jury heard it. Trial Tr. vol. 2, 45:3-9. Then again. Id. at 50:1. The order issued. Doc. 45 at 3. It was entered. Id. at 4. The photo shows it. PX 12 at 3. It is clear. Id. at 4.',
+      ],
+    ]),
+    tags(
+      'heading/framing facts/client-fact facts/client-fact facts/client-fact facts/client-fact facts/client-fact facts/client-fact facts/client-fact facts/client-fact',
+    ),
+  );
+  assert.equal(reading.sentences.length, 9);
+  assert.deepEqual(supports(reading).slice(1), Array(8).fill('record'));
+  assert.equal(reading.attentionCount, 0);
+  assert.deepEqual(reading.authorities, []);
+  assert.deepEqual(
+    [5, 7, 9].flatMap(n => chips(n, reading)),
+    ['Id. → Trial Tr. vol. 2', 'Id. → Doc. 45', 'Id. → PX 12'],
+  );
+});
+
+test('a one-word case name the document also writes in lowercase is not a reference to it', () => {
+  const reading = analyzeLegal(
+    doc([
+      ['p', 'Schools may not segregate. Brown v. Bd. of Educ., 347 U.S. 483, 495 (1954).'],
+      ['p', 'Brown paint covered the classroom floor, so the school was on notice.'],
+      ['p', 'The paint was brown and wet.'],
+    ]),
+    tags('rule/law application/application facts/client-fact'),
+  );
+  assert.deepEqual(flagIds(reading.sentences[1]), []);
+  assert.equal(reading.authorities[0].count, 1);
+});
+
+test('California treatises are titled with their editions', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'The duty is settled. (6 Witkin, Summary of Cal. Law (11th ed. 2017) Torts, § 1234.) The motion may be heard. (Weil & Brown, Cal. Practice Guide: Civil Procedure Before Trial (The Rutter Group 2020) ¶ 9:123.)',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(
+    reading.authorities.map(row => [row.name, row.title]),
+    [
+      [
+        'Weil & Brown',
+        'Weil & Brown, Cal. Practice Guide: Civil Procedure Before Trial (The Rutter Group 2020)',
+      ],
+      ['Witkin', 'Witkin, Summary of Cal. Law (11th ed. 2017)'],
+    ],
+  );
+  assert.deepEqual(
+    [1, 2].flatMap(n => chips(n, reading)),
+    ['Witkin § 1234', 'Weil & Brown ¶ 9:123'],
+  );
+});
+
+// ---------------------------------------------------------------------------
+// The long tail, third round (tests/long-tail.test.mjs has the verifier's cases)
+// ---------------------------------------------------------------------------
+
+test('an id. of a constitution’s other article is that article, with its own row', () => {
+  const read = text => analyzeLegal(doc([['p', text]]), null);
+  const federal = read(
+    'Congress may regulate commerce. U.S. Const. art. I, § 8, cl. 3. The President executes the laws. Id. art. II, § 3. He also commands the army. Id. art. II.',
+  );
+  assert.deepEqual(
+    [2, 3].flatMap(n => chips(n, federal)),
+    ['Id. → U.S. Const. art. II, § 3', 'Id. → U.S. Const. art. II'],
+  );
+  assert.deepEqual(
+    federal.authorities.map(row => [row.title, row.count]),
+    [
+      ['U.S. Const. art. I, § 8, cl. 3', 1],
+      ['U.S. Const. art. II', 1],
+      ['U.S. Const. art. II, § 3', 1],
+    ],
+  );
+  // California's comma after "Const." and "Id." stays, and the same article is the same row.
+  const state = read(
+    'Privacy is protected. (Cal. Const., art. I, § 1.) Speech is too. (Id., art. I, § 2, subd. (a).) So is privacy at home. (Id., art. I, § 1.)',
+  );
+  assert.deepEqual(
+    [2, 3].flatMap(n => chips(n, state)),
+    ['Id. → Cal. Const., art. I, § 2', 'Id. → Cal. Const., art. I, § 1'],
+  );
+  assert.deepEqual(
+    state.authorities.map(row => [row.title, row.count]),
+    [
+      ['Cal. Const., art. I, § 1', 2],
+      ['Cal. Const., art. I, § 2(a)', 1],
+    ],
+  );
+});
+
+test('headings typed as paragraphs are read when a document has no heading styles', () => {
+  const tags = list => sectionsOf(doc(list)).map(section => `${section.part} ${section.tag}`);
+  // A brief pasted from a word processor: its parts and point headings are bold paragraphs.
+  const brief = [
+    ['p', 'IN THE APPELLATE COURT OF ILLINOIS'],
+    ['p', 'NATURE OF THE CASE'],
+    ['p', 'Raman appeals a dismissal.'],
+    ['p', 'STATEMENT OF FACTS'],
+    ['p', 'Raman fell. (R. 12.)'],
+    ['p', 'ARGUMENT'],
+    ['p', 'I. THE RELEASE DOES NOT REACH THE DEVICE.'],
+    ['p', 'A release is read narrowly.'],
+    ['p', 'A. The words of the release'],
+    ['p', 'The release names falls.'],
+    ['p', 'II. Willful and wanton conduct is never released'],
+    ['p', 'Public policy forbids it.'],
+    ['p', 'CONCLUSION'],
+    ['p', 'The judgment should be reversed.'],
+  ];
+  assert.deepEqual(tags(brief), [
+    'caption Caption',
+    'introduction Introduction',
+    'facts Facts',
+    'umbrella Umbrella',
+    'umbrella I',
+    'sub-issue I.A',
+    'sub-issue II',
+    'conclusion Conclusion',
+  ]);
+  const reading = analyzeLegal(doc(brief), null);
+  assert.equal(reading.type, 'brief');
+  assert.equal(reading.sentences.find(s => s.text === 'ARGUMENT').support, 'n/a');
+  // A document with heading styles keeps only those.
+  assert.deepEqual(
+    tags([
+      ['h2', 'Discussion'],
+      ['p', 'ARGUMENT'],
+      ['p', 'I. THE CLAIM FAILS'],
+      ['p', 'Fraud needs particularity.'],
+    ]),
+    ['sub-issue Part 1'],
+  );
+  // A numbered list of sentences stays a list, and a caption line stays a line.
+  assert.deepEqual(
+    tags([
+      ['p', 'UNITED STATES DISTRICT COURT'],
+      ['p', 'Discussion'],
+      ['p', '1. Call the client.'],
+      ['p', '2. File the motion by Friday.'],
+    ]),
+    ['caption Caption', 'sub-issue Part 1'],
+  );
+  // Before the discussion, a numbered line is no point heading.
+  assert.deepEqual(
+    tags([
+      ['p', 'Facts'],
+      ['p', '1. The lease'],
+      ['p', 'Doe signed it.'],
+    ]),
+    ['facts Facts'],
+  );
+  // Ordinary paragraphs, with no part's name among them, are left alone.
+  assert.deepEqual(
+    tags([
+      ['p', 'Dear Ms. Alvarez,'],
+      ['p', 'I. Thanks for the call'],
+      ['p', 'We will file on Friday.'],
+    ]),
+    ['sub-issue Analysis'],
+  );
+});
+
+test('English and Canadian short forms resolve to the case their name names', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'A rule. Jones v Smith [2020] EWCA Civ 1234 at [45]. Another rule. Jones at [47]. A third. R v Doe, 2015 ONCA 123 at para 4. A fourth. Doe at paras 6–7.',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(
+    [1, 2, 3, 4].flatMap(n => chips(n, reading)),
+    ['Jones [45]', 'Jones [47]', 'Doe para 4', 'Doe paras 6–7'],
+  );
+  assert.deepEqual(
+    reading.authorities.map(row => [row.title, row.count]),
+    [
+      ['Jones v Smith [2020] EWCA Civ 1234', 2],
+      ['R v Doe, 2015 ONCA 123', 2],
+    ],
+  );
+  assert.deepEqual(reading.unresolved, []);
+});
+
+test('a statute’s or book’s explanatory parenthetical is its own, not its name', () => {
+  const reading = analyzeLegal(
+    doc([
+      [
+        'p',
+        'The court has jurisdiction. 28 U.S.C. § 1291 (granting jurisdiction over final decisions). Some agree. See also Restatement (Second) of Torts § 343 (Am. L. Inst. 1965) (duty to invitees). The rule is old. 28 U.S.C. § 1291.',
+      ],
+    ]),
+    null,
+  );
+  assert.deepEqual(
+    [1, 2, 3].flatMap(n => chips(n, reading)),
+    ['§ 1291', 'Restatement (Second) of Torts § 343', '§ 1291'],
+  );
+  assert.deepEqual(
+    reading.authorities.map(row => [row.title, row.count]),
+    [
+      ['28 U.S.C. § 1291', 2],
+      ['Restatement (Second) of Torts (Am. L. Inst. 1965)', 1],
+    ],
+  );
+  // "See also" with a parenthetical says how the source supports the claim.
+  assert.deepEqual(flagIds(reading.sentences[1]), []);
+});
+
+test('a client’s one-word name is not a word the document uses in lowercase', () => {
+  const blocks = doc([
+    [
+      'p',
+      'PRIYA RAMAN, Plaintiff-Appellant,\nv.\nSUMMIT ASCENT CLIMBING, LLC, Defendant-Appellee.',
+    ],
+    ['h2', 'Facts'],
+    [
+      'p',
+      'Raman fell while climbing at Summit Ascent. Climbing gyms must inspect their gear. Other gyms, like Ridgecrest Climbing Ctr., do.',
+    ],
+  ]);
+  assert.deepEqual(clientNames(blocks), [
+    'Priya Raman',
+    'Summit Ascent Climbing',
+    'Raman',
+    'Summit Ascent',
+  ]);
+});
+
+test('a quotation in a question presented is noted, not counted', () => {
+  const reading = analyzeLegal(
+    doc([
+      ['h2', 'Issues Presented'],
+      ['p', 'Whether a release of “the inherent risks of climbing” bars the claim.'],
+      ['h2', 'Argument'],
+      ['p', 'The release says “the inherent risks of climbing.”'],
+    ]),
+    [
+      ['heading', 'framing'],
+      ['issue', 'law'],
+      ['heading', 'framing'],
+      ['rule', 'law'],
+    ],
+  );
+  assert.deepEqual(flagIds(reading.sentences[1]), ['quote', 'quote-unsourced']);
+  assert.equal(reading.sentences[1].attention, false);
+  // The same quotation stated as law still needs its source.
+  assert.equal(reading.sentences[3].attention, true);
+});
+
+test('a case goes by the party name the document itself uses (AN-13)', () => {
+  const read = text => analyzeLegal(doc([['p', text]]), null);
+  const iqbal = read(
+    'A complaint must state a plausible claim. Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009). Iqbal requires more than labels.',
+  );
+  assert.deepEqual(chips(1, iqbal), ['Iqbal 678']);
+  assert.equal(iqbal.authorities[0].name, 'Iqbal');
+  // On its own, a case goes by its first party (Bluebook rule 10.9), and a document that
+  // uses the first party's name, or both, keeps it.
+  assert.deepEqual(
+    chips(1, read('A complaint must state a claim. Ashcroft v. Iqbal, 556 U.S. 662, 678 (2009).')),
+    ['Ashcroft 678'],
+  );
+  assert.equal(
+    read(
+      'The rule is settled. Smith v. Jones, 1 F.3d 1, 2 (2d Cir. 1990). Smith held so, and Jones lost.',
+    ).authorities[0].name,
+    'Smith',
+  );
+  // A government or institution is never what a case is called.
+  assert.equal(
+    read('Segregation is unequal. Brown v. Bd. of Educ., 347 U.S. 483, 495 (1954). The Board lost.')
+      .authorities[0].name,
+    'Brown',
+  );
+});
+
+test('a conclusion that a claim fails may be as sure as its surest failing part (AN-12)', () => {
+  const HF = ['heading', 'framing'];
+  const memo = (a, b, conclusion) =>
+    analyzeLegal(
+      doc([
+        ['h2', 'Discussion'],
+        ['p', 'Two parts.'],
+        ['h3', 'A. Goodwill'],
+        ['p', `Rule. Smith v. Jones, 123 F.3d 456, 460 (2d Cir. 2001). Here none. ${a}`],
+        ['h3', 'B. Confusion'],
+        ['p', `Rule. Smith v. Jones, 123 F.3d 456, 461 (2d Cir. 2001). Here none. ${b}`],
+        ['h2', 'Conclusion'],
+        ['p', conclusion],
+      ]),
+      [
+        HF,
+        ['roadmap', 'framing'],
+        HF,
+        ['rule', 'law'],
+        ['application', 'application'],
+        ['conclusion', 'conclusion'],
+        HF,
+        ['rule', 'law'],
+        ['application', 'application'],
+        ['conclusion', 'conclusion'],
+        HF,
+        ['conclusion', 'conclusion'],
+      ],
+    ).checks.filter(check => check.id === 'confidence').length;
+  // Borden loses if either part fails, and B says it very likely will.
+  assert.equal(
+    memo(
+      'Borden is unlikely to show goodwill.',
+      'Borden will very likely fail.',
+      'Borden will very likely lose.',
+    ),
+    0,
+  );
+  // No part fails as surely as the conclusion says the claim does.
+  assert.equal(
+    memo(
+      'Borden is unlikely to show goodwill.',
+      'Borden will probably fail.',
+      'Borden will very likely lose.',
+    ),
+    1,
+  );
+  // A claim that succeeds needs every part, so it is no surer than the weakest.
+  assert.equal(
+    memo(
+      'Borden will probably show goodwill.',
+      'Borden will very likely show confusion.',
+      'Borden will very likely win.',
+    ),
+    1,
+  );
+});

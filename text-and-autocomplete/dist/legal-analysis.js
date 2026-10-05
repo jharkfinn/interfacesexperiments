@@ -6,6 +6,7 @@ import {
   citationKey,
   shortName,
   isCitationSentence,
+  distinctiveName,
 } from './legal-text.js';
 import { ROLES, KINDS, ALLOWED, STRUCTURE_CHECKS } from './legal-core.js';
 
@@ -34,15 +35,23 @@ import { ROLES, KINDS, ALLOWED, STRUCTURE_CHECKS } from './legal-core.js';
 //     role, kind, also, guess, conflict,  // labels after the app's overrides; null without labels;
 //                       // kind may be document-text (a contract's or statute's own words)
 //     support,          // direct, inferential, indirect, background, contrary, secondhand,
-//                       // incomplete, below, missing, unsourced, record, n/a or unknown.
+//                       // incomplete, below, missing, unsourced, record, cited, n/a or
+//                       // unknown.
 //                       // record: it rests on the record (Compl. ¶ 9, Ex. A at 1, 2 CT 362)
 //                       // or on a section of the document or contract it discusses (a
-//                       // cross-reference inside a contract's own clauses is no source);
+//                       // cross-reference inside a contract's own clauses is no source),
+//                       // or it is a client fact whose only citations are in a form the
+//                       // parser does not know;
+//                       // cited: its only citations are in a form the parser does not know
+//                       // (legal-text's 'unparsed', "Joint Stip. ¶ 4"), so it is shown but
+//                       // not judged, and needs no attention for that;
 //                       // n/a: it needs no source (a heading, the caption, an issue, a
 //                       // roadmap, a conclusion, reproduced document text, or a fact
 //                       // told in a section with no legal analysis, or in a letter,
 //                       // email or story that cites no record)
-//     flags: [{id, text, attention, title?, items?}],  // items [{id, text}] on the one 'form' flag
+//     flags: [{id, text, attention, title?, items?}],  // items [{id, text}] on the one 'form' flag;
+//                       // 'ambiguous-id' on an id. right after a citation of more than one
+//                       // source ("A; B. Id. at 4"), which is then unresolved
 //     cites: [{label, state, start, end, key, text}],  // state: own, quoted, nested or unresolved;
 //                       // label has no state suffix ("Twombly 570", "Ortega 1206" for a
 //                       // supra with a pin, "Id. → Compl." for an id. of the record,
@@ -60,9 +69,10 @@ import { ROLES, KINDS, ALLOWED, STRUCTURE_CHECKS } from './legal-core.js';
 //                       // introduction or summary of argument), standard (the legal standard
 //                       // or standard of review) and other (jurisdiction, and sections with
 //                       // no legal analysis in them) get none;
-//                       // tag: "I", "I.A" (numerals joined down the headings), "Part 4" (a
-//                       // heading's own number), "Part 2" (by position, skipping numbers
-//                       // headings take, so no two share a tag), or the part's name;
+//                       // tag: "I", "I.A" (numerals joined down the headings, "POINT II:"
+//                       // as "II"), "Part 4" (a heading's own number), "Part 2" (by
+//                       // position, skipping numbers headings take, so no two share a
+//                       // tag), or the part's name;
 //                       // heading: the heading's block number or null;
 //                       // parent: the index of the umbrella it is under, or null;
 //                       // first, last: sentence numbers;
@@ -81,26 +91,37 @@ import { ROLES, KINDS, ALLOWED, STRUCTURE_CHECKS } from './legal-core.js';
 //                       // group: cases (with unreported cases cited by docket or Westlaw
 //                       // number), statutes, or other (law reviews, treatises, dictionaries,
 //                       // agency guidance, legislative history, bare docket and database
-//                       // numbers). The record, sections of the document and the caption's
-//                       // citations are not authorities. name: a case's short name
+//                       // numbers, and citations in a form the parser does not know, named
+//                       // and titled as written, with the warning "Form not recognized:
+//                       // check it by hand"). The record, sections of the document and the
+//                       // caption's citations are not authorities. key: legal-text's
+//                       // citationKey, with a reported case's first page ("550 U.S. 544");
+//                       // a neutral citation's key has its number already ("2020 IL
+//                       // 124112"). name: a case's short name
 //                       // ("Twombly", from legal-text's shortName), or its neutral citation
-//                       // when that is all it has ("[2019] UKSC 5"); a statute's section
-//                       // ("§ 3602"), a session law's number, or the first page of the
-//                       // Statutes at Large or the Federal Register; an author's surname;
-//                       // a report's number and part. title: as the document cites it,
-//                       // without pins (Bluebook, California's "(2001) 25 Cal.4th 826 […]",
-//                       // English and Canadian), with parallel citations, the full date of an
-//                       // unreported case, and an article's or book's author and title; a
-//                       // session law with its Statutes at Large page and year, the Federal
-//                       // Register with its date; court: the full citation's court or null;
+//                       // when that is all it has ("[2019] UKSC 5", "2021-Ohio-1234"); a
+//                       // statute's section ("§ 3602"), a session law's or executive order's
+//                       // number, or the first page of the Statutes at Large or the Federal
+//                       // Register; an author's surname; a report's or bill's number and
+//                       // part. title: as the document cites it, without pins (Bluebook,
+//                       // California's "(2001) 25 Cal.4th 826 […]", English, Canadian and US
+//                       // public-domain, "2021-Ohio-1234 (8th Dist.)"), with parallel
+//                       // citations, subsequent history (", aff’d, 535 U.S. 1 (2002)", Texas's
+//                       // "(Tex. App. 2003, pet. denied)"), the full date of an unreported case,
+//                       // and an article's or book's author and title; a session law or
+//                       // executive order with its Statutes at Large or Federal Register page
+//                       // and its date; court: the full citation's court or null;
 //                       // italic: [start, end] of the case name, or of the article's or book's
 //                       // title, in title; level: supreme (the U.S., UK and Canadian supreme
 //                       // courts, the House of Lords), circuit, district, state-supreme,
-//                       // state-appellate, appellate (an English or Canadian court of
-//                       // appeal), statute or unknown;
+//                       // state-appellate (by reporter, or by the court a public-domain
+//                       // citation names: "2020 IL 124112" is state-supreme, "2020 IL App
+//                       // (1st) 123" state-appellate), appellate (an English or Canadian
+//                       // court of appeal), statute or unknown;
 //                       // mentions: [{block, start, end, type, state, section}], section a tag
 //   unresolved: [{text, span}],  // short forms, supras and id. that name no case cited in
-//                       // full here, each with why and its {block, start, end}
+//                       // full here, and id. after a citation of more than one source, each
+//                       // with why and its {block, start, end}
 //   attentionCount,
 // }
 
@@ -128,30 +149,32 @@ const prose = items =>
 // ---------------------------------------------------------------------------
 
 // The parts a top heading names, by its words without a numeral or a final colon. A
-// memo's question, answer, facts and conclusion; a brief's introduction, statement of
-// the case and standard of review; and parts with no analysis, such as jurisdiction.
-// A facts heading is a short one: "Facts and Procedural History", "Relevant Facts",
-// "Factual Background", not a point heading that mentions facts.
+// memo's question, answer (its "Executive Summary" too), facts and conclusion; a brief's
+// introduction ("Nature of the Case"), statement of the case, standard of review
+// ("Applicable Law") and prayer for relief, which concludes it; a complaint's factual
+// allegations and an appellee's counterstatement of facts; and parts with no analysis,
+// such as jurisdiction. A facts heading is a short one: "Facts and Procedural History",
+// "Relevant Facts", "Factual Background", not a point heading that mentions facts.
 const PARTS = [
   [
     /^(?:(?:questions?|issues?)(?:\s+presented)?(?:\s+for\s+review)?|statement\s+of\s+(?:the\s+)?(?:issues?|questions?)(?:\s+presented)?)$/i,
     'question',
   ],
-  [/^(?:brief|short)?\s*answers?$/i, 'answer'],
+  [/^(?:(?:brief|short)?\s*answers?|executive\s+summary)$/i, 'answer'],
   [
-    /^(?:introduction|preliminary\s+statement|summary\s+of\s+(?:the\s+)?argument)$/i,
+    /^(?:introduction|preliminary\s+statement|summary\s+of\s+(?:the\s+)?argument|nature\s+of\s+(?:the\s+)?(?:case|action|proceedings?))$/i,
     'introduction',
   ],
   [
-    /^(?:(?:the\s+)?(?:applicable\s+|governing\s+)?legal\s+standards?|standards?\s+of\s+(?:review|decision)|(?:the\s+)?(?:applicable|governing)\s+standards?)$/i,
+    /^(?:(?:the\s+)?(?:applicable\s+|governing\s+)?legal\s+standards?|standards?\s+of\s+(?:review|decision)|(?:the\s+)?(?:applicable|governing)\s+standards?|(?:the\s+)?applicable\s+law)$/i,
     'standard',
   ],
   [
-    /^(?:(?:statement|summary)\s+of\s+(?:the\s+)?(?:(?:relevant|material|undisputed|pertinent)\s+)?facts|(?:(?:the|relevant|material|undisputed|pertinent|background|key)\s+){0,2}facts?(?:\s+and\s+(?:procedural\s+)?(?:history|background|posture|proceedings))?|factual\s+(?:and\s+procedural\s+)?(?:background|summary|history)|(?:(?:factual|procedural|relevant)\s+)?background(?:\s+facts)?|statement\s+of\s+the\s+case(?:\s+and\s+(?:the\s+)?facts)?|procedural\s+(?:history|background|posture))$/i,
+    /^(?:(?:counter-?\s?)?(?:statement|summary)\s+of\s+(?:the\s+)?(?:(?:relevant|material|undisputed|pertinent)\s+)?facts|(?:(?:the|relevant|material|undisputed|pertinent|background|key)\s+){0,2}facts?(?:\s+and\s+(?:procedural\s+)?(?:history|background|posture|proceedings))?|factual\s+(?:and\s+procedural\s+)?(?:background|summary|history|allegations)|(?:(?:factual|procedural|relevant)\s+)?background(?:\s+facts)?|statement\s+of\s+the\s+case(?:\s+and\s+(?:the\s+)?facts)?|procedural\s+(?:history|background|posture))$/i,
     'facts',
   ],
   [
-    /^(?:conclusions?|recommendations?)(?:\s+and\s+(?:recommendations?|conclusions?|relief(?:\s+(?:sought|requested))?))?$/i,
+    /^(?:(?:conclusions?|recommendations?)(?:\s+and\s+(?:recommendations?|conclusions?|relief(?:\s+(?:sought|requested))?))?|(?:prayer|request)\s+for\s+relief|relief\s+(?:requested|sought))$/i,
     'conclusion',
   ],
   [
@@ -178,13 +201,64 @@ const TAGS = {
   conclusion: 'Conclusion',
   other: 'Other',
 };
-const NUMERAL = /^\s*((?:[IVXLC]+|[A-Z]|\d{1,2}))[.)]\s/;
+// A heading's numeral: "IV.", "A)", "3.", or New York's "POINT II:" (or "POINT II" alone
+// on its line), whose numeral is "II". The numeral is the first group that matched.
+const NUMERAL =
+  /^\s*(?:(?:POINT|Point)\s+([IVXLC]+|\d{1,2})(?:[.:)]|\s+[—–-])?(?:\s|$)|((?:[IVXLC]+|[A-Z]|\d{1,2}))[.)]\s)/;
+const numeralOf = text => {
+  const found = text.match(NUMERAL);
+  return found ? { numeral: found[1] || found[2], length: found[0].length } : null;
+};
 // "IV. Conclusion:" is the conclusion, as "Conclusion" is.
 const headingWords = heading => heading.replace(NUMERAL, '').trim().replace(/[:.]$/, '').trim();
 const partOf = heading =>
   PARTS.find(([pattern]) => pattern.test(headingWords(heading)))?.[1] || null;
 // A numeral as a tag: "IV", "A", or "Part 4" for a number, which alone reads as a count.
 const numeralTag = numeral => (/^\d+$/.test(numeral) ? `Part ${numeral}` : numeral);
+
+// Headings typed as paragraphs. A document pasted from a word processor may set its
+// headings in bold with no heading style, so every block is a paragraph. In a document
+// with no h2-h6 headings, a short paragraph that is only a part's name ("ARGUMENT",
+// "Statement of Facts", "IV. CONCLUSION") is read as an h2, and in the discussion that
+// follows one, a short paragraph led by a numeral that does not end a sentence ("I. THE
+// CLAIM FAILS", "A. The release does not reach the device") as a point heading: an h3
+// for a roman numeral, an h4 for a capital letter, an h5 for a number, an h6 for a
+// lowercase letter. All capitals may end with a period ("II. THE CLAIM FAILS."); other
+// text may not, so a numbered list of sentences stays a list. Returns `blocks` itself
+// when nothing changes.
+const PARAGRAPH_LEVEL = numeral =>
+  /^[IVXLC]+$/.test(numeral)
+    ? 'h3'
+    : /^[A-Z]$/.test(numeral)
+      ? 'h4'
+      : /^\d+$/.test(numeral)
+        ? 'h5'
+        : 'h6';
+function withHeadings(blocks) {
+  if (blocks.some(block => /^h[2-6]$/.test(block.kind))) return blocks;
+  const short = text => !text.includes('\n') && text.length <= 120 && words(text) <= 16;
+  let discussion = false;
+  let changed = false;
+  const read = blocks.map(block => {
+    const text = block.text.trim();
+    if (block.kind !== 'p' || !short(text)) return block;
+    const name = headingWords(text);
+    if (!/[.!?;,]$/.test(text) && words(name) <= 8 && (partOf(text) || DISCUSSION.test(name))) {
+      discussion = DISCUSSION.test(name);
+      changed = true;
+      return { ...block, kind: 'h2' };
+    }
+    const numeral = discussion && numeralOf(text);
+    const title = numeral && text.slice(numeral.length).trim();
+    const capitals = title && title === title.toUpperCase() && /[A-Z]{2}/.test(title);
+    if (title && /^[A-Z“"]/.test(title) && (capitals || !/[.!?;:,]$/.test(title))) {
+      changed = true;
+      return { ...block, kind: PARAGRAPH_LEVEL(numeral.numeral) };
+    }
+    return block;
+  });
+  return changed ? read : blocks;
+}
 
 // The document's sections, taken from its headings: [{index, part, tag, label, heading,
 // parent, blocks, first, last}]. Blocks before the first h2-h6 are the caption; an h2
@@ -194,6 +268,7 @@ const numeralTag = numeral => (/^\d+$/.test(numeral) ? `Part ${numeral}` : numer
 // first sub-issue is theirs. A document with no such headings is one sub-issue,
 // "Analysis".
 export function sectionsOf(blocks) {
+  blocks = withHeadings(blocks);
   const live = [];
   let count = 0;
   blocks.forEach(({ kind, text, sentences }, block) => {
@@ -260,14 +335,14 @@ export function sectionsOf(blocks) {
   // a numeral skips, so no two sections share a tag.
   const taken = new Set(
     sections
-      .map(section => section.heading?.text.match(NUMERAL)?.[1])
+      .map(section => section.heading && numeralOf(section.heading.text)?.numeral)
       .filter(numeral => /^\d+$/.test(numeral || ''))
       .map(Number),
   );
   return sections.map((section, index) => {
     const heading = section.heading;
-    const numeral = heading?.text.match(NUMERAL);
-    const title = heading ? heading.text.slice(numeral ? numeral[0].length : 0).trim() : '';
+    const numeral = heading && numeralOf(heading.text);
+    const title = heading ? heading.text.slice(numeral ? numeral.length : 0).trim() : '';
     if (section.part === 'discussion') section.part = section.nested ? 'umbrella' : 'sub-issue';
     else if (section.part === 'sub-issue' && section.nested) section.part = 'umbrella';
     let tag = TAGS[section.part];
@@ -278,7 +353,7 @@ export function sectionsOf(blocks) {
     if (section.parent || section.part === 'sub-issue' || point) {
       part++;
       const above = section.parent && chains.get(section.parent);
-      const chain = numeral ? (above ? `${above}.${numeral[1]}` : numeral[1]) : null;
+      const chain = numeral ? (above ? `${above}.${numeral.numeral}` : numeral.numeral) : null;
       chains.set(section, chain);
       if (!chain && start >= 0) while (taken.has(part)) part++;
       tag = chain ? numeralTag(chain) : start < 0 ? 'Analysis' : `Part ${part}`;
@@ -525,10 +600,11 @@ export function railOf(section, runs, sentences) {
     const mine = sentences.slice(section.first - 1, section.last);
     if (!bodyOf(section, sentences).length) return null;
     const predicting = mine.filter(predicts);
+    // A rule cited in a form the parser does not know is cited all the same.
     const cited = mine.some(
       sentence =>
         (sentence.role === 'rule' || sentence.also === 'rule') &&
-        (sentence.support === 'direct' || sentence.support === 'inferential'),
+        ['direct', 'inferential', 'cited'].includes(sentence.support),
     );
     const roadmap = mine.some(
       sentence => sentence.role === 'roadmap' || sentence.also === 'roadmap',
@@ -620,9 +696,14 @@ const SIGNAL_BEFORE =
   /(?<![A-Za-z])((?:but\s+)?(?:see(?:,?\s+e\.g\.,|\s+also|\s+generally)?|cf\.)|compare|accord|contra|e\.g\.,)\s*$/i;
 // Only a semicolon between two citations: a string citation, where a signal carries on.
 const STRING_CITE = /^\s*;\s*$/;
+// What joins two citations of one citation sentence: a semicolon, with or without a new
+// signal ("; see also"), or Compare's ", with".
+const STRING_JOIN =
+  /^\s*(?:;|,?\s+with\b)\s*(?:(?:but\s+)?(?:see(?:,?\s+e\.g\.,|\s+also|\s+generally)?|cf\.)|compare|accord|contra|e\.g\.,)?\s*$/i;
 
 // A block's citations, each with `quoted` (inside the writer's quotation, so it is
-// the quoted court's) and its `signal`, and its quotation spans. A signal carries
+// the quoted court's), its `signal`, and `joined` when a string citation joins it to the
+// citation before ("A; see also B"), and its quotation spans. A signal carries
 // through a string citation until another one starts: in "See A; B", B is a See
 // citation too. Callers copy the citations before adding anything to them.
 function readBlock(text) {
@@ -645,8 +726,18 @@ function readBlock(text) {
     }
     const read = {
       ...cite,
+      // A statute, book or record citation is named by its text without the explanatory
+      // parentheticals after it ("28 U.S.C. § 1291 (granting …)" is "28 U.S.C. § 1291");
+      // its span still covers them.
+      text: cite.body ?? cite.text,
       quoted: quotes.some(([start, end]) => start < cite.start && cite.end <= end),
       signal,
+      joined: Boolean(
+        !cite.nested &&
+        previous &&
+        cite.start - previous.end < 40 &&
+        STRING_JOIN.test(text.slice(previous.end, cite.start)),
+      ),
     };
     if (!cite.nested) previous = read;
     return read;
@@ -698,16 +789,23 @@ const fromSection = text => {
     : text.slice(at);
 };
 
-const SESSION_LAW = /^Pub\.\s?L\.\s?No\.\s?\d+[-–]\d+/;
+// An id. that cites a constitution's other article or amendment ("Id. art. II, § 3",
+// "(Id., art. I, § 7, subd. (b).)"), and the constitution a citation names ("U.S. Const.",
+// "Cal. Const.,").
+const OTHER_ARTICLE = /^[Ii]d\.,?\s+((?:arts?|amends?)\.\s.*)$/;
+const CONSTITUTION = /^.*?\bConst\.,?/;
+// A session law's or an executive order's number: "Pub. L. No. 110-325", "Exec. Order No.
+// 14,028".
+const LAW_NUMBER = /^(?:Pub\.\s?L\.\s?No\.\s?\d+[-–]\d+|Exec\.\s?Order\s?No\.\s?\d{1,2},?\d{3})/;
 // The volume and first page of the Statutes at Large or the Federal Register, not a
 // short form's "122 Stat. at 3554".
 const FIRST_PAGE = /\b\d+\s+(?:Stat\.|Fed\.\s?Reg\.)\s+\d+(?:,\d{3})*/;
 
 // A statute's name in chips and messages: its section, without subsections ("§ 3602"),
-// a session law's number ("Pub. L. No. 110-325"), or the volume and first page of the
-// Statutes at Large or the Federal Register ("76 Fed. Reg. 16,978").
+// a session law's or executive order's number ("Pub. L. No. 110-325"), or the volume and
+// first page of the Statutes at Large or the Federal Register ("76 Fed. Reg. 16,978").
 const sectionName = text =>
-  text.match(SESSION_LAW)?.[0] ||
+  text.match(LAW_NUMBER)?.[0] ||
   text.match(FIRST_PAGE)?.[0] ||
   fromSection(text).replace(YEAR_AFTER, '').replace(SUBDIVISIONS, '').replace(SUBSECTIONS, '');
 
@@ -722,10 +820,16 @@ const isSection = cite =>
   cite.type === 'internal' ||
   Boolean(cite.internal) ||
   Boolean(cite.record && isSection(cite.record));
+// A citation in a form the parser does not know ("Joint Stip. ¶ 4"), or an id. that
+// repeats one. It is shown and listed, but never judged: whether it has a pin, what kind
+// of source it is and how strongly it supports the sentence are unknown.
+const isUnparsed = cite => cite.type === 'unparsed' || Boolean(cite.unparsed);
 
 const pinOf = cite => (cite.pin || '').replace(/^at\s+/, '');
+// A slip opinion's page stands in for a database cite: "No. 21-1234, slip op. at 5".
+const SLIP_OPINION = /\bslip\s+op\./;
 const hasPin = cite => {
-  if (isRecord(cite)) return true;
+  if (isRecord(cite) || isUnparsed(cite)) return true;
   if (cite.type === 'statute' || cite.type === 'section') return true;
   if (cite.type === 'docket' || cite.type === 'docket-number' || cite.type === 'database') {
     return Boolean(cite.pin) || /\bat\s+\*?\d/.test(cite.database || '');
@@ -743,12 +847,13 @@ const unresolved = cite =>
   (!cite.authority || cite.authority.nameless);
 
 // Whether a citation cannot support the sentence as written: a full cite with no
-// pin, an unreported case with no database cite or full date, or a short form
-// nothing resolves.
+// pin, an unreported case with no database cite (or slip opinion page) or full date, or a
+// short form nothing resolves.
 function deficient(cite) {
   if (cite.type === 'full') return !pinOf(cite);
   if (cite.type === 'docket' || cite.type === 'docket-number') {
-    return !cite.database || !FULL_DATE.test(cite.date || cite.text);
+    const slip = SLIP_OPINION.test(cite.text) && Boolean(cite.pin);
+    return !(cite.database || slip) || !FULL_DATE.test(cite.date || cite.text);
   }
   return unresolved(cite);
 }
@@ -761,13 +866,14 @@ const withoutPin = database => (database || '').replace(/,\s*at\b[^]*$/, '');
 
 // The record document a record citation cites, without its pin: "Compl." for "Compl.
 // ¶ 12", "Alvarez Dep." for "Alvarez Dep. 8:2-11", "2 CT" for "2 CT 371 [Ostrander depo.
-// at 44:3-19]", "Ex. B" for "Ex. B at 3". The number after "Ex." or "No." names the
-// document ("Ex. 4", "ECF No. 12"), and a bare section ("§ 4.3") is all there is to name.
+// at 44:3-19]", "Ex. B" for "Ex. B at 3". The number after "Ex.", "No.", "Doc.", "vol." or
+// a trial exhibit's "PX" names the document ("Ex. 4", "ECF No. 12", "Doc. 45", "Trial Tr.
+// vol. 2", "PX 12"), and a bare section ("§ 4.3") is all there is to name.
 function recordSource(text) {
   const words = text.split(/\s+/);
   let kept = 1;
   for (; kept < words.length; kept++) {
-    if (/^(?:Exh?\.|No\.)$/.test(words[kept - 1])) continue;
+    if (/^(?:Exh?\.|No\.|Doc\.|vol\.|[PDGJ]X)$/.test(words[kept - 1])) continue;
     if (/^(?:at$|[¶§[]|\d)/.test(words[kept])) break;
   }
   const source = words.slice(0, kept).join(' ').replace(/,$/, '');
@@ -782,6 +888,8 @@ function chipLabel(cite) {
   const id = () => cite.text.match(/^[Ii](?:bi)?d\./)[0];
   if (cite.type === 'id') {
     if (cite.record) return `${id()} → ${opening(recordSource(cite.record.text), 24)}`;
+    // What part of a form the parser does not know is the pin is unknown too.
+    if (cite.unparsed) return `${id()} → ${opening(cite.unparsed.text, 24)}`;
     return authority && !authority.nameless ? `${id()} → ${authority.name}` : id();
   }
   if (!authority) {
@@ -802,8 +910,9 @@ function chipLabel(cite) {
     case 'short':
       return `${authority.name} ${pinOf(cite)}`.trim();
     case 'docket':
-      return cite.database && pinOf(cite)
-        ? `${authority.name} ${pinOf(cite)}`
+      if (cite.database && pinOf(cite)) return `${authority.name} ${pinOf(cite)}`;
+      return SLIP_OPINION.test(cite.text) && pinOf(cite)
+        ? `${authority.name} slip op. ${pinOf(cite)}`
         : `${authority.name} (docket)`;
     // A supra with a pin reads as a short form does, so a brief in California Style
     // Manual form ("Ortega, supra, 26 Cal.4th at p. 1206") shows what its Bluebook copy
@@ -813,7 +922,7 @@ function chipLabel(cite) {
     case 'statute':
     case 'section': {
       // A session law by its number and the section cited: "Pub. L. No. 110-325, § 2(b)(4)".
-      const law = cite.text.match(SESSION_LAW)?.[0];
+      const law = cite.text.match(LAW_NUMBER)?.[0];
       if (law) {
         const section = cite.text.match(/§\s*\d[\w.-]*(?:\([0-9a-zA-Z]{1,4}\))*/)?.[0];
         return section ? `${law}, ${section}` : law;
@@ -861,17 +970,32 @@ const FULL_TYPES = new Set([
 ]);
 
 // Whether a citation is a neutral one, which names its court as its reporter: "[2015]
-// UKSC 31", "2019 SCC 65".
-const isNeutral = cite =>
-  Boolean(cite.court) && squeeze(cite.court) === squeeze(cite.reporter || '');
+// UKSC 31", "[2019] EWHC 123 (Ch)" (the High Court's Chancery Division), "2019 SCC 65",
+// and the US states' public-domain citations, "2020 IL 124112", "2021-Ohio-1234", whose
+// courts legal-text names ("Ill."). A report numbered by its year, "[1932] AC 562 (HL)",
+// has pages and a court of its own, though legal-text keys it by its first page as it
+// does a neutral citation.
+function isNeutral(cite) {
+  const court = squeeze(cite.court || '');
+  const reporter = squeeze(cite.reporter || '');
+  if (!/^\[/.test(cite.volume || '')) return Boolean(cite.neutral || (court && court === reporter));
+  return Boolean(court && reporter && court.startsWith(reporter));
+}
+
+// A citation's volume, reporter and page as the document writes them: "2021-Ohio-1234",
+// not "2021 Ohio 1234".
+const coreOf = cite =>
+  cite.core
+    ? cite.text.slice(cite.core[0] - cite.start, cite.core[1] - cite.start).replace(/\s+/g, ' ')
+    : `${cite.volume} ${cite.reporter} ${cite.page}`;
 
 // The name a case goes by, from legal-text's shortName. A case cited by a neutral
 // citation alone is named by the whole of it, "[2019] UKSC 5", since its court and year
 // ("[2019] UKSC") name no one case.
-function caseName(cite, all) {
-  const name = shortName(cite, all);
+function caseName(cite, all, prose) {
+  const name = shortName(cite, all, prose);
   return !cite.name && isNeutral(cite) && name === `${cite.volume} ${cite.reporter}`
-    ? { name: `${name} ${cite.page}` }
+    ? { name: coreOf(cite) }
     : { name };
 }
 
@@ -936,6 +1060,8 @@ const sourceKey = cite =>
 // A section numbered the way a contract's clauses are, "§ 4.3" or "§ 12.2(b)", and no
 // code's sections are: a code's run to three digits or more ("§ 1983", "§ 1630.2").
 const CLAUSE = /^§§?\s*\d{1,2}\.\d{1,2}(?![\d.])/;
+// A section with a short number, as a contract's or a policy's are: "§ 2", "§ 12(b)".
+const SHORT_SECTION = /^§§?\s*\d{1,2}(?![\d-])/;
 
 // The authorities the citations point at. A full citation's key is its volume,
 // reporter and first page, so two cases in one volume stay two, and it is found
@@ -949,11 +1075,19 @@ const CLAUSE = /^§§?\s*\d{1,2}\.\d{1,2}(?![\d.])/;
 // with that section, but in a document that cites a contract's sections it does so only
 // in the statute's own paragraph and is otherwise one of the contract's sections, never
 // a statute, as is one numbered as a contract's are ("§ 4.3") that no statute here
-// has; id. resolves to the last citation the writer
-// made, not one inside a quotation or a parenthetical, and "Id. § 12926(m)" after a
-// code's section is another section of that code. The record and the document's own
-// sections are not authorities, and neither is anything cited in the caption.
-function resolve(all, caption) {
+// has, and a short one ("§ 2") in a client fact outside the statute's paragraph ("The
+// Fees are payable as provided in § 2"): a fact tells of the client's own documents; id.
+// resolves to the last citation the writer made, not one inside a quotation or a
+// parenthetical, and "Id. § 12926(m)" after a code's section is another section of that
+// code. An id. right after a citation of more than one source ("A; B. Id. at 4") is
+// `ambiguous` and resolves to nothing, since it could mean any of them (Bluebook rule 4.1
+// allows id. only after a citation of one). A citation in a form the parser does not know
+// is an authority of its own, keyed by its text, and an id. after it repeats it
+// (`unparsed`). The record and the document's own sections are not authorities, and
+// neither is anything cited in the caption. `kindAt(cite)` is the kind of the sentence a
+// citation is in, or null; `prose`, the document's words outside its citations, gives the
+// name the writer calls a case by.
+function resolve(all, caption, kindAt = () => null, prose = '') {
   const byKey = new Map();
   const authority = (key, make) => {
     if (!byKey.has(key)) byKey.set(key, { key, cites: [], refs: [], ...make() });
@@ -992,10 +1126,13 @@ function resolve(all, caption) {
       cite.authority = inVolume(
         cite,
         authority(
-          cite.type === 'full' ? `${citationKey(cite)} ${cite.page}` : citationKey(cite),
+          // A neutral citation's key has its number already: "2020 IL 124112".
+          cite.type === 'full' && !cite.neutral
+            ? `${citationKey(cite)} ${cite.page}`
+            : citationKey(cite),
           () => ({
             group: 'cases',
-            ...caseName(cite, all),
+            ...caseName(cite, all, prose),
             caseName: cite.name,
             shortTitle: cite.shortTitle || null,
             page: cite.page,
@@ -1019,6 +1156,12 @@ function resolve(all, caption) {
       }));
     } else if (['periodical', 'secondary', 'legislative'].includes(cite.type)) {
       cite.authority = authority(sourceKey(cite), () => ({ group: 'other', ...otherSource(cite) }));
+    } else if (cite.type === 'unparsed') {
+      cite.authority = authority(citationKey(cite), () => ({
+        group: 'other',
+        name: cite.text,
+        unparsed: true,
+      }));
     }
   }
   // A supra that names its source: a case by its name or short title, else an article
@@ -1044,8 +1187,11 @@ function resolve(all, caption) {
   };
   const contract = all.some(cite => cite.type === 'internal');
   // What an id. refers to: {authority, cite}, {record} (a record citation or a section
-  // of the document), or {lost} (a citation nothing resolves), or null.
+  // of the document), {unparsed} (a citation in a form the parser does not know), or
+  // {lost} (a citation nothing resolves), or null.
   let last = null;
+  // The sources the last citation sentence cites: {sources}.
+  let string = null;
   for (const cite of all.filter(counted)) {
     if (cite.type === 'short') {
       const key = citationKey(cite);
@@ -1066,19 +1212,21 @@ function resolve(all, caption) {
       }
     } else if (cite.type === 'section') {
       const key = citationKey(cite);
-      // In a document that cites a contract's sections, "§ 2" is the statute's only in the
-      // paragraph that cites the statute; elsewhere, a statute cited anywhere.
+      // In a document that cites a contract's sections, or in a client fact with a short
+      // section, "§ 2" is the statute's only in the paragraph that cites the statute;
+      // elsewhere, a statute cited anywhere.
+      const local = contract || (kindAt(cite) === 'client-fact' && SHORT_SECTION.test(cite.text));
       const cited = statutes.find(
         item =>
           item.key.replace(/^[^§]*/, '') === key &&
-          (!contract ||
+          (!local ||
             all.some(
               other =>
                 other.type === 'statute' && other.authority === item && other.block === cite.block,
             )),
       );
       if (cited) cite.authority = cited;
-      else if (contract || CLAUSE.test(cite.text)) cite.internal = true;
+      else if (local || CLAUSE.test(cite.text)) cite.internal = true;
       else cite.authority = statute(key, cite, '');
     } else if (cite.type === 'supra') {
       if (cite.volume) {
@@ -1087,12 +1235,37 @@ function resolve(all, caption) {
       }
       cite.authority ||= cite.antecedent ? byName(cite.antecedent) : null;
     } else if (cite.type === 'id' && !cite.quoted) {
-      if (last?.record) cite.record = last.record;
-      else if (last?.lost) cite.lost = last.lost;
+      // In "A; B. Id. at 4" the id. could mean A or B; in "A; id. at 4" it is A.
+      if ((!cite.joined && string?.sources.size > 1) || last?.lost?.ambiguous) {
+        cite.ambiguous = true;
+      } else if (last?.record) cite.record = last.record;
+      else if (last?.unparsed) {
+        cite.unparsed = last.unparsed;
+        cite.authority = last.unparsed.authority;
+      } else if (last?.lost) cite.lost = last.lost;
       else if (last?.authority) {
         const at = cite.text.indexOf('§');
         const was = last.authority;
-        if (at >= 0 && was.group === 'statutes' && was.key.includes('§')) {
+        const article = cite.text.match(OTHER_ARTICLE);
+        const constitution =
+          article && was.group === 'statutes'
+            ? (was.cites.find(other => other.type === 'statute')?.text || was.code || '').match(
+                CONSTITUTION,
+              )
+            : null;
+        if (constitution) {
+          // "Id. art. II, § 3" after "U.S. Const. art. I, § 8, cl. 3" is article II of
+          // that constitution: "U.S. Const. art. II, § 3".
+          const text = `${constitution[0]} ${article[1]}`;
+          const key = citationKey({ type: 'statute', text });
+          const section = text.indexOf('§');
+          cite.authority =
+            key === was.key
+              ? was
+              : section < 0
+                ? statute(key, { ...cite, text: '' }, text)
+                : statute(key, cite, text.slice(0, section));
+        } else if (at >= 0 && was.group === 'statutes' && was.key.includes('§')) {
           // "Id. § 12926(m)" after "Cal. Gov’t Code § 12940(m)" is § 12926 of that code.
           const section = citationKey({ type: 'section', text: cite.text.slice(at) });
           const key = was.key.slice(0, was.key.indexOf('§')) + section;
@@ -1102,17 +1275,32 @@ function resolve(all, caption) {
       }
     }
     if (!cite.quoted && !cite.nested) {
-      if (isRecord(cite)) last = { record: cite.record || cite };
+      if (cite.ambiguous) last = { lost: cite };
+      else if (isRecord(cite)) last = { record: cite.record || cite };
+      else if (isUnparsed(cite)) last = { unparsed: cite.unparsed || cite };
       else if (cite.lost) last = { lost: cite.lost };
       else if (cite.authority && (CITABLE.has(cite.type) || cite.type === 'id')) {
         // A short form for a case never cited in full still names the case an id. after
         // it means, so it counts; the id. then shows as unresolved, as the short form does.
         last = { authority: cite.authority, cite };
       } else if (['short', 'supra', 'id'].includes(cite.type)) last = { lost: cite };
+      // The sources of the citation sentence so far: a string citation adds to them.
+      const source = sourceOf(cite);
+      if (cite.joined && string) string.sources.add(source);
+      else string = { sources: new Set([source]) };
     }
     cite.authority?.cites.push(cite);
   }
   return byKey;
+}
+
+// The one source a citation cites, so a string citation can tell whether it cites more
+// than one: an authority, a record document ("Compl." for "Compl. ¶ 4" and "Compl. ¶ 6"),
+// or the citation itself when nothing resolves it.
+function sourceOf(cite) {
+  if (cite.authority) return cite.authority;
+  if (cite.record || isRecord(cite)) return `record:${recordSource((cite.record || cite).text)}`;
+  return cite;
 }
 
 // ---------------------------------------------------------------------------
@@ -1142,7 +1330,7 @@ function supportOf(sentence, context) {
   if (heading || caption || SOURCELESS.has(sentence.role)) return 'n/a';
   if (sentence.kind === 'document-text') return 'n/a';
   const records = own.filter(cite => isRecord(cite) && !(clauses && isSection(cite)));
-  const legal = own.filter(cite => !isRecord(cite));
+  const legal = own.filter(cite => !isRecord(cite) && !isUnparsed(cite));
   const record = records.some(cite => !isSection(cite));
   if (sentence.kind === 'client-fact' && (narrative ? record : records.length)) return 'record';
   if (legal.length) {
@@ -1156,6 +1344,9 @@ function supportOf(sentence, context) {
     return support;
   }
   if (records.length) return 'record';
+  // A citation in a form the parser does not know: a client fact's is taken for its
+  // record; anything else is cited, but how well is not judged.
+  if (own.some(isUnparsed)) return sentence.kind === 'client-fact' ? 'record' : 'cited';
   if (sentence.kind === 'client-fact') {
     if (narrative) return 'n/a';
     return RECORD.test(sentence.text) ? 'record' : 'unsourced';
@@ -1237,9 +1428,10 @@ function flagsOf(sentence, context) {
   if (quoted) add('quote', 'Quotation', false);
   // A quotation needs a source when it states law or a holding, or a fact the analysis
   // rests on; one the writer says someone spoke, or one in a story, does not. Without
-  // labels it is noted but not counted, since it may be either.
+  // labels it is noted but not counted, since it may be either, and so is one in a
+  // question presented or a roadmap, whose sources come in the discussion.
   if (quoted && !own.length && !heading && !caption) {
-    if (!kind) {
+    if (!kind || SOURCELESS.has(sentence.role)) {
       if (!attributed) add('quote-unsourced', 'Quotation with no source', false);
     } else if (
       kind === 'law' ||
@@ -1267,8 +1459,12 @@ function flagsOf(sentence, context) {
     for (const { name } of uncited)
       add('uncited-case', `Describes ${name} without citing it`, true);
   }
-  // The record needs no parenthetical: what it shows is the sentence's fact.
-  const legal = own.filter(cite => !isRecord(cite));
+  if (own.some(cite => cite.ambiguous)) {
+    add('ambiguous-id', 'Id. after more than one source is ambiguous', true);
+  }
+  // The record needs no parenthetical: what it shows is the sentence's fact. Nor is a
+  // citation in a form the parser does not know judged.
+  const legal = own.filter(cite => !isRecord(cite) && !isUnparsed(cite));
   if (legal.some(cite => strengthOf(cite.signal) === 'indirect' && !cite.parentheticals?.length)) {
     add('needs-parenthetical', 'Add a parenthetical saying how it supports this', true);
   }
@@ -1309,6 +1505,7 @@ const later = (cite, sentence) =>
 const QUOTED = /“[^“”]*”|"[^"]*"/g;
 
 export function analyzeLegal(blocks, labels) {
+  blocks = withHeadings(blocks);
   const labeled = Array.isArray(labels) && labels.some(labelOf);
   const sections = sectionsOf(blocks);
   const type = typeOf(blocks, sections);
@@ -1356,13 +1553,30 @@ export function analyzeLegal(blocks, labels) {
     all.push(...own);
     return own;
   });
-  const authorities = resolve(all, caption);
+  // The document's words outside its citations, for the names it calls cases by.
+  const prose = blocks
+    .map((block, at) =>
+      citesOf[at]
+        .filter(cite => !cite.nested)
+        .reduceRight(
+          (text, cite) => text.slice(0, cite.start) + ' ' + text.slice(cite.end),
+          block.text,
+        ),
+    )
+    .join('\n');
+  const authorities = resolve(
+    all,
+    caption,
+    cite => sentenceAt(cite.block, cite.start)?.kind ?? null,
+    prose,
+  );
   for (const authority of authorities.values()) {
     authority.full = authority.cites.find(cite => FULL_TYPES.has(cite.type));
   }
-  // The caption's citations name no case the analysis relies on.
+  // The caption's citations name no case the analysis relies on. A one-word name the
+  // document also writes in lowercase ("brown") is not the case's, as the guard reads it.
   const counted = all.filter(cite => !caption.has(cite.block));
-  const names = referenceNames(counted);
+  const names = referenceNames(counted, blocks.map(block => block.text).join('\n'));
   const refsOf = blocks.map((block, at) =>
     findReferences(block.text, citesOf[at], names)
       .map(ref => ({
@@ -1660,12 +1874,21 @@ export function clientNames(blocks) {
     ];
     for (const form of shorter) {
       if (form.length < 3 || forms.includes(form) || !namePattern(form).test(rest)) continue;
+      // One word of a company's name that the document also writes as a plain word, or
+      // that begins many names, is not the client alone: "Climbing" of "Summit Ascent
+      // Climbing" in a brief about climbing.
+      if (!form.includes(' ') && !distinctiveName(form, text)) continue;
       forms.push(form);
       rest = rest.replace(namePattern(form, 'gu'), ' ');
     }
   }
   return [...names, ...forms.filter(form => !names.includes(form))];
 }
+
+// Words that predict a claim or an element fails: "unlikely to show", "will fail", "cannot
+// prove", "will lose", "is barred".
+const FAILS =
+  /\b(?:unlikely|not|cannot|fails?|failed|lose|loses|lost|barred|defeated|neither|nor)\b|n['’]t\b/i;
 
 function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf, type, legal }) {
   const checks = [];
@@ -1789,13 +2012,14 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf, typ
   }
 
   // new-law-in-application: an authority first cited while applying the law. A
-  // counter-argument may bring in the other side's case, so it does not count.
+  // counter-argument may bring in the other side's case, so it does not count, and a
+  // citation in a form the parser does not know may well be the record.
   const explained = new Set();
   const reported = new Set();
   for (const sentence of sentences) {
     const keys = ownOf(sentence.n)
       .map(cite => cite.authority)
-      .filter(Boolean);
+      .filter(authority => authority && !authority.unparsed);
     if (sentence.role === 'application' && inAnalysis(sentence)) {
       for (const authority of keys) {
         if (explained.has(authority.key) || reported.has(authority.key)) continue;
@@ -1862,7 +2086,8 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf, typ
     const cited = ahead[sentence.n - 1];
     if (cited.length > 1) continue;
     const [authority] = cited;
-    if (authority?.group === 'statutes') continue;
+    // What a citation in a form the parser does not know is, a statute or a case, is unknown.
+    if (authority?.group === 'statutes' || authority?.unparsed) continue;
     const basis = authority ? `one authority (${authority.name || authority.key})` : 'no authority';
     add(
       'generalization',
@@ -1878,10 +2103,17 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf, typ
   const conclusion = sections.find(section => section.part === 'conclusion');
   if (conclusion && type === 'memo') {
     const surest = confidenceOf(conclusion, sentences, true);
-    const weakest = subIssues
+    const rated = subIssues
       .map(section => ({ section, ...confidenceOf(section, sentences, false) }))
-      .filter(({ rank }) => rank)
-      .reduce((low, item) => (!low || item.rank < low.rank ? item : low), null);
+      .filter(({ rank }) => rank);
+    const weakest = rated.reduce((low, item) => (!low || item.rank < low.rank ? item : low), null);
+    // A conclusion that the claim fails needs only one part to fail, so it may be as sure as
+    // the surest part that says so: "Borden will very likely lose" when B says Borden "will
+    // very likely fail", though A says only that Borden is "unlikely" to show goodwill.
+    const failing =
+      surest &&
+      FAILS.test(surest.sentence.text) &&
+      rated.some(item => item.rank >= surest.rank && FAILS.test(item.sentence.text));
     const unsure =
       surest &&
       surest.rank > 1 &&
@@ -1890,7 +2122,7 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf, typ
         .filter(sentence => sentence.role === 'conclusion')
         .map(sentence => ({ sentence, ...confidenceRank(sentence.text) }))
         .find(({ rank }) => rank === 1);
-    const above = surest && weakest && surest.rank > weakest.rank;
+    const above = surest && weakest && surest.rank > weakest.rank && !failing;
     if (above || unsure) {
       const parts = [];
       const numbers = [];
@@ -1972,11 +2204,12 @@ function checksOf({ sections, sentences, runs, blocks, read, citesOf, ownOf, typ
 const GROUPS = ['cases', 'statutes', 'other'];
 // The whole reporter: "U.S. App. D.C." starts like U.S. but is not the Supreme Court's.
 const SUPREME = /^(?:U\.S\.|S\.Ct\.|L\.Ed\.(?:2d)?)$/;
-// The states as courts and official reporters name them, without spaces.
+// The states and territories as courts and official reporters name them, without spaces.
 const STATES = new Set(
   `Ala. Alaska Ariz. Ark. Cal. Colo. Conn. Del. D.C. Fla. Ga. Haw. Idaho Ill. Ind. Iowa Kan.
   Ky. La. Me. Md. Mass. Mich. Minn. Miss. Mo. Mont. Neb. Nev. N.H. N.J. N.M. N.Y. N.C. N.D.
-  Ohio Okla. Or. Pa. R.I. S.C. S.D. Tenn. Tex. Utah Vt. Va. Wash. W.Va. Wis. Wyo.`.split(/\s+/),
+  Ohio Okla. Or. Pa. R.I. S.C. S.D. Tenn. Tex. Utah Vt. Va. Wash. W.Va. Wis. Wyo. Guam P.R.
+  V.I.`.split(/\s+/),
 );
 // A state's highest court's own reporter: "Cal.4th", "N.Y.2d", "Ill.2d", "Ohio St.3d".
 const STATE_REPORTER = /^(.+?)(?:2d|3d|4th|5th)?$/;
@@ -1997,7 +2230,12 @@ function levelOf(authority) {
     ...(full.parallel || []).map(p => p.reporter),
   ].map(squeeze);
   if (/Cir\.$/.test(court)) return 'circuit';
-  if (/^(?:[NSEWMC]\.D\.|D\.)\S/.test(court)) return 'district';
+  // A federal district court ("S.D.N.Y.", "D. Mass.", "D.D.C."), not a state's court whose
+  // name starts the same way ("N.D. Ct. App." for "2018 ND App 12", "D.C." for the
+  // District of Columbia's highest court).
+  if (/^(?:[NSEWMC]\.D\.|D\.)\S/.test(court) && court !== 'D.C.' && !STATE_APPEAL.test(court)) {
+    return 'district';
+  }
   if (reporters.some(reporter => SUPREME.test(reporter))) return 'supreme';
   // The courts of appeals' own reporters: "F. App'x", and "U.S. App. D.C." for the D.C. Circuit.
   if (/^(?:F\.App|U\.S\.App\.D\.C\.)/.test(reporters[0])) return 'circuit';
@@ -2006,6 +2244,9 @@ function levelOf(authority) {
   // "EWCA(Civ)" is the Court of Appeal's Civil Division.
   if (APPEAL_COURT.test(court.split('(')[0])) return 'appellate';
   if (court && STATES.has(court)) return 'state-supreme';
+  // Texas's and Oklahoma's courts of last resort for crimes ("Tex. Crim. App.", "2018 OK CR
+  // 12") are named as courts of appeals are.
+  if (/^(?:Tex|Okla)\.Crim\.App\./.test(court)) return 'state-supreme';
   if (STATE_APPEAL.test(court) || STATE_APPEAL.test(reporters[0])) return 'state-appellate';
   const official = reporters[0].match(STATE_REPORTER)?.[1];
   if (STATES.has(official) || /^OhioSt\.$/.test(official)) return 'state-supreme';
@@ -2015,16 +2256,17 @@ function levelOf(authority) {
 // A statute's title from its first mention in Bluebook form, with every
 // subsection the document cites: "42 U.S.C. § 3602(b), (c)". The first mention
 // that names the code, since a bare "§ 3602" may come before it; a section known only
-// from "Id. § 12926(m)" takes its code from the citation before it. A session law is
-// titled by its number and where it starts in the Statutes at Large, with its year
-// ("Pub. L. No. 110-325, 122 Stat. 3553 (2008)"), and the Statutes at Large and the
-// Federal Register by their first page and date ("76 Fed. Reg. 16,978 (Mar. 25,
-// 2011)"), none of them with the section or page cited.
+// from "Id. § 12926(m)" takes its code from the citation before it. A session law or an
+// executive order is titled by its number and where it starts in the Statutes at Large or
+// the Federal Register, with its date ("Pub. L. No. 110-325, 122 Stat. 3553 (2008)",
+// "Exec. Order No. 14,028, 86 Fed. Reg. 26,633 (May 12, 2021)"), and the Statutes at
+// Large and the Federal Register by their first page and date ("76 Fed. Reg. 16,978 (Mar.
+// 25, 2011)"), none of them with the section or page cited.
 const SUBSECTION_GROUP = /\((?!\d{4}\))[0-9a-zA-Z]{1,4}\)(?:\s?\((?!\d{4}\))[0-9a-zA-Z]{1,4}\))*/g;
 const DATE_AFTER = /\(([^()]*\d{4})\)$/;
 function pagedTitle(cites) {
   const texts = cites.filter(cite => cite.type === 'statute').map(cite => cite.text.trim());
-  const law = texts[0].match(SESSION_LAW)?.[0];
+  const law = texts[0].match(LAW_NUMBER)?.[0];
   const start = texts.map(text => text.match(FIRST_PAGE)?.[0]).find(Boolean);
   const date = texts.map(text => text.match(DATE_AFTER)?.[1]).find(Boolean);
   const title = [law, start].filter(Boolean).join(', ') || texts[0].replace(YEAR_AFTER, '');
@@ -2033,10 +2275,12 @@ function pagedTitle(cites) {
 function statuteTitle(authority) {
   const cites = authority.cites;
   const named = cites.find(cite => cite.type === 'statute');
+  // A provision known only from an id. ("Id. art. II") is its code alone.
+  const section = cites[0].text.indexOf('§');
   const text = named
     ? named.text
-    : `${authority.code || ''}${cites[0].text.slice(Math.max(0, cites[0].text.indexOf('§')))}`;
-  if (named && /^(?:Pub\.L\.|\d+(?:Stat\.|Fed\.Reg\.))/.test(authority.key)) {
+    : `${authority.code || ''}${section < 0 && cites[0].type === 'id' ? '' : cites[0].text.slice(Math.max(0, section))}`;
+  if (named && /^(?:Pub\.L\.|Exec\.Order|\d+(?:Stat\.|Fed\.Reg\.))/.test(authority.key)) {
     return pagedTitle(cites);
   }
   const base = text
@@ -2060,28 +2304,50 @@ function statuteTitle(authority) {
 // 550 U.S. 544, 127 S. Ct. 1955 (2007)"), California ("Aguilar v. Atlantic Richfield Co.
 // (2001) 25 Cal.4th 826 [107 Cal.Rptr.2d 841]"), English ("Donoghue v Stevenson [1932] AC
 // 562 (HL)") or Canadian ("R. v. Jordan, 2016 SCC 27").
+// A case's subsequent history, as written: what goes inside its court parenthetical
+// (Texas's "2003, pet. denied") and what comes after it (", aff’d, 535 U.S. 1 (2002)").
+function historyOf(full) {
+  const history = full.history || [];
+  const year = full.date || full.year;
+  const within = history.filter(item => year && full.text.includes(`${year}, ${item})`));
+  return {
+    inside: within.map(item => `, ${item}`).join(''),
+    after: history
+      .filter(item => !within.includes(item))
+      .map(item => `, ${item}`)
+      .join(''),
+  };
+}
+
 function caseTitle(full) {
   const name = full.name || '';
-  const core = `${full.volume} ${full.reporter} ${full.page}`;
+  const neutral = isNeutral(full);
+  // A public-domain citation as the document writes it: "2021-Ohio-1234".
+  const core = neutral ? coreOf(full) : `${full.volume} ${full.reporter} ${full.page}`;
   const between = full.core
     ? full.text.slice(name.length, full.core[0] - full.start).replace(/\s+/g, ' ')
     : ', ';
   const parallels = (full.parallel || []).map(p => `${p.volume} ${p.reporter} ${p.page}`);
+  const history = historyOf(full);
   if (/\(\s*(?:[^()]*\s)?\d{4}\)\s*$/.test(between)) {
     const title = `${name}${between}${core}${parallels.length ? ` [${parallels.join(', ')}]` : ''}`;
-    return { title: title.trim(), italic: name ? [0, name.length] : null };
+    return {
+      title: title.trim() + history.inside + history.after,
+      italic: name ? [0, name.length] : null,
+    };
   }
   const separator = name ? (between.includes(',') ? ', ' : ' ') : '';
-  // The court and date, unless the citation names its court already ("[2015] UKSC 31")
-  // or gives its year in brackets ("[1932] AC 562 (HL)").
-  const neutral = isNeutral(full);
+  // The court and date, unless the citation names its court already ("[2015] UKSC 31",
+  // "2020 IL 124112") or gives its year in brackets ("[1932] AC 562 (HL)"). Ohio's
+  // courts of appeals add their district, "2021-Ohio-1234 (8th Dist.)", and the High
+  // Court its division, "[2019] EWHC 123 (Ch)".
   const paren = neutral
-    ? ''
+    ? full.court?.match(/\(([^()]+)\)$/)?.[1] || ''
     : /^\[/.test(full.volume)
       ? full.court || ''
-      : [full.court, full.date || full.year].filter(Boolean).join(' ');
+      : [full.court, full.date || full.year].filter(Boolean).join(' ') + history.inside;
   const title = `${name}${separator}${[core, ...parallels].join(', ')}${paren ? ` (${paren})` : ''}`;
-  return { title, italic: name ? [0, name.length] : null };
+  return { title: title + history.after, italic: name ? [0, name.length] : null };
 }
 
 // An article's, book's or report's citation, without the pin: "Jane Roe, Rethinking
@@ -2089,17 +2355,26 @@ function caseTitle(full) {
 function sourceTitle(authority) {
   const cite = authority.full || authority.cites[0];
   if (cite.type === 'legislative') {
-    return { title: `${authority.name}${cite.year ? ` (${cite.year})` : ''}`, italic: null };
+    // Its date as written: "(2008)", California's "(2019–2020 Reg. Sess.)". Each
+    // parenthetical is read once, then tested for a year.
+    const date =
+      [...cite.text.matchAll(/\(([^()]*)\)/g)].map(m => m[1]).find(inner => /\d{4}/.test(inner)) ||
+      (cite.year ? String(cite.year) : '');
+    return { title: `${authority.name}${date ? ` (${date})` : ''}`, italic: null };
   }
   if (cite.type !== 'periodical' && cite.type !== 'secondary') {
     return { title: authority.name || cite.text, italic: null };
   }
   if (!cite.title) return { title: cite.text, italic: null };
   const lead = cite.author ? `${cite.author}, ` : '';
+  // A book's edition, at the end or before California's topic and section: "6 Witkin,
+  // Summary of Cal. Law (11th ed. 2017) Torts, § 1234".
+  const edition =
+    cite.text.match(YEAR_AFTER)?.[0] ?? cite.text.match(/\s*\([^()]*\d{4}\)/)?.[0] ?? '';
   const where =
     cite.type === 'periodical'
       ? `, ${cite.volume} ${cite.reporter} ${cite.page}${cite.year ? ` (${cite.year})` : ''}`
-      : (cite.text.match(YEAR_AFTER)?.[0] ?? '');
+      : edition;
   return {
     title: `${lead}${cite.title}${where}`,
     italic: [lead.length, lead.length + cite.title.length],
@@ -2116,10 +2391,11 @@ function titleOf(authority) {
   }
   if (full.type === 'docket') {
     const name = full.name || '';
-    const court = [full.court, full.date || full.year].filter(Boolean).join(' ');
+    const history = historyOf(full);
+    const court = [full.court, full.date || full.year].filter(Boolean).join(' ') + history.inside;
     const rest = [full.docket, withoutPin(full.database)].filter(Boolean).join(', ');
     return {
-      title: `${name}${name && rest ? ', ' : ''}${rest}${court ? ` (${court})` : ''}`,
+      title: `${name}${name && rest ? ', ' : ''}${rest}${court ? ` (${court})` : ''}${history.after}`,
       italic: name ? [0, name.length] : null,
     };
   }
@@ -2129,6 +2405,7 @@ function titleOf(authority) {
 function warningsOf(authority) {
   const warnings = [];
   const cites = authority.cites;
+  if (authority.unparsed) warnings.push('Form not recognized: check it by hand');
   if (authority.nameless) warnings.push('No full citation in this document');
   const fulls = cites.filter(cite => cite.type === 'full');
   if (fulls.length && fulls.every(cite => cite.nested)) {
@@ -2188,8 +2465,10 @@ function tableOf(authorities, tagOf) {
 }
 
 // Citations nothing resolves, each with why: a short form, supra or id. that names no
-// case cited in full in this document. The record, the document's own sections and the
-// caption are not cited authority, so they are never listed.
+// case cited in full in this document, or an id. after a citation of more than one
+// source. The record, the document's own sections, the caption and citations in a form
+// the parser does not know are not cited authority it can resolve, so they are never
+// listed.
 function unresolvedOf(all, tagOf, caption) {
   const items = [];
   for (const cite of all) {
@@ -2198,7 +2477,9 @@ function unresolvedOf(all, tagOf, caption) {
     const where = `${cite.text.replace(SIGNAL_START, '')} in ${tagOf(cite.block)}`;
     let why;
     if (cite.type === 'id') {
-      if (cite.quoted) {
+      if (cite.ambiguous) {
+        why = `${where}: the citation before it cites more than one source, so it could mean any of them.`;
+      } else if (cite.quoted) {
         why = `${where}, inside a quotation: it refers to the quoted court’s own earlier citation.`;
       } else if (cite.authority) {
         why = `${where}: it repeats ${cite.authority.name}, which has no full citation in this document.`;
