@@ -1796,6 +1796,13 @@ test('the guards stay fast on long adversarial text', () => {
     'Id. art. II, § ',
     'CA 94103, ',
     'Queens. Compl. ',
+    // The fourth round: unclosed parentheses after marks, and titles before citations.
+    '§ 1 (',
+    '¶ 1 (',
+    'U.C.C. § 1 (Am. ',
+    'Case C-1/12, ',
+    'Abc Corp., 1 NLRB No. 1, ',
+    'See ',
   ]) {
     const text = unit.repeat(Math.ceil(20000 / unit.length)).slice(0, 20000);
     for (const [name, call, limit] of [
@@ -1813,9 +1820,37 @@ test('the guards stay fast on long adversarial text', () => {
         100,
       ],
     ]) {
-      const at = performance.now();
-      call();
-      assert.ok(performance.now() - at < limit, `${name} on ${unit}: ${performance.now() - at} ms`);
+      // The best of three runs, so a test file running beside others does not time a pause.
+      let best = Infinity;
+      for (let k = 0; k < 3; k++) {
+        const at = performance.now();
+        call();
+        best = Math.min(best, performance.now() - at);
+      }
+      assert.ok(best < limit, `${name} on ${unit}: ${best} ms`);
     }
+  }
+});
+
+test('a rewrite stays under 50 ms on 20,000 characters of unclosed parentheses', () => {
+  // Each "§ 1 (" once read every parenthesis after it to its end: 66 to 133 ms.
+  for (const unit of ['§ 1 (', '¶ 1 (', 'U.C.C. § 1 (Am. ']) {
+    const text = unit.repeat(Math.ceil(20000 / unit.length)).slice(0, 20000);
+    guardReplacement(text, text, `Notably, ${text}`);
+    let best = Infinity;
+    for (let k = 0; k < 3; k++) {
+      const at = performance.now();
+      guardReplacement(text, text, `Notably, ${text}`);
+      protectedSpans(text);
+      best = Math.min(best, performance.now() - at);
+    }
+    assert.ok(best < 75, `${unit}: ${best} ms`);
+    let rewrite = Infinity;
+    for (let k = 0; k < 3; k++) {
+      const at = performance.now();
+      guardReplacement(text, text, `Notably, ${text}`);
+      rewrite = Math.min(rewrite, performance.now() - at);
+    }
+    assert.ok(rewrite < 50, `${unit}: ${rewrite} ms`);
   }
 });

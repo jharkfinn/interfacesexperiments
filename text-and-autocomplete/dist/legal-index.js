@@ -1,4 +1,4 @@
-import { analyzeLegal } from './legal-analysis.js?v=4a9d365f429b';
+import { analyzeLegal } from './legal-analysis.js?v=90d3ba0d8660';
 
 // The legal reading of the document that the IRAC and Sourcing views share:
 // Claude's labels for each sentence's job, and what the app works out itself

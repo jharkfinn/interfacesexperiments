@@ -12,18 +12,18 @@ import {
   SUGGESTION_DELAY_MS,
   ALTERNATIVE_COUNT,
   plainSpaces,
-} from './compose-core.js?v=83c29be8e550';
-import { SampleCompose } from './sample-client.js?v=54ff75f26d32';
+} from './compose-core.js?v=7b3585588ae2';
+import { SampleCompose } from './sample-client.js?v=c9c7edf11e12';
 import { BridgeCompose } from './bridge-client.js?v=a56f53951df8';
-import { RealtimeCompose } from './realtime.js?v=5bd4e1fea0f3';
+import { RealtimeCompose } from './realtime.js?v=d779a89e3b0f';
 import { readSavedKey, saveKey, forgetKey } from './key-storage.js?v=d7465de288af';
-import { SelectionRewrite } from './selection-rewrite.js?v=2e5644700f96';
-import { DocumentModel } from './doc-model.js?v=7e31ea16557e';
-import { DocumentEdits } from './doc-edits.js?v=24a55d3f7fd1';
+import { SelectionRewrite } from './selection-rewrite.js?v=04307a4d057a';
+import { DocumentModel } from './doc-model.js?v=c4e011ab5217';
+import { DocumentEdits } from './doc-edits.js?v=3466b5b74e66';
 import { Links } from './links.js?v=5aca2c6e7864';
-import { Operations } from './operations.js?v=e53f9e9333bd';
-import { DocumentView } from './document-view.js?v=7101e38070e5';
-import { PieceView } from './piece-view.js?v=e90d562413a3';
+import { Operations } from './operations.js?v=e580baad60eb';
+import { DocumentView } from './document-view.js?v=846daaba35b1';
+import { PieceView } from './piece-view.js?v=d5dd4d332bb8';
 import { Workspace, restorePanes } from './panes.js?v=d23cd6c84cb1';
 import {
   BUILT_IN,
@@ -34,11 +34,11 @@ import {
   specFromRoles,
   specFromSources,
   idFor,
-} from './view-specs.js?v=9ea68139b870';
-import { LegalIndex } from './legal-index.js?v=97a2dec467eb';
-import { CiteCheck } from './cite-check.js?v=651dd200c7d8';
-import { citationContext } from './citation-guard.js?v=5d0ebcbd173f';
-import { Segments } from './segments.js?v=e0ae9f874bb3';
+} from './view-specs.js?v=c3a1b938fbcd';
+import { LegalIndex } from './legal-index.js?v=4320dfa7082a';
+import { CiteCheck } from './cite-check.js?v=cbdd9cc01761';
+import { citationContext } from './citation-guard.js?v=2875f47e9c27';
+import { Segments } from './segments.js?v=337dfe6e5a58';
 
 const $ = id => document.getElementById(id);
 const editor = $('editor');

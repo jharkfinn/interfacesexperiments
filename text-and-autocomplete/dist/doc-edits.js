@@ -1,5 +1,5 @@
-import { blocksOf, blockText, offsetIn, rangeIn, joiner } from './doc-model.js?v=7e31ea16557e';
-import { removalSpan } from './combine-core.js?v=412285b0ee1b';
+import { blocksOf, blockText, offsetIn, rangeIn, joiner } from './doc-model.js?v=c4e011ab5217';
+import { removalSpan } from './combine-core.js?v=3ce70f618206';
 
 // Every change a view asks for is planned on copies of the blocks it touches,
 // then made in the editor as native edits, so the browser's own Undo holds it.

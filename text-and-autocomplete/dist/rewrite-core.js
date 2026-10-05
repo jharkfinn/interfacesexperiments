@@ -5,7 +5,7 @@ import {
   withinLimit,
   textResponse,
   CITATION_RULE,
-} from './compose-core.js?v=83c29be8e550';
+} from './compose-core.js?v=7b3585588ae2';
 
 const REWRITE_DELAY_MS = 160;
 export const MIN_RATIO = 0.35;

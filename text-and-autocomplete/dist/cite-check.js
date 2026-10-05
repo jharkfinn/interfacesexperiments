@@ -1,4 +1,4 @@
-import { findCitations, quoteSpans } from './legal-text.js?v=d320b2da73d2';
+import { findCitations, quoteSpans } from './legal-text.js?v=0bb9b215a317';
 
 // Checks the authorities a document cites against Midpage, a legal research
 // database, through the reader's own Midpage connector on claude.ai (the page's
@@ -99,12 +99,25 @@ function planFor(authority, reading, blocks) {
     const full = parsed.find(item => item.cite?.type === 'full' && item.cite.page)?.cite;
     const docket = parsed.find(item => item.cite?.type === 'docket')?.cite;
     const short = parsed.find(item => item.cite?.type === 'short' && item.cite.volume)?.cite;
-    if (full) {
+    if (full && foreign(full)) {
+      plan.why = 'Midpage covers United States law only.';
+    } else if (full) {
       plan.how = 'citation';
       plan.citation = `${full.volume} ${full.reporter} ${full.page}`;
       plan.caseName = full.name || null;
       plan.year = full.year || null;
       plan.court = full.court || plan.court;
+      // If Midpage does not match the citation as written, the case is looked for by name.
+      if (full.name) {
+        plan.find = {
+          name: full.name,
+          volume: full.volume,
+          reporter: full.reporter,
+          page: full.page,
+          court: plan.court,
+          year: plan.year,
+        };
+      }
     } else if (docket?.name) {
       plan.how = 'search';
       plan.caseName = docket.name;
@@ -156,6 +169,14 @@ function planFor(authority, reading, blocks) {
   return plan;
 }
 
+// English, Scottish, Irish, Canadian, Australian and New Zealand citations:
+// "[1990] 1 WLR 491", "[2004] EWCA Crim 631", "2019 SCC 65".
+const FOREIGN_COURT =
+  /^(?:UK|EW|CS|HCJ|NI|IE|SCC|SCR|FCA?$|ON|BC|AB|QC|NS|NB|MB|SK|NL|PE|YK|NWT|NU|TCC|CMAC|CanLII|HCA|NSW|VSC|QCA|NZ)/;
+function foreign(cite) {
+  return /^\[/.test(cite.volume || '') || (cite.neutral && FOREIGN_COURT.test(cite.reporter || ''));
+}
+
 // "42 U.S.C. § 3602(b), (c)" → "42 U.S.C. § 3602": the section, without
 // subsections, parentheticals or a second section.
 export function sectionCitation(text) {
@@ -173,7 +194,10 @@ export function sectionCitation(text) {
   const range = several
     ? /(\d[\w.:/]*)\s*[-–—]\s*\d[\w.:/-]*$/
     : /(\d[\w.:/-]*)\s*[–—]\s*\d[\w.:/-]*$/;
-  cite = cite.replace(range, '$1').replace(/[.,;:]+$/, '');
+  cite = cite
+    .replace(/\s+et\s+seq\.?$/i, '')
+    .replace(range, '$1')
+    .replace(/[.,;:]+$/, '');
   return /\d/.test(cite) && /[A-Za-z]/.test(cite) ? cite : null;
 }
 
@@ -583,7 +607,7 @@ const safeUrl = url => (typeof url === 'string' && /^https:\/\/[^\s"'<>]+$/.test
 // result shown under the authority. answers: the payloads of the
 // analyzeCaseDocument calls; found: the search hit, when the case was found by
 // name.
-export function readCase(plan, answers, found = null) {
+export function readCase(plan, answers, found = null, notes = []) {
   const first = answers[0] || {};
   const caseInfo = first.case || {};
   const opinion = first.document?.opinion || {};
@@ -591,7 +615,10 @@ export function readCase(plan, answers, found = null) {
   const theirName = caseInfo.caseName || '';
   const citation = opinion.citation || caseInfo.caseName || plan.citation;
   lines.push(line('ok', `Found in Midpage: ${citation}`));
-  if (found) lines.push(line('info', 'Found by name, as the document gives no reporter citation.'));
+  if (found && plan.how === 'search') {
+    lines.push(line('info', 'Found by name, as the document gives no reporter citation.'));
+  }
+  lines.push(...notes);
   const ours = plan.caseName || plan.name;
   const same = theirName ? sameCaseName(ours, theirName) : null;
   if (same === false) {
@@ -1094,26 +1121,65 @@ export class CiteCheck {
       reference = { documentId: found.document.documentId };
     }
     const answers = [];
+    const notes = [];
     for (const { question } of questionsFor(plan)) {
-      const answer = await call('analyzeCaseDocument', { ...reference, question });
-      if (!answer.ok) {
-        if (answers.length) break;
-        return failedCall(plan, answer.failure);
-      }
-      if (answer.payload?.status && answer.payload.status !== 'ok') {
-        return failedCall(plan, {
-          code: 'tool_error',
-          status: answer.payload.status,
-          message: answer.payload.message || '',
+      let answer = await call('analyzeCaseDocument', { ...reference, question });
+      let failure = !answer.ok
+        ? answer.failure
+        : answer.payload?.status && answer.payload.status !== 'ok'
+          ? {
+              code: 'tool_error',
+              status: answer.payload.status,
+              message: answer.payload.message || '',
+            }
+          : null;
+      // A citation Midpage does not match as written: look for the case by name.
+      if (failure && !answers.length && !found && plan.find && MISSED.has(failure.status)) {
+        const searched = await call('search', {
+          queries: [{ query: plan.find.name }, { query: `${plan.find.name} ${plan.citation}` }],
         });
+        const hit = searched.ok ? pickByName(plan, searched.payload?.results || []) : null;
+        if (hit) {
+          found = hit.hit;
+          reference = { documentId: found.document.documentId };
+          const theirs = found.document.opinion?.citation || found.case?.caseName || '';
+          notes.push(
+            hit.same
+              ? line(
+                  'info',
+                  'Midpage did not match the citation as written, so the case was found by name.',
+                )
+              : line(
+                  'problem',
+                  `Midpage has this case as ${theirs}; the document cites ${plan.citation}. Check the citation.`,
+                ),
+          );
+          answer = await call('analyzeCaseDocument', { ...reference, question });
+          failure = !answer.ok
+            ? answer.failure
+            : answer.payload?.status && answer.payload.status !== 'ok'
+              ? {
+                  code: 'tool_error',
+                  status: answer.payload.status,
+                  message: answer.payload.message || '',
+                }
+              : null;
+        }
+      }
+      if (failure) {
+        if (answers.length) break;
+        return failedCall(plan, failure);
       }
       answers.push(answer.payload || {});
     }
-    return readCase(plan, answers, found);
+    return readCase(plan, answers, found, notes);
   }
   async runLaw(plan, call) {
     const questions = questionsFor(plan);
-    let reference = { citation: plan.citation };
+    const register = plan.citation.match(/^(\d+)\s+Fed\.\s?Reg\.\s+([\d,]+)/);
+    let reference = register
+      ? { registerCitation: `${register[1]} FR ${register[2].replace(/,/g, '')}` }
+      : { citation: plan.citation };
     let first = await call('analyzeLaw', { ...reference, question: questions[0].question });
     if (!first.ok && first.failure.code === 'tool_error') {
       // Midpage matches a code's own abbreviations only; find the section by search.
@@ -1215,6 +1281,31 @@ function failedCall(plan, failure) {
     'error',
     `Midpage could not run this check${failure.message ? `: ${failure.message}` : '.'}`,
   );
+}
+
+// Midpage statuses that mean it did not match a citation as written.
+const MISSED = new Set(['not_found', 'invalid_reference', 'ambiguous']);
+
+// For a citation Midpage did not match, the search hit with the case's name: the
+// same volume, reporter and page written another way (same: true), or else the
+// same court and year (same: false: the document's citation looks wrong).
+export function pickByName(plan, results) {
+  const find = plan.find;
+  const want = wordForm(`${find.volume} ${find.reporter} ${find.page}`);
+  const named = results.filter(
+    hit =>
+      hit?.document?.documentId &&
+      sameCaseName(find.name, hit.case?.caseName || hit.document.opinion?.citation || ''),
+  );
+  const same = named.find(hit => wordForm(hit.document.opinion?.citation || '').includes(want));
+  if (same) return { hit: same, same: true };
+  const near = named.find(
+    hit =>
+      find.year &&
+      yearOf(hit.document.opinion?.dateDecided) === find.year &&
+      (!find.court || courtForm(hit.case?.court) === courtForm(find.court)),
+  );
+  return near ? { hit: near, same: false } : null;
 }
 
 // The search hit that is the case the document cites: its name matches, and its

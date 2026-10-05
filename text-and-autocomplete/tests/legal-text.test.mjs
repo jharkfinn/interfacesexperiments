@@ -1310,14 +1310,38 @@ test('findCitations stays fast on long adversarial text', () => {
     'Id. at 1 (',
     'Smith, supra, at 1 (',
     'Abc v. Def, 1 F.3d 1 (',
+    // The fourth round: unclosed parentheses after marks, titles before citations, and the
+    // forms read since (Tax Court, PTAB, patents, slip opinions, jury instructions).
+    '§ 1 (',
+    '¶ 1 (',
+    'Case C-1/12, ',
+    'ECLI:EU:C:2014:317, ',
+    'ROA.1234 ',
+    'Abc Corp., 1 NLRB No. 1, slip op. at ',
+    'T.C. Memo. 2020-',
+    '123 T.C.M. (CCH) ',
+    'IPR2019-01234, Paper ',
+    'U.S. Patent No. 9,876,543 col. ',
+    'Abc Def Ghi of Jkl, ',
+    'Matter of A-B-, ',
+    '(No 2) (1992) ',
+    '1 U.S. ___, ___ (2023) (slip op., at ',
+    'Ill. Pattern Jury Instr., ',
+    'Op. 27 No. ',
+    'May 23, 1969, ',
   ]) {
     const text = fill(unit);
     findCitations(text);
     citationRuns(text);
-    const at = performance.now();
-    findCitations(text);
-    citationRuns(text);
-    assert.ok(performance.now() - at < 100, unit);
+    // The best of three runs, so a test file running beside others does not time a pause.
+    let best = Infinity;
+    for (let k = 0; k < 3; k++) {
+      const at = performance.now();
+      findCitations(text);
+      citationRuns(text);
+      best = Math.min(best, performance.now() - at);
+    }
+    assert.ok(best < 100, `${unit}: ${best} ms`);
   }
 });
 

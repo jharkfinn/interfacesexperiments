@@ -278,7 +278,9 @@ test('support for each sentence of the memo', () => {
 
 test('flags for each sentence of the memo', () => {
   // The spec's table, plus "quote" on S21-S23: each quotes Lakeside at length,
-  // which is what the quote flag marks; the table listed only the notable flags.
+  // which is what the quote flag marks; the table listed only the notable flags. S29's
+  // quotation opens with a stray space before its alteration (`, " [t]o the handicapped`),
+  // and is a quotation all the same.
   const expected = {
     8: ['form statute'],
     9: ['quote'],
@@ -293,7 +295,7 @@ test('flags for each sentence of the memo', () => {
     24: ['see-suggested'],
     27: ['quote-unclosed', 'uncited-case'],
     28: ['form footnote'],
-    29: ['never-full'],
+    29: ['quote', 'never-full'],
     31: ['quote', 'quote-unsourced'],
     32: ['quote', 'form lowercase'],
     33: ['see-suggested'],
@@ -314,7 +316,7 @@ test('flags for each sentence of the memo', () => {
     'Quotation never closed',
     'Describes Columbus Country Club without citing it',
   ]);
-  assert.deepEqual(texts(29), ['Never cited in full: Hovsons']);
+  assert.deepEqual(texts(29), ['Quotation', 'Never cited in full: Hovsons']);
   assert.deepEqual(texts(31), ['Quotation', 'Quotation with no source']);
   assert.deepEqual(texts(34), ['Open item']);
   assert.deepEqual(texts(16), ['Quotation', 'Quotation without a pin cite', 'Form']);

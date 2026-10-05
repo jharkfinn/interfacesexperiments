@@ -7,8 +7,8 @@ import {
   shortName,
   isCitationSentence,
   distinctiveName,
-} from './legal-text.js?v=d320b2da73d2';
-import { ROLES, KINDS, ALLOWED, STRUCTURE_CHECKS } from './legal-core.js?v=be1784b5bce5';
+} from './legal-text.js?v=0bb9b215a317';
+import { ROLES, KINDS, ALLOWED, STRUCTURE_CHECKS } from './legal-core.js?v=7c037f3d7b33';
 
 // What the app works out for itself about a legal document, from its text and
 // Claude's labels: the sections its headings make, runs of sentences that do one
@@ -97,7 +97,8 @@ import { ROLES, KINDS, ALLOWED, STRUCTURE_CHECKS } from './legal-core.js?v=be178
 //                       // caption's citations are not authorities. key: legal-text's
 //                       // citationKey, with a reported case's first page ("550 U.S. 544");
 //                       // a neutral citation's key has its number already ("2020 IL
-//                       // 124112"). name: a case's short name
+//                       // 124112"), and a case not yet paged adds its name ("603 U.S.
+//                       // ___ Doe v. Roe"). name: a case's short name
 //                       // ("Twombly", from legal-text's shortName), or its neutral citation
 //                       // when that is all it has ("[2019] UKSC 5", "2021-Ohio-1234"); a
 //                       // statute's section ("§ 3602"), a session law's or executive order's
@@ -113,7 +114,9 @@ import { ROLES, KINDS, ALLOWED, STRUCTURE_CHECKS } from './legal-core.js?v=be178
 //                       // and its date; court: the full citation's court or null;
 //                       // italic: [start, end] of the case name, or of the article's or book's
 //                       // title, in title; level: supreme (the U.S., UK and Canadian supreme
-//                       // courts, the House of Lords), circuit, district, state-supreme,
+//                       // courts, the House of Lords), circuit (with the Court of Appeals for
+//                       // the Armed Forces), district (with bankruptcy courts and the Tax
+//                       // Court), state-supreme,
 //                       // state-appellate (by reporter, or by the court a public-domain
 //                       // citation names: "2020 IL 124112" is state-supreme, "2020 IL App
 //                       // (1st) 123" state-appellate), appellate (an English or Canadian
@@ -125,7 +128,7 @@ import { ROLES, KINDS, ALLOWED, STRUCTURE_CHECKS } from './legal-core.js?v=be178
 //   attentionCount,
 // }
 
-export { ROLE_NAMES, KIND_NAMES, STRUCTURE_CHECKS } from './legal-core.js?v=be1784b5bce5';
+export { ROLE_NAMES, KIND_NAMES, STRUCTURE_CHECKS } from './legal-core.js?v=7c037f3d7b33';
 
 const words = text => (text.match(/\S+/gu) || []).length;
 const squeeze = text => text.replace(/\s+/g, '').replace(/’/g, "'");
@@ -826,10 +829,20 @@ const isSection = cite =>
 const isUnparsed = cite => cite.type === 'unparsed' || Boolean(cite.unparsed);
 
 const pinOf = cite => (cite.pin || '').replace(/^at\s+/, '');
-// A slip opinion's page stands in for a database cite: "No. 21-1234, slip op. at 5".
-const SLIP_OPINION = /\bslip\s+op\./;
+// A slip opinion's page stands in for a database cite: "No. 21-1234, slip op. at 5", and so
+// does a Board paper's: "IPR2019-01234, Paper 12 at 5".
+const SLIP_OPINION = /\bslip\s+op\.|\bPaper\s+(?:No\.\s+)?\d/;
+// A decision numbered by the court itself, which needs no date beyond its number: "T.C.
+// Memo. 2020-45".
+const NUMBERED = /^T\.C\./;
+// A case not yet decided, cited by its docket and the date of where it stands: "(U.S.
+// argued Jan. 10, 2023)", "(filed Nov. 1, 2022)".
+const PENDING = /\b(?:argued|filed|pending|docketed|submitted)\s/;
+// A memorandum decision, a page with no pin to give: "143 S. Ct. 1 (2023) (mem.)".
+const MEMORANDUM = /^mem\.$/;
 const hasPin = cite => {
   if (isRecord(cite) || isUnparsed(cite)) return true;
+  if (cite.parentheticals?.some(inner => MEMORANDUM.test(inner.trim()))) return true;
   if (cite.type === 'statute' || cite.type === 'section') return true;
   if (cite.type === 'docket' || cite.type === 'docket-number' || cite.type === 'database') {
     return Boolean(cite.pin) || /\bat\s+\*?\d/.test(cite.database || '');
@@ -846,14 +859,19 @@ const unresolved = cite =>
   !cite.record &&
   (!cite.authority || cite.authority.nameless);
 
-// Whether a citation cannot support the sentence as written: a full cite with no
-// pin, an unreported case with no database cite (or slip opinion page) or full date, or a
+// Whether a citation cannot support the sentence as written: a full cite with no pin
+// (a memorandum decision needs none), an unreported case with no database cite (or slip
+// opinion page) or full date, unless it is still pending ("argued Jan. 10, 2023") or the
+// court numbers its decisions (a Tax Court memorandum opinion needs only its pin), or a
 // short form nothing resolves.
 function deficient(cite) {
-  if (cite.type === 'full') return !pinOf(cite);
+  if (cite.type === 'full') return !hasPin(cite);
   if (cite.type === 'docket' || cite.type === 'docket-number') {
+    if (NUMBERED.test(cite.database || '')) return !cite.pin;
+    const dated = FULL_DATE.test(cite.date || cite.text);
+    if (dated && PENDING.test(cite.text)) return false;
     const slip = SLIP_OPINION.test(cite.text) && Boolean(cite.pin);
-    return !(cite.database || slip) || !FULL_DATE.test(cite.date || cite.text);
+    return !(cite.database || slip) || !dated;
   }
   return unresolved(cite);
 }
@@ -1121,14 +1139,16 @@ function resolve(all, caption, kindAt = () => null, prose = '') {
     return item;
   };
   const counted = cite => !caption.has(cite.block);
+  const unparsedSeen = unparsedIndex();
   for (const cite of all.filter(counted)) {
     if (cite.type === 'full' || cite.type === 'docket') {
       cite.authority = inVolume(
         cite,
         authority(
-          // A neutral citation's key has its number already: "2020 IL 124112".
+          // A neutral citation's key has its number already: "2020 IL 124112". A case not
+          // yet paged ("603 U.S. ___") is told from others in its volume by its name.
           cite.type === 'full' && !cite.neutral
-            ? `${citationKey(cite)} ${cite.page}`
+            ? `${citationKey(cite)} ${cite.page}${/^_+$/.test(cite.page) && cite.name ? ` ${cite.name}` : ''}`
             : citationKey(cite),
           () => ({
             group: 'cases',
@@ -1157,11 +1177,22 @@ function resolve(all, caption, kindAt = () => null, prose = '') {
     } else if (['periodical', 'secondary', 'legislative'].includes(cite.type)) {
       cite.authority = authority(sourceKey(cite), () => ({ group: 'other', ...otherSource(cite) }));
     } else if (cite.type === 'unparsed') {
-      cite.authority = authority(citationKey(cite), () => ({
-        group: 'other',
-        name: cite.text,
-        unparsed: true,
-      }));
+      // A short form of one cited before in full repeats it: "Google Spain, ECLI:EU:C:2014:317,
+      // ¶ 95" after "Case C-131/12, Google Spain SL v. AEPD, ECLI:EU:C:2014:317, ¶ 94 …".
+      const ids = unparsedIds(cite.text);
+      const earlier = unparsedSeen.find(ids);
+      // Its pins are not what it cites: "PSR ¶ 34" and "PSR ¶ 35" are one source, though a
+      // bare "¶ 34" is all there is to name.
+      const key = citationKey(cite);
+      const base = key.replace(UNPARSED_PIN, '');
+      cite.authority =
+        earlier ||
+        authority(/[A-Za-z]/.test(base.replace(/^unparsed:/, '')) ? base : key, () => ({
+          group: 'other',
+          name: cite.text,
+          unparsed: true,
+        }));
+      if (!earlier) unparsedSeen.add(ids, cite.authority);
     }
   }
   // A supra that names its source: a case by its name or short title, else an article
@@ -1294,6 +1325,55 @@ function resolve(all, caption, kindAt = () => null, prose = '') {
   return byKey;
 }
 
+// A pin at the end of a citation in a form the parser does not know, keyed without spaces:
+// ",at5", "¶34", ",¶¶3–5".
+const UNPARSED_PIN = /(?:,?(?:at\*?\d[\d:–-]*|¶¶?\d[\d,–-]*))+$/;
+
+// What a citation in a form the parser does not know is known by, beyond its pins: a long
+// number with its separators ("ECLI:EU:C:2014:317", "9,876,543", "58170/13"), a patent's
+// last three digits ("Patent No. 9,876,543" and "’543 patent" are patent 543), and a volume
+// with the abbreviated reporter after it ("1986 I.C.J."), with the capitalized words that
+// name it ("Nicaragua").
+function unparsedIds(text) {
+  const numbers = (text.match(/[^\s,;()]*\d[^\s;()]*\d/g) || [])
+    .map(token => token.replace(/[,.:]+$/, ''))
+    .filter(token => token.length >= 8 && /[:/,]/.test(token));
+  const patent = text.match(/Patent\s+No\.\s+[\d,]*(\d{3})\b|[’'](\d{3})\s+patent\b/);
+  if (patent) numbers.push(`patent ${patent[1] || patent[2]}`);
+  const volumes = [...text.matchAll(/\b\d{1,4}\s+(?:(?:[A-Z][A-Za-z]*\.){2,}|[A-Z]{2,}\b)/g)].map(
+    m => m[0].replace(/\s+/g, ' '),
+  );
+  const words = new Set(text.match(/\b[A-Z][a-z]{2,}\b/g) || []);
+  return { numbers, volumes, words };
+}
+// The authorities of the citations in forms the parser does not know, by what each is known
+// by. find(ids) is the first one a citation known by `ids` repeats: one that shares a long
+// number with it, or a volume and reporter and a word of the name.
+function unparsedIndex() {
+  const byNumber = new Map();
+  const byVolume = new Map();
+  return {
+    add(ids, authority) {
+      for (const id of ids.numbers) if (!byNumber.has(id)) byNumber.set(id, authority);
+      // Each volume keeps the first few citations in it, which are the ones a short form
+      // names; a long run of one volume ("2 RR 45, 2 RR 46, …") is not compared again from each.
+      for (const id of ids.volumes) {
+        const list = byVolume.get(id) || [];
+        if (ids.words.size && list.length < 16) list.push({ words: ids.words, authority });
+        byVolume.set(id, list);
+      }
+    },
+    find(ids) {
+      for (const id of ids.numbers) if (byNumber.has(id)) return byNumber.get(id);
+      if (!ids.words.size) return null;
+      for (const id of ids.volumes)
+        for (const item of byVolume.get(id) || [])
+          if ([...ids.words].some(word => item.words.has(word))) return item.authority;
+      return null;
+    },
+  };
+}
+
 // The one source a citation cites, so a string citation can tell whether it cites more
 // than one: an authority, a record document ("Compl." for "Compl. ¶ 4" and "Compl. ¶ 6"),
 // or the citation itself when nothing resolves it.
@@ -1307,9 +1387,11 @@ function sourceOf(cite) {
 // Support and flags
 // ---------------------------------------------------------------------------
 
-// Record citations the parser did not read as citations, in a fact's own words.
+// Record citations the parser did not read as citations, in a fact's own words. An exhibit
+// needs its label, so Exodus ("Ex. 20:3") is none, and California's record its volume or
+// an opening bracket, so a flight ("AA 100") is none.
 const RECORD =
-  /\b(?:Ex\.|Exh\.|Compl\.|Dep\.|Decl\.|Aff\.|Tr\.|R\. at|ECF No\.)|\b\d*\s*(?:CT|RT|AA)\s+\d/;
+  /\bExh?\.\s*[A-Z0-9]{1,4}(?![\w:])|\b(?:Compl\.|Dep\.|Decl\.|Aff\.|Tr\.|R\. at|ECF No\.)|(?:\b\d+\s+|(?:^|[(\[;])\s*)(?:CT|RT|AA)\s+\d/;
 const OPEN_ITEM = /\[cite\]|\bTK\b|needs? to confirm|confirm with client|\?\?\?/i;
 const WEAK = new Set(['missing', 'incomplete', 'secondhand', 'contrary', 'unsourced']);
 // Roles that state no law or fact, so need no source.
@@ -2230,6 +2312,16 @@ function levelOf(authority) {
     ...(full.parallel || []).map(p => p.reporter),
   ].map(squeeze);
   if (/Cir\.$/.test(court)) return 'circuit';
+  // The Court of Appeals for the Armed Forces and its predecessor review courts-martial as a
+  // circuit reviews district courts; a bankruptcy court is a unit of its district court, and
+  // the Tax Court a federal trial court ("150 T.C. 1", "T.C. Memo. 2020-45").
+  if (/^(?:C\.A\.A\.F\.|C\.M\.A\.)$/.test(court)) return 'circuit';
+  if (
+    /^Bankr\./.test(court) ||
+    /^(?:T\.C\.|T\.C\.M\.)$/.test(reporters[0]) ||
+    /^T\.C\.(?:Memo|Summ)/.test(squeeze(full.database || ''))
+  )
+    return 'district';
   // A federal district court ("S.D.N.Y.", "D. Mass.", "D.D.C."), not a state's court whose
   // name starts the same way ("N.D. Ct. App." for "2018 ND App 12", "D.C." for the
   // District of Columbia's highest court).

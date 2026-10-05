@@ -3,8 +3,8 @@ import {
   wordCount,
   textResponse,
   CITATION_RULE,
-} from './compose-core.js?v=83c29be8e550';
-import { legalSentences } from './legal-text.js?v=d320b2da73d2';
+} from './compose-core.js?v=7b3585588ae2';
+import { legalSentences } from './legal-text.js?v=0bb9b215a317';
 
 // Dragging a selection onto another sentence asks for both as a single thought.
 const COMBINE_VERSIONS = 3;

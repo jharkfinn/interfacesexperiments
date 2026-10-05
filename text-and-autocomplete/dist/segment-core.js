@@ -1,4 +1,4 @@
-import { withinLimit, textResponse, MAX_WORDS } from './compose-core.js?v=83c29be8e550';
+import { withinLimit, textResponse, MAX_WORDS } from './compose-core.js?v=7b3585588ae2';
 
 // A view says what it is for, and Claude divides the document into pieces for
 // that purpose. Pieces are made of whole sentences: a run of sentences inside

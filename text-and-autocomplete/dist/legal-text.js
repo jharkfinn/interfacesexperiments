@@ -31,6 +31,7 @@ export const ALWAYS_JOIN = [
   'Msgr.',
   'Sen.',
   'Gov.',
+  'Pres.',
   'Lt.',
   'Sgt.',
   'Capt.',
@@ -47,12 +48,11 @@ export const ALWAYS_JOIN = [
 
 // Abbreviations that join only when the next word could not start a sentence
 // (St. Louis vs. Main St.). They join unless a capitalized name comes right before.
-export const PREFIX_UNLESS_AFTER_NAME = ['St.', 'Mt.', 'Ft.'];
+export const PREFIX_UNLESS_AFTER_NAME = ['St.', 'Mt.', 'Ft.', 'Ste.'];
 
-// Ambiguous: may end a sentence ("... under 42 U.S.C." / "... sued Acme Inc."), so a
-// break after one is joined only when the next segment continues it (see continues()).
-export const ABBREVIATIONS = [
-  // Case-name words (Bluebook T6; LII Basic Legal Citation 4-100), with plurals
+// Case-name words (Bluebook T6; LII Basic Legal Citation 4-100), with plurals. They name
+// parties, so beside a number they number nothing a citation cites ("Chem. 101").
+const NAME_ABBREVIATIONS = [
   'Acad.',
   'Acct.',
   'Admin.',
@@ -230,6 +230,12 @@ export const ABBREVIATIONS = [
   'Sr.',
   'Assocs.',
   'Ests.',
+];
+
+// Ambiguous: may end a sentence ("... under 42 U.S.C." / "... sued Acme Inc."), so a
+// break after one is joined only when the next segment continues it (see continues()).
+export const ABBREVIATIONS = [
+  ...NAME_ABBREVIATIONS,
   // States and places (Bluebook T10; LII 4-500)
   'Ala.',
   'Ariz.',
@@ -460,6 +466,20 @@ export const ABBREVIATIONS = [
   'col.',
   'cols.',
   'cc.',
+  // Ordinary prose's numbered things and addresses: "Fig. 3B", "Apt. 4B", "tracking no.
+  // 1Z99", "1 Cor. 13:4-7", "Eq. 7", "Fl. 3", "Wk. 34"
+  'Eq.',
+  'Fl.',
+  'Wk.',
+  'Wks.',
+  'Fig.',
+  'Figs.',
+  'fig.',
+  'figs.',
+  'Apt.',
+  'no.',
+  'nos.',
+  'Cor.',
 ];
 
 // Contractions that stand for words in case names (T6). They carry no period
@@ -952,6 +972,13 @@ export const REPORTERS = [
   'I. & N. Dec.',
   'Bankr.',
   'Bankr. L. Rep.',
+  // Agencies' and specialized courts' reporters
+  'FCC Rcd',
+  'I&N Dec.',
+  'M.S.P.R.',
+  'T.C.M.',
+  'USPQ2d',
+  'U.S.P.Q.2d',
 ];
 const squeeze = s => s.replace(/\s+/g, '').replace(/’/g, "'");
 let reporterSet = new Set(REPORTERS.map(squeeze));
@@ -998,9 +1025,10 @@ const NUMBERS = String.raw`\d+(?:\s*${DASH}\s*\d+)?(?:,\s*\d+(?:\s*${DASH}\s*\d+
 // Deposition or transcript pages and lines: 8:2-11 / 22:15-23:4.
 const LINES = String.raw`\d+:\d+(?:\s*${DASH}\s*(?:\d+:)?\d+)?(?:,\s*\d+:\d+(?:\s*${DASH}\s*(?:\d+:)?\d+)?)*`;
 
-// VOLUME REPORTER PAGE, or VOLUME REPORTER at PIN (short form), "at p." in California.
+// VOLUME REPORTER PAGE, or VOLUME REPORTER at PIN (short form), "at p." in California. A
+// loose-leaf reporter names its publisher between: "123 T.C.M. (CCH) 1050".
 const CASE_CORE = new RegExp(
-  String.raw`(?<![\w.])(\d{1,4})\s+(${REPORTER})\s*(,\s*at(?:\s+pp?\.)?|at(?:\s+pp?\.)?)?\s+(\d{1,6}|_{2,})(?![\w.]*\.\w)`,
+  String.raw`(?<![\w.])(\d{1,4})\s+(${REPORTER})(?:\s*\((?:CCH|RIA|BNA|P-H|LRP)\))?\s*(,\s*at(?:\s+pp?\.)?|at(?:\s+pp?\.)?)?\s+(\d{1,6}|_{2,})(?![\w.]*\.\w)`,
   'g',
 );
 // English reports and UK neutral citations: [1990] 1 WLR 491 / [1932] AC 562 /
@@ -1086,7 +1114,12 @@ function matchAt(re, text, i) {
 
 // What may follow a case's core. A pin may not run into a parallel citation's volume
 // ("544, 127 S. Ct.") but may end the sentence ("1206.)").
-const PINS_AFTER = sticky(String.raw`(?:,\s*(?:at\s+)?(?:pp?\.\s*)?${PIN}(?!\w|\.\d|\s+[A-Z]))+`);
+const PINS_AFTER = sticky(
+  String.raw`(?:,\s*(?:at\s+)?(?:pp?\.\s*)?(?:${PIN}|_{2,})(?!\w|\.\d|\s+[A-Z]))+`,
+);
+// A Supreme Court slip opinion's page, in a parenthetical after the court and date: "598
+// U.S. ___, ___ (2023) (slip op., at 5)".
+const SLIP_PIN = new RegExp(String.raw`^slip\s+op\.,?\s+at\s+(${PIN})$`);
 const SHORT_MORE = sticky(
   String.raw`(?:\s*${DASH}\s*\d+)?(?:\s*(?:&\s*)?nn?\.\s*\d+(?:\s*${DASH}\s*\d+)?)?(?:,\s*(?:pp?\.\s*)?${PIN}(?!\w|\.\d|\s+[A-Z]))*`,
 );
@@ -1129,12 +1162,17 @@ const CSM_NOTE = sticky(
 // A judge's initials after a docket number: "No. 18-cv-7702 (JPO)".
 const JUDGE = sticky(String.raw`(?:\s*\([A-Z]{2,5}\))+`);
 // 2015 WL 123456 / 2013 U.S. Dist. LEXIS 1234
-const DATABASE_SOURCE = String.raw`${YEAR}\s+(?:WL|U\.\s?S\.\s?(?:Dist\.|App\.)\s?LEXIS|[A-Z][A-Za-z.]*(?:\s[A-Z][A-Za-z.]*){0,3}\s?LEXIS)\s+\d+`;
+// The Tax Court's memorandum and summary opinions are numbered as a database's are: "T.C.
+// Memo. 2020-45", "T.C. Summary Opinion 2015-10".
+const DATABASE_SOURCE = String.raw`(?:${YEAR}\s+(?:WL|U\.\s?S\.\s?(?:Dist\.|App\.)\s?LEXIS|[A-Z][A-Za-z.]*(?:\s[A-Z][A-Za-z.]*){0,3}\s?LEXIS)\s+\d+|T\.C\.\s+(?:Memo\.|Summ(?:ary|\.)\s+Op(?:inion|\.))\s+${YEAR}-\d+)`;
 const DATABASE = new RegExp(String.raw`(?<![\w.])${DATABASE_SOURCE}`, 'g');
 const DATABASE_AFTER = sticky(String.raw`,\s*(${DATABASE_SOURCE})(?:,\s*at\s+(${PIN}))?`);
 const DATABASE_PIN = sticky(String.raw`,\s*at\s+(${PIN})`);
 // A slip opinion after its docket number: "No. 21-1234, slip op. at 5".
-const SLIP_OP = sticky(String.raw`,\s*slip\s+op\.(?:\s+at\s+(${PIN}))?`);
+// The Board's paper in a trial does the same: "IPR2019-01234, Paper 12 at 5".
+const SLIP_OP = sticky(
+  String.raw`,\s*(?:slip\s+op\.|Paper\s+(?:No\.\s+)?\d+)(?:,?\s+at\s+(${PIN}))?`,
+);
 const DOCKET_PAREN = sticky(String.raw`,?${COURT_AFTER.source}`);
 // Subsequent history after a case: ", aff’d," / ", rev’d on other grounds," / ", cert.
 // denied," / ", abrogated on other grounds by" / ", aff’d sub nom.". Read up to the citation
@@ -1298,7 +1336,7 @@ const CODE_NAMED =
 // Id. / id. at 5 / Id. at p. 843 / Id. § 3 / Id. ¶¶ 30–31 / Id. at 14:3-9 / ibid., and a
 // constitution's other article or amendment: Id. art. II, § 3 / (Id., art. I, § 7, subd. (b).)
 const ID = new RegExp(
-  String.raw`(?<![\w.])(?:[Ii]d\.|[Ii]bid\.)(?:,?\s+at\s+(?:pp?\.\s*)?${PIN}(?:,\s*${PIN}(?!\w|\s+[A-Z]))*|\s+§§?\s*${SEC}(?:\([0-9a-zA-Z]{1,4}\))*(?:,\s*(?:\([0-9a-zA-Z]{1,4}\))+)*|\s+¶+\s*${NUMBERS}|,?\s+(?:arts?\.|amends?\.)\s+[IVXLC]+(?!\w)(?:,\s*§§?\s*${SEC}(?:,\s*cl\.\s*\d+)?)?(?:,\s*subd\.\s*\([0-9a-zA-Z]{1,4}\))?)?`,
+  String.raw`(?<![\w.])(?:[Ii]d\.|[Ii]bid\.)(?:,?\s+(?:slip\s+op\.,?\s+)?at\s+(?:pp?\.\s*)?${PIN}(?:,\s*${PIN}(?!\w|\s+[A-Z]))*|\s+§§?\s*${SEC}(?:\([0-9a-zA-Z]{1,4}\))*(?:,\s*(?:\([0-9a-zA-Z]{1,4}\))+)*|\s+¶+\s*${NUMBERS}|,?\s+(?:arts?\.|amends?\.)\s+[IVXLC]+(?!\w)(?:,\s*§§?\s*${SEC}(?:,\s*cl\.\s*\d+)?)?(?:,\s*subd\.\s*\([0-9a-zA-Z]{1,4}\))?)?`,
   'g',
 );
 // Smith, supra, at 5 / Smith, supra note 3, at 5 / Lindemann et al., supra note 6, § 13.03 /
@@ -1316,8 +1354,11 @@ const PARA_SHORT = new RegExp(
   String.raw`(?<![\w.'’-])((?:[A-Z][a-z][\w'’-]*)(?:\s+(?:[A-Z][a-z][\w'’-]*|of|the|&)){0,2}?)\s+at\s+(\[\d{1,4}\](?:\s*${DASH}\s*\[\d{1,4}\])?|paras?\.?\s+\d{1,4}(?:\s*${DASH}\s*\d{1,4})?)(?![\w\]])`,
   'g',
 );
-// No. 13-114-J / No. 2:13-cv-00114 / Nos. 12-1, 12-2
-const DOCKET = /(?<![\w.])Nos?\.\s+(?:\d+:)?\d{1,5}[-–][\w-]*/g;
+// No. 13-114-J / No. 2:13-cv-00114 / Nos. 12-1, 12-2, and numbers that start with letters,
+// as tribal courts' and tribunals' do: No. SC-CV-12-15 / Case No. ARB/10/7. The Patent
+// Trial and Appeal Board's trials are numbered alone: IPR2019-01234.
+const DOCKET =
+  /(?<![\w.])(?:Nos?\.\s+(?:(?:\d+:)?\d{1,5}[-–][\w-]*|[A-Z]{1,5}(?:[-–/][A-Z]{1,5}){0,3}[-–/]\d{1,5}(?:[-–/][\w-]+)*)|(?:IPR|PGR|CBM|DER)\d{4}-\d{5})/g;
 // A number that is a court's docket number by its shape (1:26-cv-03317, 18-cv-7702) or by
 // the word before it (Case No., Civ. No., Index No.).
 const DOCKET_SHAPE = /\d:\d\d-[a-z]{2,4}-|[-–](?:cv|cr|mc|bk|md|ap|civ|crim|misc)[-–]/i;
@@ -1339,8 +1380,10 @@ const CA_BILL = new RegExp(
 );
 // Revenue rulings and other IRS guidance: Rev. Rul. 2004-1, 2004-1 C.B. 1 / Rev. Proc.
 // 2019-43 / I.R.S. Notice 2020-23 / Priv. Ltr. Rul. 2019-12-001 / T.D. 9876
+// / Priv. Ltr. Rul. 202012003 / Tech. Adv. Mem. 200245001 / I.R.S. Chief Couns. Mem.
+// 201830011, and where it is published: T.D. 9947, 86 Fed. Reg. 1,234
 const IRS_GUIDANCE = new RegExp(
-  String.raw`(?<![\w.])(?:Rev\.\s?(?:Rul|Proc)\.|I\.R\.S\.\s+Notice|Priv\.\s?Ltr\.\s?Rul\.|T\.D\.)\s+\d{2,4}(?:-\d+){0,2}(?:,\s*\d{4}-\d+\s+(?:C\.B\.|I\.R\.B\.)\s+\d+(?:,\s*\d+(?![\d,]|\s+[A-Z]))?)?`,
+  String.raw`(?<![\w.])(?:Rev\.\s?(?:Rul|Proc)\.|I\.R\.S\.\s+Notice|Priv\.\s?Ltr\.\s?Rul\.|T\.D\.|Tech\.\s?Adv\.\s?Mem\.|(?:I\.R\.S\.\s+)?(?:Chief|Gen\.)\s+Couns\.\s+(?:Mem|Adv)\.|Field\s+Serv\.\s+Adv\.)\s+(?:\d{9}|\d{2,4}(?:-\d+){0,2})(?![\d-])(?:,\s*(?:\d{4}-\d+\s+(?:C\.B\.|I\.R\.B\.)\s+\d+|\d{1,3}\s+Fed\.\s?Reg\.\s+\d{1,3}(?:,\d{3})*)(?:,\s*\d+(?:,\d{3})*(?![\d,]|\s+[A-Z]))?)?`,
   'g',
 );
 // Record citations: the complaint, depositions, declarations, transcripts, exhibits,
@@ -1364,12 +1407,12 @@ const RECORD = new RegExp(
     String.raw`(?:(?:First|Second|Third|Fourth|Fifth)\s+)?(?:Am\.\s+|Amended\s+)?(?:Compl\.|Complaint|Answer|Countercls?\.|Counterclaims?)\s*${RECORD_PIN}`,
     // Amended complaints by their initials: "SAC ¶ 12", "FAC ¶¶ 3–5".
     String.raw`(?:FAC|SAC|TAC|CAC|SCAC)\s*${RECORD_PIN}`,
-    String.raw`(?<![\w'’-])(?:[A-Z][\w'’-]*\.?\s+){0,3}(?:[Dd]epo?|Decl|Aff|Tr|Hr['’]g\s+Tr|Trial\s+Tr)\.,?\s*(?:vol\.\s*[IVX\d]+,?\s*)?(?:${RECORD_PIN}|${NUMBERS})`,
+    String.raw`(?<![\w'’-])(?:[A-Z][\w'’-]*\.?\s+){0,3}(?:[Dd]epo?|Decl|Aff|Tr|Hr['’]g\s+Tr|Trial\s+Tr)\.,?\s*(?:vol\.\s*[IVX\d]+,?\s*)?(?:${RECORD_PIN}|${NUMBERS})(?:,\s*${MONTH}\s+\d{1,2},\s+${YEAR})?`,
     String.raw`Tr\.\s+of\s+Oral\s+Arg\.\s*(?:at\s+)?(?:${LINES}|${NUMBERS})`,
     String.raw`(?:Decl|Aff|[Dd]epo?)\.\s+of\s+${DECLARANT}(?:,?\s*${RECORD_PIN})?`,
     // An exhibit, a party's or a filing's: "Ex. A at 1", "Pl.'s Ex. 5", "Compl. Ex. A, at 2",
     // "Decl. Ex. 3 ¶ 7".
-    String.raw`(?:${PARTY}\s+|(?:Joint|Trial|Hr['’]g)\s+|(?:(?:Am\.\s+)?Compl|Decl|Aff|Mot)\.\s+)?Exh?s?\.\s*[A-Z0-9]{1,4}(?:[-.]\d{1,3})?(?!\w)(?:,?\s+at\s+(?:pp?\.\s*)?(?:${LINES}|${NUMBERS})|,?\s+¶¶?\s*${NUMBERS})?`,
+    String.raw`(?:${PARTY}\s+|(?:Joint|Trial|Hr['’]g)\s+|(?:(?:Am\.\s+)?Compl|Decl|Aff|Mot)\.\s+)?Exh?s?\.\s*[A-Z0-9]{1,4}(?:[-.]\d{1,3})?(?!\w|:\d)(?:,?\s+at\s+(?:pp?\.\s*)?(?:${LINES}|${NUMBERS})|,?\s+¶¶?\s*${NUMBERS})?`,
     // Trial exhibits: "PX 12 at 3", "DX-4".
     String.raw`(?:PX|DX|JX|GX|PTX|DTX)[-\s]?\d{1,4}(?:[-.]\d{1,3})?(?!\w)(?:,?\s+at\s+(?:pp?\.\s*)?(?:${LINES}|${NUMBERS}))?`,
     String.raw`(?:(?:Pls?|Defs?|Resp|Pet|Appellants?|Appellees?)\.?['’]s?\s+)?(?:Mot\.|Br\.|Mem\.|Opp['’]n|Reply|Ans\.)(?:\s+(?:to|for|in|of)\s+[A-Z][\w.'’]*(?:\s+[A-Z][\w.'’]*){0,3})?\s+at\s+${NUMBERS}`,
@@ -1383,6 +1426,8 @@ const RECORD = new RegExp(
     String.raw`(?:Interrogs?\.|Interrogator(?:y|ies))\s+Nos?\.\s+\d+(?:\s*(?:${DASH}|,|&|and)\s*\d+)*`,
     String.raw`R\.\s+at\s+${NUMBERS}`,
     String.raw`J\.A\.\s+${NUMBERS}`,
+    // The Fifth Circuit's record on appeal, its page joined by a period: "ROA.1234-36".
+    String.raw`ROA\.\d+(?:\s*${DASH}\s*\d+)?(?!\w|\.\d)`,
     String.raw`Pet\.\s+App\.\s+\d+a(?:\s*${DASH}\s*\d+a)?`,
     // An appendix by its page, though not a court's "Cal. App." or "Pet. App.": "App. 45".
     String.raw`(?<![A-Z][a-z]{0,8}\.\s{0,2})App\.\s+\d+(?:\s*${DASH}\s*\d+)?(?!\w|\.\d)`,
@@ -1423,6 +1468,13 @@ const BOOK_PIN_AFTER = sticky(
 // 402A, com. c".
 const JURY_INSTRUCTION =
   /(?<![\w.])(?:CACI|CALCRIM|CALJIC|BAJI)\s+Nos?\.\s+\d+(?:\.\d+)?(?:\s*(?:[-–—,&]|and)\s*\d+(?:\.\d+)?)*/g;
+// Pattern and model jury instructions elsewhere: "Ill. Pattern Jury Instr., Civ., No. 15.01
+// (2023)", "N.Y. Pattern Jury Instr.—Civil 2:10", "Ninth Circuit Manual of Model Criminal Jury
+// Instructions No. 4.1 (2022)".
+const PATTERN_INSTRUCTION = new RegExp(
+  String.raw`(?<![\w.])(?:[A-Z][\w.'’-]*\s+(?:(?:[A-Z][\w.'’-]*|of|the)\s+){0,5}?)?(?:Pattern|Model)\s+(?:(?:Civil|Criminal|Civ\.|Crim\.)\s+)?Jury\s+Instr(?:uctions?|s?\.)(?:\s*[—–-]\s*(?:Civil|Criminal)|,\s*(?:Civ|Crim)\.,?)?\s*(?:Nos?\.\s*)?\d+(?:[.:]\d+)*(?:\s*\((?:[^()\n]{0,30}\s)?${YEAR}\))?`,
+  'g',
+);
 const CSM_RESTATEMENT = new RegExp(
   String.raw`(?<![\w.])Rest\.\s?(?:2d|3d)?\s*[A-Z][\w.]*(?:\s+(?:[A-Z][\w.]*|of|and|&)){0,4},\s*§§?\s*${SEC}(?:,\s*(?:com\.|cmt\.|illus\.)\s*[a-z0-9]+)*`,
   'g',
@@ -1506,21 +1558,21 @@ export function stripLead(name) {
   }
 }
 
+// Whether a clause starts at `at`: the text's start, a line, a sentence, a semicolon or an
+// opening bracket before it, with a signal or not.
+const CLAUSE_BEFORE =
+  /(?:^|\n|[.!?]["”’)]?[^\S\n]+|;[^\S\n]*|[(\[])(?:(?:but\s+)?(?:see(?:\s+also|\s+generally|,?\s+e\.g\.,)?|cf\.)\s+|compare\s+|accord,?\s+|contra\s+|e\.g\.,\s+)?$/i;
+const clauseStarts = (text, at) => CLAUSE_BEFORE.test(text.slice(Math.max(0, at - 30), at));
+
 const MAX_PARENTHETICAL = 1500;
-// The end of the balanced parenthesis or bracket that opens at i, or -1.
+// The end of the balanced parenthesis or bracket that opens at i, or -1. The text's
+// brackets are paired once, in one pass, so a run of unclosed ones after citations ("§ 1 (§
+// 1 (…") is not read again from each. A parenthetical runs a few hundred characters at most.
+let pairs = { text: null, closes: null };
 function closeOf(text, i) {
-  const open = text[i];
-  const close = open === '(' ? ')' : ']';
-  let depth = 0;
-  // A parenthetical runs a few hundred characters at most; reading no further keeps a run
-  // of unclosed ones after citations ("Id. at 1 (Id. at 1 (…") from each reading the rest.
-  const last = Math.min(text.length, i + MAX_PARENTHETICAL);
-  for (let j = i; j < last; j++) {
-    if (text[j] === open) depth++;
-    else if (text[j] === close && --depth === 0) return j + 1;
-    else if (text[j] === '\n') return -1;
-  }
-  return -1;
+  if (pairs.text !== text) pairs = { text, closes: new Map(parenSpans(text)) };
+  const close = pairs.closes.get(i);
+  return close !== undefined && close - i <= MAX_PARENTHETICAL ? close : -1;
 }
 
 // The words before `at`, read back as they are asked for: word(0) is the last, word(1)
@@ -1565,7 +1617,7 @@ function nameParenthesis(word, k) {
     for (let m = j; m >= k; m--) words.push(word(m)[0].replace(/^\(|\)[,;]?$/g, ''));
     const named = words
       .filter(Boolean)
-      .every(w => /^[A-Z][A-Za-z'’.&-]*$/.test(w) || NAME_CONNECTORS.has(w));
+      .every(w => /^[A-Z][A-Za-z'’.&-]*$/.test(w) || /^\d+$/.test(w) || NAME_CONNECTORS.has(w));
     return named && /^[A-Z]/.test(word(j + 1)?.[0] || '') ? j : -1;
   }
   return -1;
@@ -1581,7 +1633,8 @@ function nameStart(text, at, { needV = false, maxTokens = 24 } = {}) {
   for (let k = 0; word(k) && words < maxTokens; k++) {
     const raw = word(k)[0];
     const next = k > 0 ? word(k - 1)[0] : '';
-    if (/\)[,;]?$/.test(raw) && /^(?:[A-Z]|v\.?$)/.test(next)) {
+    // A parenthesis inside the name, or one that ends it: "Mabo v Queensland (No 2) (1992)".
+    if (/\)[,;]?$/.test(raw) && (k === 0 || /^(?:[A-Z]|v\.?$)/.test(next))) {
       const open = nameParenthesis(word, k);
       if (open >= 0) {
         start = word(open).index;
@@ -1601,7 +1654,7 @@ function nameStart(text, at, { needV = false, maxTokens = 24 } = {}) {
     // A docket number, a page or pin ("544,"), or a volume before its reporter is
     // citation, not name.
     if (/^Nos?\.$/.test(bare) && /^\d/.test(next)) break;
-    if (/^\d+,$/.test(raw)) break;
+    if (/^\d+(?::\d+)?(?:[–-]\d+(?::\d+)?)?,$/.test(raw)) break; // "12,", "12:4–9,"
     if (/^\d+$/.test(bare) && k > 0 && startsReporter(word, k - 1)) break;
     const capital = /^[A-Z0-9]/.test(bare);
     const connector = NAME_CONNECTORS.has(bare);
@@ -1613,7 +1666,7 @@ function nameStart(text, at, { needV = false, maxTokens = 24 } = {}) {
       if (entitySuffixes.has(bare) && /^[A-Z]/.test(next) && !/^v\.?$/.test(next)) break;
     }
     if (/^(?:See|Cf\.|But|Compare|Accord|Contra|E\.g\.,?|Quoting|Citing)$/.test(bare)) break;
-    if (/^(?:v\.?|vs\.|In|Re|rel\.|parte)$/.test(bare)) sawV = true;
+    if (/^(?:v\.?|vs\.|In|Re|rel\.|parte|Matter)$/.test(bare)) sawV = true;
     start = word(k).index + opener.length;
     words++;
     if (opener) break; // "(Smith v. Jones" or "“Smith": the name starts here
@@ -1638,7 +1691,12 @@ function caseNameBefore(text, end, options) {
   if (court && /\sv\.?\s|^(?:In\s+re|Ex\s+parte)\s/.test(name.slice(court[0].length)))
     name = name.slice(court[0].length);
   if (!(options.needV ? /^[A-Z0-9]/ : /^[A-Z]/).test(name)) return null;
-  if (options.needV && !/\sv\.?\s|\svs\.\s|^(?:In\s+re|Re|Ex\s+parte)\s|\bex\s+rel\./.test(name))
+  if (
+    options.needV &&
+    !/\sv\.?\s|\svs\.\s|^(?:In\s+re|Re|Ex\s+parte|(?:In\s+the\s+)?Matter\s+of)\s|\bex\s+rel\./.test(
+      name,
+    )
+  )
     return null;
   return { start: end - name.length, name };
 }
@@ -1753,7 +1811,15 @@ const MAX_PARALLELS = 6;
 function readCase(text, core, coreAt, consumed) {
   const { short } = core;
   let { pin, end } = pinsAt(text, core.end, short, core.page);
-  const para = core.court ? matchAt(PARA_PIN, text, end) : null;
+  // A slip opinion's page after an agency's decision: "372 NLRB No. 50, slip op. at 3".
+  const slipOp = pin ? null : matchAt(SLIP_OP, text, end);
+  if (slipOp) {
+    pin = slipOp[0].replace(/^,\s*/, '');
+    end += slipOp[0].length;
+  }
+  // A paragraph pin: a public-domain citation's, or one after an agency's report with no
+  // page pin ("120 M.S.P.R. 1, ¶ 5", "33 FCC Rcd 311, ¶ 20").
+  const para = core.court || !pin ? matchAt(PARA_PIN, text, end) : null;
   if (para) {
     pin = para[1];
     end += para[0].length;
@@ -1837,6 +1903,20 @@ function readCase(text, core, coreAt, consumed) {
       found = caseNameBefore(text, nameEnd, { maxTokens: 5 });
       named = Boolean(found);
     }
+    // An agency's or an arbitrator's report, of more than one word, names a decision by its
+    // party alone, at the start of its clause: "Acme Corp., 123 Lab. Arb. Rep. (BNA) 456",
+    // "Starbucks Corp., 372 NLRB No. 50". "Meeting Notes, 3 Jan. 2024" is no case.
+    if (
+      !found &&
+      !short &&
+      comma &&
+      core.form === 'reporter' &&
+      !isReporter(core.reporter) &&
+      /\s/.test(core.reporter)
+    ) {
+      const party = caseNameBefore(text, nameEnd, { maxTokens: 8 });
+      if (party && clauseStarts(text, party.start)) found = party;
+    }
     if (found) {
       start = found.start;
       name = found.name;
@@ -1883,6 +1963,12 @@ function readCase(text, core, coreAt, consumed) {
   const parenFrom = end;
   const after = parentheticalsAfter(text, end, name);
   end = after.end;
+  // "(slip op., at 5)" is the pin of a case not yet paged, not an explanation.
+  const slip = after.parentheticals.findIndex(inner => SLIP_PIN.test(inner));
+  if (slip >= 0 && (!pin || /^_+$/.test(pin))) {
+    pin = after.parentheticals[slip];
+    after.parentheticals.splice(slip, 1);
+  }
   const parties = named ? null : name?.split(/\s+v\.?\s+/);
   for (const other of taken) consumed.add(other);
   return {
@@ -2089,18 +2175,60 @@ function runClass(core) {
   return null;
 }
 
+// The case-name words that also name a source: a code, a court, a reporter or the record
+// ("Admin. Code", "Bankr. S.D.N.Y.", "Fed. Reg.", "Lab. Arb. Rep.", "Def.'s Mot.").
+const SOURCE_NAME_WORDS = new Set(
+  `Admin. Arb. Bankr. Cas. Com. Comp. Cong. Consol. Def. Dig. Dist. Div. Educ. Elec. Exch.
+  Exec. Fed. Fin. Immigr. Inst. Ins. Lab. Mun. Prob. Prop. Pub. Rec. Reg. Res. Rest. Temp.
+  Tr. Transp. Unif.`.split(/\s+/),
+);
+const NAME_ONLY = new Set(
+  [...NAME_ABBREVIATIONS, ...plural(NAME_ABBREVIATIONS)].filter(
+    word => !SOURCE_NAME_WORDS.has(word) && !SOURCE_NAME_WORDS.has(word.replace(/s\.$/, '.')),
+  ),
+);
+// Words that number a part of any work, in ordinary prose as in citations: "Op. 27" (an
+// opus), "Ch. 4", "App. B", "Rev. 21:4", "Fig. 3", "Ex. 20:3" (Exodus). Beside a number they
+// make no citation alone.
+const PART_LABELS = new Set(
+  `Op. Ops. Ch. Chs. App. Apps. Rev. Fig. Figs. Vol. Vols. Pt. Pts. Art. Arts. Sec. Secs. Bk.
+  Bks. Ex. Exs. Exh. Exhs. No. Nos. Para. Paras. Tab. Tbl. Eq. Ep. Ser. Cor. Wk. Wks.`.split(/\s+/),
+);
+// Whether a token in a run names a source, which a run without a mark or an acronym in a
+// citation's shape needs: an abbreviation a list knows that is not a party's name word
+// ("Chem."), a part's label ("Op.", "Ch.") or one initial ("W."), and not a capitalized
+// word that counts only beside one ("Bio."). A party's ("Def.’s") and a code's or court's
+// ("Admin.", "Bankr.", "R.A.P.") are.
+const sourceToken = t =>
+  t.cls === 'mark' ||
+  (t.cls === 'abbr' &&
+    !t.promoted &&
+    !NAME_ONLY.has(t.core) &&
+    !PART_LABELS.has(t.core) &&
+    !INITIAL.test(t.core));
+
 // A run of acronyms and numbers with no abbreviation or mark is a citation only in the
 // shapes citations take: a number right before and right after the acronym ("735 ILCS
-// 5/2-619", "2020 IL 124112"), or a number and a pin after "at" ("PX 12 at 3"). "COVID 19",
-// "ISO 9001", "2 GB of MP3" and "30 PTS and 12" are prose.
+// 5/2-619", "2020 IL 124112", "372 NLRB No. 50"), a whole number and a pin after "at" ("PX
+// 12 at 3"), or, opening a parenthesis, a date and a pin ("(VRP (Mar. 3, 2021) at 12)").
+// "COVID 19", "ISO 9001", "2 GB of MP3", "30 PTS and 12" and "PD 3.1 at 240" are prose.
+const DATE_ONLY = new RegExp(String.raw`^(?:${MONTH}\s+\d{1,2},\s+)?${YEAR}$`);
 function acronymCitation(tokens) {
   const number = t => t?.cls === 'num' && /^\d/.test(t.core);
-  return tokens.some(
-    (t, k) =>
-      t.cls === 'acro' &&
-      number(tokens[k + 1]) &&
-      (number(tokens[k - 1]) || (tokens[k + 2]?.core === 'at' && number(tokens[k + 3]))),
-  );
+  const whole = t => number(t) && /^\d+(?:[-–]\d+)?$/.test(t.core);
+  return tokens.some((t, k) => {
+    if (t.cls !== 'acro') return false;
+    const next = /^Nos?\.$/.test(tokens[k + 1]?.core || '') ? k + 2 : k + 1;
+    if (number(tokens[k - 1]) && number(tokens[next])) return true;
+    const pin = tokens[k + 2]?.core === 'at' && whole(tokens[k + 3]);
+    if (pin && whole(tokens[k + 1])) return true;
+    return (
+      pin &&
+      t.lead.includes('(') &&
+      tokens[k + 1]?.cls === 'paren' &&
+      DATE_ONLY.test(tokens[k + 1].core)
+    );
+  });
 }
 
 // A two-word run of an abbreviation and a number is a citation only when the abbreviation
@@ -2110,31 +2238,52 @@ const RECORD_WORDS = new Set(['App.', 'Doc.', 'Docs.', 'Rec.', 'Dkt.', 'Att.', '
 const PLACES = new Set(['U.S.', 'U.K.', 'E.U.', 'D.C.', 'N.Y.', 'N.J.', 'N.C.', 'S.C.', 'L.A.']);
 const pairCitation = word =>
   RECORD_WORDS.has(word) || (/^(?:[A-Z]\.){2,}$/.test(word) && !PLACES.has(word));
+// An acronym joined to its page by a period, a record's cite on its own: "ROA.1234",
+// "ROA.1234-36". A label in capitals ("NO.5", "VOL.2") is not one.
+const GLUED = /^([A-Z]{2,5})\.\d+(?:[-–]\d+)?$/;
+const glued = core => {
+  const m = core.match(GLUED);
+  return Boolean(m) && !PART_LABELS.has(`${m[1][0]}${m[1].slice(1).toLowerCase()}.`);
+};
 
 // The run's citation, [start, end], or null when it is prose. The words that may only sit
 // inside a run are trimmed from its ends, though a numeral or letter after one stays
-// ("supp. I", "Ex. A"). It needs a number or a mark, an abbreviation, an acronym in a
-// citation's shape, or a mark, and 2 to 14 tokens. Not a citation: a run whose only
-// numbers are years ("U.S. 2020"), or two words that are a count, a measure or a name and
-// a number ("48 U.S. states", "350 F.", "Pat. 3", "D.C. 20001").
-function runCitation(run) {
+// ("supp. I", "Ex. A"). It needs a number or a mark, a word that names a source (see
+// sourceToken) or an acronym in a citation's shape, and 2 to 14 tokens, or one acronym
+// glued to its page ("ROA.1234"). Not a citation: a run whose only numbers are years ("U.S.
+// 2020"), two words that are a count, a measure or a name and a number ("48 U.S. states",
+// "350 F.", "Pat. 3", "D.C. 20001"), and a run of acronyms and numbers right after a name
+// ("Boeing 737 MAX 8", "Flight UA 857 at 10"), which is a model or a flight. `before` is the
+// token before the run.
+function runCitation(run, before) {
   let i = 0;
   let j = run.length;
   while (i < j && (run[i].cls === 'inside' || run[i].cls === 'paren')) i++;
   while (j > i && run[j - 1].cls === 'inside') {
     const last = run[j - 1].core;
-    const before = run[j - 2];
+    const prior = run[j - 2];
     const label = /^(?:[IVXLC]{1,6}|[A-Z])$/.test(last);
-    if (label && before && j - 2 >= i && (RUN_INSIDE.has(before.core) || before.cls === 'abbr'))
-      break;
+    if (label && prior && j - 2 >= i && (RUN_INSIDE.has(prior.core) || prior.cls === 'abbr')) break;
     j--;
   }
   const tokens = run.slice(i, j);
+  if (tokens.length === 1 && glued(tokens[0].core)) return [tokens[0].start, tokens[0].end];
   if (tokens.length < 2 || tokens.length > 14) return null;
   const nums = tokens.filter(t => t.cls === 'num');
   const mark = tokens.some(t => t.cls === 'mark');
   if (!nums.length && !mark) return null;
-  if (!mark && !tokens.some(t => t.cls === 'abbr') && !acronymCitation(tokens)) return null;
+  const source = tokens.some(sourceToken);
+  if (!source && !acronymCitation(tokens)) return null;
+  // A model or a flight: acronyms and numbers right after a name or a possessive.
+  if (
+    !source &&
+    tokens[0] === run[0] &&
+    before &&
+    !before.lead &&
+    /^[A-Z][\w'’&-]*$/.test(before.raw) &&
+    !NOT_NAME.has(before.raw)
+  )
+    return null;
   if (!mark && nums.every(t => PLAIN_YEAR.test(t.core))) return null;
   const words = tokens.filter(t => t.cls !== 'paren');
   if (!mark && words.length === 2) {
@@ -2144,6 +2293,31 @@ function runCitation(run) {
     if (words[0].cls === 'abbr' && !pairCitation(words[0].core)) return null;
   }
   return [tokens[0].start, tokens.at(-1).end];
+}
+
+// Words a run's class depends on beside it: a month before its day and year ("May 23,
+// 1969"), "slip" before "op.", a patent's or application's short name after its number
+// ("’543 patent"), and an entity's initials that open a citation rather than end a name
+// ("S.A. 45–46", a supplemental appendix).
+const MONTH_WORD = new RegExp(String.raw`^${MONTH}$`);
+function classBeside(tokens, k, cls) {
+  const t = tokens[k];
+  const next = tokens[k + 1];
+  if (cls === null && MONTH_WORD.test(t.core) && /^\d{1,2},$/.test(next?.raw || ''))
+    return PLAIN_YEAR.test(tokens[k + 2]?.core || '') ? 'inside' : null;
+  if (cls === null && t.core === 'slip' && next?.core === 'op.') return 'inside';
+  if (cls === null && /^(?:patents?|applications?)$/.test(t.core))
+    return /^[’']\d{3}$/.test(tokens[k - 1]?.core || '') ? 'inside' : null;
+  if (
+    cls === null &&
+    entitySuffixes.has(t.core) &&
+    INITIALISM.test(t.core) &&
+    !t.lead &&
+    /^\d/.test(next?.core || '') &&
+    !/^[A-Z][\w'’&.-]*,?$/.test(tokens[k - 1]?.raw || '')
+  )
+    return 'abbr';
+  return cls;
 }
 
 // The citation-shaped runs of `text`, as [start, end], outside the spans in `skip` (sorted
@@ -2164,13 +2338,16 @@ function runsIn(text, skip = []) {
   const found = [];
   let run = [];
   const finish = () => {
-    const cite = run.length ? runCitation(run) : null;
+    const first = run[0];
+    const before = first && first.k > 0 ? tokens[first.k - 1] : null;
+    const near = before && !text.slice(before.end, first.at).includes('\n') ? before : null;
+    const cite = run.length ? runCitation(run, near) : null;
     if (cite) {
       // The capitalized words of a title before its first abbreviation or acronym belong
       // to it: "Joint Stip. ¶ 4", "Order Granting Mot. ¶ 3".
-      const first = run.find(t => t.start === cite[0]);
-      if (first && (first.cls === 'abbr' || first.cls === 'acro') && !first.lead) {
-        for (let k = first.k - 1; k >= 0 && k >= first.k - 3; k--) {
+      const head = run.find(t => t.start === cite[0]);
+      if (head && (head.cls === 'abbr' || head.cls === 'acro') && !head.lead) {
+        for (let k = head.k - 1; k >= 0 && k >= head.k - 3; k--) {
           const word = tokens[k];
           if (word.blocked || !/^[A-Z][a-z]+$/.test(word.raw) || NOT_NAME.has(word.raw)) break;
           if (text.slice(word.end, tokens[k + 1].at).includes('\n')) break;
@@ -2195,7 +2372,7 @@ function runsIn(text, skip = []) {
         !inner.includes('\n') &&
         !touches(open, close)
       ) {
-        run.push({ cls: 'paren', core: inner, start: open, end: close });
+        run.push({ cls: 'paren', core: inner, start: open, end: close, lead: '' });
         while (k + 1 < tokens.length && tokens[k + 1].at < close) k++;
         if (!/^[,:]?(?:\s|$)/.test(text.slice(close, close + 2))) finish();
         continue;
@@ -2206,7 +2383,8 @@ function runsIn(text, skip = []) {
       finish();
       continue;
     }
-    let cls = runClass(t.core);
+    let cls = classBeside(tokens, k, runClass(t.core));
+    let promoted = false;
     if (cls === 'word.') {
       // An unlisted word with a period counts beside a listed abbreviation or a mark
       // ("Resp. to Interrog.", "Joint Stip. ¶ 4"). Before a capitalized abbreviation, it
@@ -2215,6 +2393,7 @@ function runsIn(text, skip = []) {
       const nextCls = next && !next.lead ? runClass(next.core) : null;
       const lower = nextCls === 'abbr' && /^[a-z]/.test(next.core);
       cls = strong(run) || lower || nextCls === 'mark' ? 'abbr' : null;
+      promoted = true;
     }
     // A state's postal code and a ZIP code are an address: "San Francisco, CA 94103".
     if (
@@ -2232,7 +2411,7 @@ function runsIn(text, skip = []) {
       finish();
       continue;
     }
-    run.push({ ...t, cls, k });
+    run.push({ ...t, cls, k, promoted });
     if (t.stop) finish();
   }
   finish();
@@ -2254,6 +2433,15 @@ export function citationTokenClass(token) {
   return runClass(runToken(token, 0).core);
 }
 
+// Whether a whitespace-delimited token names a source in a citation-shaped run, which a run
+// with no § or ¶ and no acronym in a citation's shape needs: § and ¶, and an abbreviation a
+// list knows that is not a party's name word, a part's label or one initial. "R.A.P.",
+// "Bankr.", "Evid." and "Def.’s" name sources; "Chem.", "Op.", "Ch.", "Rev." and "W." do not.
+export function citationSourceWord(token) {
+  const { core } = runToken(token, 0);
+  return sourceToken({ cls: runClass(core), core, promoted: false });
+}
+
 // What a citation reads as, by type. Every citation has {type, start, end, text, signal},
 // where `signal` is the signal written right before it ("See", "but see", "Cf."), and
 // `nested: true` with `within` (the index of the citation it sits in) when it is inside
@@ -2261,7 +2449,12 @@ export function citationTokenClass(token) {
 // legislative or unparsed citation followed by explanatory parentheticals ("28 U.S.C. §
 // 1291 (granting jurisdiction over final decisions)") takes them in, as a case does: its
 // text and end run through them, `parentheticals` lists them, and `body` is its text
-// without them, which its key and name come from. The types and their other fields:
+// without them, which its key and name come from. A citation also takes in the title or
+// name that leads into it when its pattern did not ("Securities Exchange Act of 1934, " of
+// "15 U.S.C. § 78j(b)", "Case " of "Case No. 1:23-cv-01", "U.S. Patent No. " of an
+// unparsed "9,876,543 col. 4"; see leadOf): its start and text include it, and `body` is
+// still its own words, so its key and name do not change. A reported case takes none, its
+// name being read with it. The types and their other fields:
 //
 // - full: a case. core ([start, end] of VOLUME REPORTER PAGE), volume, reporter, page, pin,
 //   parallel ([{volume, reporter, page, pin}], the same case in other reporters, Bluebook's
@@ -2278,7 +2471,14 @@ export function citationTokenClass(token) {
 //   has `neutral: true`, and its key includes the number. A case (full, short, docket or
 //   database) with subsequent history has `history`, each as written: ["aff’d, 535 U.S. 1
 //   (2002)"], ["cert. denied"], or Texas's petition history in the court parenthetical,
-//   ["pet. denied"]; the later decision is part of the citation, not one of its own.
+//   ["pet. denied"]; the later decision is part of the citation, not one of its own. An
+//   agency's or a loose-leaf reporter's case reads the same way: "Smith v. Dep’t of the
+//   Army, 120 M.S.P.R. 1, ¶ 5 (2013)" (pin "¶ 5"), "Starbucks Corp., 372 NLRB No. 50, slip
+//   op. at 3 (2023)" (pin "slip op. at 3"; an unknown reporter's case may be named by its
+//   party alone at the start of its clause), "123 T.C.M. (CCH) 1050" (the publisher is not
+//   part of the reporter), "Matter of A-B-, 27 I&N Dec. 316". A Supreme Court case not yet
+//   paged has page "___", and its pin is the slip opinion's: "598 U.S. ___, ___ (2023)
+//   (slip op., at 5)" has pin "slip op., at 5".
 // - short: "Lakeside, 455 F.3d at 159" / "Ortega, 26 Cal.4th at p. 1206". The same fields,
 //   with page, court and year null and antecedent the name before it ("Lakeside"). A
 //   short form of a Westlaw or Lexis case ("Meridian Produce, 2019 WL 1234567, at *3") has
@@ -2290,11 +2490,15 @@ export function citationTokenClass(token) {
 //   database number, "Kessler v. Northgate Cold Storage, LLC, 2021 WL 4410382, at *6
 //   (S.D.N.Y. Sept. 27, 2021)". docket ("No. 2:13-cv-00114", or null), database (through
 //   its pin), pin ("*3", or a slip opinion's page: "No. 21-1234, slip op. at 5"), name,
-//   plaintiff, defendant, court, year, date, parentheticals.
+//   plaintiff, defendant, court, year, date, parentheticals. The Tax Court's numbered
+//   opinions are database cites: "Jones v. Commissioner, T.C. Memo. 2020-45, at *3", and
+//   their short forms short ones (reporter "T.C. Memo.").
 // - docket-number: a docket number with no name, kept only with a database cite, a slip
 //   opinion, a court parenthetical, a docket shape ("1:26-cv-03317") or a docket word
 //   ("Case No."; not "Claim No."): the docket fields, with name, plaintiff and defendant
-//   null.
+//   null. A number may start with letters ("No. SC-CV-12-15", "Case No. ARB/10/7"), and a
+//   Board trial's stands alone, its paper standing for a slip opinion: "IPR2019-01234,
+//   Paper 12 at 5 (P.T.A.B. Mar. 3, 2020)" (pin "5").
 // - database: a bare database cite, "2018 WL 3456789, at *4": database, pin.
 // - statute: a code, regulation, constitution, rule, session law or Federal Register cite,
 //   in Bluebook or California form ("Evid. Code, § 452, subd. (d)"), and Canadian and UK
@@ -2303,6 +2507,7 @@ export function citationTokenClass(token) {
 //   "U.C.C. § 2-207 (Am. L. Inst. & Unif. L. Comm’n 2022)", "Sup. Ct. R. 10", "S.D.N.Y.
 //   Local Civ. R. 6.3", "Fed. R. App. P. 4(a)(1)(A)", "Exec. Order No. 14,028, 86 Fed. Reg.
 //   26,633 (May 12, 2021)", "12 C.F.R. pt. 1026, supp. I", "Stats. 2019, ch. 296, § 2".
+//   A section after the acronym of a code or a manual is that code's: "TMEP § 1207.01".
 // - section: a bare "§ 3602(c)" or "§§ 4.2, 9.1" that may stand for a statute.
 // - internal: a section of the document itself or of a contract it discusses: "Agreement
 //   § 4.2", "§ 4.3 of the MSA", "this § 12", "Section 4.2(b)", "Code of Conduct § 2", "§ 3
@@ -2319,21 +2524,32 @@ export function citationTokenClass(token) {
 //   "Pl.'s Ex. 5 at 2", "PX 12 at 3", "Hollis Dep. 22:15-23:4", "Trial Tr. vol. 2, 45:3-9",
 //   "Tr. of Oral Arg. 12:4", "Pl.'s Mot. Summ. J. 5", "Pl.'s Resp. to Interrog. No. 3",
 //   "Decl. of Tomas Reyes, ECF No. 12, Ex. A", "ECF No. 45-2, at 3", "Doc. 45 at 3", "App.
-//   45", "2-ER-123", "(R. 45)", "(C. 45; R. 12)", "(2 CT 362; RT 9:14-18)".
+//   45", "2-ER-123", "(R. 45)", "(C. 45; R. 12)", "(2 CT 362; RT 9:14-18)", "ROA.1234-36",
+//   "Hr’g Tr. 14:2–9, Mar. 3, 2023", and with the title before it, "Def.’s Answers to
+//   Pl.’s First Set of Interrogs. No. 4", "Mem. Op. & Order 5, ECF No. 30".
 // - periodical: a law review or journal article: core, author, title, volume, reporter,
 //   page, pin, year, parentheticals.
 // - secondary: a treatise, dictionary, Restatement, agency guidance, revenue ruling or jury
 //   instruction: author, title, pin, year, and for guidance its date. California's "6
 //   Witkin, Summary of Cal. Law (11th ed. 2017) Torts, § 1234", "(The Rutter Group 2020) ¶
-//   9:123", "Rest.2d Torts, § 402A", "CACI No. 1001"; "Rev. Rul. 2004-1, 2004-1 C.B. 1".
+//   9:123", "Rest.2d Torts, § 402A", "CACI No. 1001"; "Rev. Rul. 2004-1, 2004-1 C.B. 1",
+//   "Priv. Ltr. Rul. 202012003", "T.D. 9947, 86 Fed. Reg. 1,234"; pattern and model jury
+//   instructions, "Ill. Pattern Jury Instr., Civ., No. 15.01 (2023)", "N.Y. Pattern Jury
+//   Instr.—Civil 2:10".
 // - legislative: "H.R. Rep. No. 110-730, pt. 1, at 5 (2008)", "144 Cong. Rec. S3021",
 //   "H.R. 1234, 117th Cong. § 3 (2021)", California's "Assem. Bill No. 5 (2019–2020 Reg.
 //   Sess.) § 2": pin, year, parentheticals.
 // - unparsed: a run of citation-shaped words that none of the forms above reads, such as
 //   "Joint Stip. ¶ 4" or "S.B. 1234": numbers, § and ¶, abbreviations and acronyms, and
-//   the capitalized words of a title before them (see runsIn). No other fields; its key
-//   is its text. It keeps the guard and the views from depending on the parser knowing
-//   every form.
+//   the title or name before them ("Case C-131/12, Google Spain SL v. AEPD,
+//   ECLI:EU:C:2014:317, ¶ 94 (May 13, 2014)", "Starbucks Corp., 372 NLRB No. 50, slip op.
+//   at 3" before the parser read that one; see runsIn and leadOf). A filing cited with the
+//   case it is in ("Brief for Petitioner at 12, Smith v. Jones, No. 22-123 (U.S. filed Nov.
+//   1, 2022)", "Tr. of Oral Arg. 12:4–9, Smith v. Jones, …") is one too, as is a database
+//   cite with the title of a letter or a release before it ("Apple Inc., SEC No-Action
+//   Letter, 2019 WL 1234567"). No other fields but `body` and `parentheticals` when it has
+//   explanatory parentheticals; its key is its text. It keeps the guard and the views from
+//   depending on the parser knowing every form.
 //
 // Citations come in order, without overlaps except nested ones.
 export function findCitations(text) {
@@ -2436,7 +2652,7 @@ export function findCitations(text) {
   }
 
   // Unreported cases: Smith v. Salvation Army, No. 13-114-J, 2015 WL 1, at *2 (W.D. Pa. 2015)
-  for (const m of scan(DOCKET, /Nos?\.\s+\d/)) {
+  for (const m of scan(DOCKET, /Nos?\.\s+[\dA-Z]|IPR|PGR|CBM|DER/)) {
     let end = m.index + m[0].length;
     const judge = matchAt(JUDGE, text, end); // (JPO)
     if (judge) end += judge[0].length;
@@ -2444,12 +2660,20 @@ export function findCitations(text) {
     if (slip) end += slip[0].length;
     const db = matchAt(DATABASE_AFTER, text, end);
     if (db) end += db[0].length;
+    // An agency's decision by its docket number and page: "FTC Docket No. C-4365, at 3".
+    const pinned = db || slip ? null : matchAt(DATABASE_PIN, text, end);
+    if (pinned) end += pinned[0].length;
     const paren = matchAt(DOCKET_PAREN, text, end);
     if (paren) end += paren[0].length;
     const comma = text.slice(Math.max(0, m.index - 4), m.index).match(/,\s*$/);
     const named = comma && caseNameBefore(text, m.index - comma[0].length, { needV: true });
     const before = text.slice(Math.max(0, m.index - 24), m.index);
-    if (!named && !db && !slip && !paren && !DOCKET_SHAPE.test(m[0]) && !DOCKET_WORD.test(before))
+    // A court parenthetical after a page alone does not make a number a docket's, and a
+    // number of letters and one part ("No. W-9", "No. C-4365") is a docket's only after a
+    // docket word ("FTC Docket No. C-4365"), as a form's is not.
+    const dated = paren && !pinned;
+    if (/^Nos?\.\s+[A-Z]{1,5}[-–/]\d+$/.test(m[0]) && !DOCKET_WORD.test(before)) continue;
+    if (!named && !db && !slip && !dated && !DOCKET_SHAPE.test(m[0]) && !DOCKET_WORD.test(before))
       continue;
     const parenFromAt = end;
     const after = parentheticalsAfter(text, end, named?.name);
@@ -2469,7 +2693,7 @@ export function findCitations(text) {
         year: paren?.[3] || null,
         date: paren?.[2] || null,
         database: db ? db[0].replace(/^,\s*/, '') : null,
-        pin: db?.[2] || slip?.[1] || null,
+        pin: db?.[2] || slip?.[1] || pinned?.[1] || null,
         signal: null,
         parentheticals: after.parentheticals,
       },
@@ -2479,7 +2703,7 @@ export function findCitations(text) {
   // Westlaw and Lexis cites: a case named only by them ("Kessler v. Northgate Cold
   // Storage, LLC, 2021 WL 4410382, at *6 (S.D.N.Y. Sept. 27, 2021)"), its short form
   // ("Meridian Produce, 2019 WL 1234567, at *3"), or a bare one.
-  for (const m of scan(DATABASE, /WL|LEXIS/)) {
+  for (const m of scan(DATABASE, /WL|LEXIS|T\.C\.\s+(?:Memo|Summ)/)) {
     let end = m.index + m[0].length;
     const pinned = matchAt(DATABASE_PIN, text, end);
     if (pinned) end += pinned[0].length;
@@ -2488,6 +2712,7 @@ export function findCitations(text) {
     const nameEnd = comma ? m.index - comma[0].length : -1;
     const full = comma && caseNameBefore(text, nameEnd, { needV: true });
     const short = !full && comma && caseNameBefore(text, nameEnd, { maxTokens: 5 });
+    const tax = /^T\.C\./.test(m[0]);
     let court = null;
     let date = null;
     let year = null;
@@ -2529,8 +2754,8 @@ export function findCitations(text) {
           type: 'short',
           ...base,
           core: [m.index, m.index + m[0].length],
-          volume: m[0].match(/^\d{4}/)[0],
-          reporter: /\bWL\b/.test(m[0]) ? 'WL' : 'LEXIS',
+          volume: m[0].match(/\d{4}/)[0],
+          reporter: tax ? m[0].match(/^.*?(?=\s+\d{4})/)[0] : /\bWL\b/.test(m[0]) ? 'WL' : 'LEXIS',
           page: null,
           court: null,
           year: null,
@@ -2587,9 +2812,10 @@ export function findCitations(text) {
     const fields = { pin: m[2] || null, year: m[1] || null, signal: null, parentheticals: [] };
     add({ type: 'legislative', start: m.index, end, text: m[0], ...fields });
   }
-  for (const m of scan(IRS_GUIDANCE, /Rev\.|Notice|Ltr\.|T\.D\./)) {
+  for (const m of scan(IRS_GUIDANCE, /Rev\.|Notice|Ltr\.|T\.D\.|Mem\.|Adv\./)) {
     const title = m[0].match(/^[^,]*/)[0];
-    const year = m[0].match(/\b(?:19|20)\d\d\b/)?.[0] || null;
+    // A ruling numbered by its year and week: 202012003 is of 2020.
+    const year = m[0].match(/\b(?:19|20)\d\d(?=\d{5}\b|\b)/)?.[0] || null;
     const fields = { author: null, title, pin: null, year, signal: null };
     add({ type: 'secondary', start: m.index, end: m.index + m[0].length, text: m[0], ...fields });
   }
@@ -2722,6 +2948,12 @@ export function findCitations(text) {
     const fields = { author: null, title: m[0], pin: null, year: null, signal: null };
     add({ type: 'secondary', start: m.index, end: m.index + m[0].length, text: m[0], ...fields });
   }
+  for (const m of scan(PATTERN_INSTRUCTION, /Jury\s+Instr/)) {
+    const year = m[0].match(/\((?:[^()]*\s)?(\d{4})\)$/)?.[1] || null;
+    const title = m[0].replace(/\s*\([^()]*\)$/, '');
+    const fields = { author: null, title, pin: null, year, signal: null };
+    add({ type: 'secondary', start: m.index, end: m.index + m[0].length, text: m[0], ...fields });
+  }
   for (const m of scan(CSM_RESTATEMENT, /Rest\./)) {
     const title = m[0].match(/^[^,]*/)[0];
     const pin = m[0].slice(title.length).replace(/^,\s*/, '');
@@ -2806,11 +3038,256 @@ export function findCitations(text) {
     kept.push({ ...cite, signal: signalBefore(text, start) });
   }
   if (unparsed.length) kept.sort((a, b) => a.start - b.start);
+  kept = withLeads(text, kept, parenFrom);
   if (containers.size) {
     const place = new Map(kept.map((cite, at) => [cite, at]));
     for (const [cite, outer] of containers) cite.within = place.get(outer);
   }
   return kept;
+}
+
+// ---------------------------------------------------------------------------
+// The words that lead into a citation
+// ---------------------------------------------------------------------------
+
+// A citation's own title or name may come before what its pattern reads: "Brief for
+// Petitioner at 12, " before "Smith v. Jones, No. 22-123", "Starbucks Corp., " before "372
+// NLRB No. 50", "Case C-131/12, Google Spain SL v. AEPD, " before "ECLI:EU:C:2014:317",
+// "U.S. Patent No. " before "9,876,543", "TMEP " before "§ 1207.01". These are the words
+// such a lead may hold besides capitalized words and numbers.
+const LEAD_JOINS = new Set(
+  `of the and & for in on against to at by with under from upon between v. vs. v et al. al.,
+  ex rel. re de la du der van von y a an`.split(/\s+/),
+);
+// Lowercase labels of a part inside a title: "art. 31(1)", "col. 4", "slip op.".
+const LEAD_PARTS =
+  /^(?:arts?|chs?|pts?|vols?|nos?|cols?|ll?|pp?|secs?|cl|tit|paras?|op|slip|supp|eds?|nn?)\.?$/;
+const LEAD_SIGNAL =
+  /^(?:(?:but\s+)?(?:see(?:\s+also|\s+generally|,?\s+e\.g\.,)?|cf\.)|compare|accord,?|contra|e\.g\.,)\s+/i;
+// What a title joined to its citation without a comma ends with: an acronym ("TMEP §
+// 1207.01"), one in parentheses ("Regulation (EU) 2016/679"), a part's label ("U.S. Patent
+// No. 9,876,543", "Treaties art. 31(1)"), an abbreviation ("FINRA Arb. No. 19-01234"), or
+// a word that names an instrument ("Council Directive 93/13/EEC", "ICSID Case No.", "FTC
+// Docket No. C-4365").
+const DESIGNATION =
+  /^(?:[A-Z]{2,}|\([A-Z]{2,}\)|Nos?\.|[a-z]{1,4}\.|[A-Z][a-z]{1,5}\.|Docket|Patent|Directive|Regulation|Decision|Convention|Treaty|Release|Instructions?|Instr\.|Rules?|Manual|Case|Report|Opinion|Order|Letter|Notice|Ruling|Resolution|Award|Judgment|Memorandum|Bulletin|Protocol)$/;
+const MAX_LEAD_WORDS = 24;
+// Words that open a sentence with a comma after them, not a title: "Separately, § 4.3",
+// "Second, Compl. ¶ 9".
+const LEAD_ADVERB =
+  /^(?:[A-Z][a-z]+ly|First|Second|Third|Fourth|Fifth|Next|Instead|Again|Still|Here|There|Now|Later|Yet|Otherwise|Meanwhile|Nevertheless|Nonetheless|Overall|Ultimately|Today|Thereafter|Afterward|Afterwards),\s+/;
+
+// Where the title or name that leads into the citation at `start` begins, or `start` when
+// it has none. The words before it are read back to the start of their clause (the
+// sentence's start, a semicolon, an opening bracket or quotation mark, a line break, or
+// `floor`, the end of the citation before), and must all be capitalized words, numbers or
+// the small words between them. Signals and sentence words in front are left out ("See",
+// "In"). Such a lead is the citation's when a comma joins it to the citation ("Starbucks
+// Corp., 372 NLRB …"), or when it ends with a designation joined to the number
+// ("TMEP § 1207.01"), and, with `titled` (a record or unparsed citation, whose title is
+// part of it), when it reaches the clause's start ("Def.’s Answers to Pl.’s First Set of
+// Interrogs. No. 4"). A lead that runs into prose ("as the Board held in Starbucks Corp., ")
+// keeps only the name right before its comma.
+function leadOf(text, start, floor, titled = false) {
+  // Most citations follow punctuation or another citation: nothing to read.
+  let k = start;
+  while (k > floor && !/[\p{L}\p{N}]/u.test(text[k - 1])) if (text[--k] === '\n') return start;
+  if (k <= floor) return start;
+  let i = start;
+  let clean = false;
+  let words = 0;
+  // The word read just before, which follows the one being read: first the citation's.
+  let next = text.slice(start, start + 40).match(/^\S*/)[0];
+  for (;;) {
+    let j = i;
+    while (j > floor && /[^\S\n]/.test(text[j - 1])) j--;
+    if (j <= floor || text[j - 1] === '\n') {
+      clean = true;
+      break;
+    }
+    let h = j;
+    while (h > floor && !/\s/.test(text[h - 1])) h--;
+    const raw = text.slice(h, j);
+    if (/;$/.test(raw) || /^[“"‘]/.test(raw) || /[”"]$/.test(raw.replace(/[,:]$/, ''))) {
+      clean = true;
+      break;
+    }
+    const core = raw.replace(/^[(\[]+/, '').replace(/[)\]]*[,:]?$/, '');
+    // A word that ends a sentence before a word that may start one.
+    if (
+      /[.!?][)\]”"’]*$/.test(raw) &&
+      /^[(\[“"]?[A-Z0-9]/.test(next) &&
+      !isAbbreviation(core) &&
+      !contractions.has(core)
+    ) {
+      clean = true;
+      break;
+    }
+    if (/^[a-z]/.test(core) && !LEAD_JOINS.has(core) && !LEAD_PARTS.test(core)) break;
+    if (++words > MAX_LEAD_WORDS) break;
+    i = h;
+    next = raw;
+  }
+  if (i >= start) return start;
+  let lead = text.slice(i, start);
+  // An opening bracket the lead does not close starts the clause.
+  let depth = 0;
+  for (let k = lead.length - 1; k >= 0; k--) {
+    const c = lead[k];
+    if (c === ')' || c === ']') depth++;
+    else if (c === '(' || c === '[') {
+      if (depth === 0) {
+        lead = lead.slice(k + 1);
+        clean = true;
+        break;
+      }
+      depth--;
+    }
+  }
+  lead = lead.replace(/^[\s,:]+/, '');
+  if (!clean) {
+    // Prose before it: only the name right before the comma.
+    if (!/,\s*$/.test(lead)) return start;
+    const comma = lead.replace(/,\s*$/, '').lastIndexOf(',');
+    if (comma >= 0) lead = lead.slice(comma + 1).trimStart();
+  }
+  for (let m; (m = lead.match(LEAD_SIGNAL) || lead.match(LEAD_ADVERB)); )
+    lead = lead.slice(m[0].length);
+  lead = stripLead(lead.trimEnd()) + lead.slice(lead.trimEnd().length);
+  while (/^(?:[a-z][\w.]*|&)\s+/.test(lead)) lead = lead.replace(/^\S+\s+/, '');
+  if (!/[A-Z0-9]/.test(lead) || NOT_NAME.has(lead.trim().replace(/,$/, ''))) return start;
+  const at = start - lead.length;
+  if (/,\s*$/.test(lead)) return at;
+  // Joined with no comma: a designation, and a title that is not a heading in capitals.
+  const last = lead.trim().split(/\s+/).at(-1);
+  if (clean && titled) return at;
+  if (!clean || !DESIGNATION.test(last) || NOT_NAME.has(titleCase(last))) return start;
+  if (!/[a-z]/.test(lead) && lead.trim().split(/\s+/).length > 1) return start;
+  return at;
+}
+
+// A lead that names a filing in a case rather than the case ("Brief for Petitioner at 12,
+// ", "Tr. of Oral Arg. 12:4–9, "), or ends in a pin.
+const FILING_LEAD =
+  /\b(?:Br(?:ief)?s?|Pet(?:ition)?|Tr(?:anscript)?|Reply|Mot(?:ion)?|Mem(?:orandum)?|Opp['’]n|Opposition|App(?:endix)?|Joint|Resp(?:onse)?|Answer|Compl(?:aint)?|Decl(?:aration)?|Aff(?:idavit)?|Letter|Release|Report|Statement|Comments?|Order|Award)\b|(?:\d|_{2,})[\d:–-]*,\s*$/;
+const CASE_LEADS = new Set(['full', 'short', 'docket', 'docket-number', 'database']);
+// Each citation with the lead before it (see leadOf). A record or unparsed citation, and a
+// case whose lead names a filing, a release or a letter rather than the case ("Brief for
+// Petitioner at 12, Smith v. Jones, No. 22-123"; "Apple Inc., SEC No-Action Letter, 2019
+// WL 1234567"), take it into their text; a bare section after the acronym of a code or a
+// manual ("TMEP § 1207.01") is that code's; any other takes the lead into its text and
+// keeps its own words as its `body` ("Securities Exchange Act of 1934, 15 U.S.C. § 78j(b)"
+// is keyed and named as "15 U.S.C. § 78j(b)"). A reported case takes none: its name is read
+// with it. A filing and the case it is in, and two unparsed citations with only a comma
+// between, are one.
+function withLeads(text, kept, parenFrom) {
+  if (!kept.length) return kept;
+  const out = [];
+  let floor = 0;
+  let last = null; // the last top-level citation
+  for (const cite of kept) {
+    if (cite.nested) {
+      out.push(cite);
+      continue;
+    }
+    const lead =
+      cite.type === 'id' || cite.type === 'supra' || cite.type === 'internal'
+        ? cite.start
+        : leadOf(text, cite.start, floor, cite.type === 'record' || cite.type === 'unparsed');
+    floor = cite.end;
+    if (lead < cite.start) {
+      const words = text.slice(lead, cite.start);
+      const filing =
+        CASE_LEADS.has(cite.type) &&
+        (FILING_LEAD.test(words) ||
+          (cite.type === 'short' && Boolean(cite.database)) ||
+          (!cite.name && /\sv\.?\s|^(?:In\s+re|(?:In\s+the\s+)?Matter\s+of)\s/.test(words)));
+      const type = cite.type;
+      if (type === 'unparsed' || type === 'record' || filing) {
+        // Where its explanatory parentheticals begin, which its body ends before.
+        const from = cite.body !== undefined ? cite.start + cite.body.length : parenFrom.get(cite);
+        const parentheticals = cite.parentheticals || [];
+        for (const key of Object.keys(cite)) delete cite[key];
+        Object.assign(cite, {
+          type: filing ? 'unparsed' : type,
+          start: lead,
+          end: floor,
+          text: text.slice(lead, floor),
+        });
+        if (parentheticals.length) {
+          cite.body = text.slice(lead, from ?? floor).trimEnd();
+          cite.parentheticals = parentheticals;
+        }
+        cite.signal = signalBefore(text, lead);
+      } else if (
+        cite.type === 'section' &&
+        /^(?:[A-Z]{2,}|[IVXL]+|\([A-Z]{2,}\))$/.test(words.trim().split(/\s+/).at(-1))
+      ) {
+        // "TMEP § 1207.01", "Title VII § 704": the section of the code the lead names.
+        if (cite.body !== undefined) cite.body = text.slice(lead, cite.start) + cite.body;
+        Object.assign(cite, {
+          type: 'statute',
+          start: lead,
+          text: text.slice(lead, cite.end),
+          signal: signalBefore(text, lead),
+        });
+      } else if (cite.type !== 'full' && cite.type !== 'short') {
+        // A case's name is read with it; words before a reported case that the parser did
+        // not take for its name ("Smith, 1 F.3d 2") are not its lead. Any other takes the
+        // lead into its text, while its body, which its key and name come from, stays its
+        // own words: "Securities Exchange Act of 1934, 15 U.S.C. § 78j(b)" is still keyed
+        // as 15 U.S.C. § 78j.
+        cite.body = cite.body ?? cite.text;
+        cite.start = lead;
+        cite.text = text.slice(lead, cite.end);
+        cite.signal ??= signalBefore(text, lead);
+      }
+    }
+    // A filing and the case it was filed in, "Tr. of Oral Arg. 12:4–9, Smith v. Jones, No.
+    // 22-123 (U.S. Jan. 10, 2023)", are one citation, in a form the parser does not know.
+    if (
+      last?.type === 'record' &&
+      FILING_LEAD.test(last.text) &&
+      ((CASE_LEADS.has(cite.type) && cite.name) || cite.type === 'docket-number') &&
+      /^,\s*$/.test(text.slice(last.end, cite.start))
+    ) {
+      const parentheticals = cite.parentheticals || [];
+      const from = parenFrom.get(cite);
+      for (const key of Object.keys(last))
+        if (key !== 'start' && key !== 'signal') delete last[key];
+      Object.assign(last, {
+        type: 'unparsed',
+        end: cite.end,
+        text: text.slice(last.start, cite.end),
+      });
+      if (parentheticals.length) {
+        last.body = text.slice(last.start, from ?? cite.end).trimEnd();
+        last.parentheticals = parentheticals;
+      }
+      continue;
+    }
+    // "Case No. ARB/10/7, Award, ¶ 399 (July 8, 2016)": one citation in two runs.
+    if (
+      last?.type === 'unparsed' &&
+      cite.type === 'unparsed' &&
+      /^,\s*$/.test(text.slice(last.end, cite.start))
+    ) {
+      const parentheticals = [...(last.parentheticals || []), ...(cite.parentheticals || [])];
+      last.end = cite.end;
+      last.text = text.slice(last.start, last.end);
+      if (cite.parentheticals?.length) {
+        last.body = text.slice(last.start, last.end - cite.text.length) + (cite.body ?? cite.text);
+        last.parentheticals = parentheticals;
+      } else if (last.body !== undefined) {
+        delete last.body;
+        delete last.parentheticals;
+      }
+      continue;
+    }
+    out.push(cite);
+    last = cite;
+  }
+  return out;
 }
 
 // The citation types whose patterns end before any explanatory parenthetical: findCitations
@@ -3257,7 +3734,8 @@ function parenSpans(text) {
 
 // Balanced double quotations. A straight quote opens after a space, a bracket or the
 // start, and closes before a space, punctuation or the end; one that fits neither, or
-// a close with no open, makes us give up on straight quotes in this text.
+// a close with no open, makes us give up on straight quotes in this text. A stray space
+// after an opening quote before an alteration (`, " [t]o the elderly …"`) still opens it.
 export function quoteSpans(text) {
   const spans = [];
   const curly = [];
@@ -3271,7 +3749,9 @@ export function quoteSpans(text) {
     } else if (c === '"') {
       const before = i === 0 ? ' ' : text[i - 1];
       const after = i + 1 >= text.length ? ' ' : text[i + 1];
-      const opens = /[\s(\[{—–-]/.test(before) && /\S/.test(after);
+      const opens =
+        /[\s(\[{—–-]/.test(before) &&
+        (/\S/.test(after) || /^\s\[\w/.test(text.slice(i + 1, i + 4)));
       const closes = /\S/.test(before) && /[\s.,;:!?)\]}—–-]/.test(after);
       if (opens && !closes) straight.push(i);
       else if (closes && !opens && straight.length) spans.push([straight.pop(), i + 1]);
@@ -3341,6 +3821,13 @@ function continues(right, leftToken) {
   )
     return true;
   if (/^[A-Z]{1,2}-?\d/.test(token)) return true; // a page or docket with a letter: S3021 / H-05-557M
+  if (/^P\.\s?O\.$/.test(leftToken) && token === 'Box') return true; // "P.O. Box 123"
+  // A street's quadrant after its type: "1600 Pennsylvania Ave. NW".
+  if (
+    /^(?:Ave|St|Rd|Blvd|Dr|Pl|Ct|Ln|Pkwy|Hwy|Ter|Way)\.$/.test(leftToken) &&
+    /^(?:[NS][EW]?|[EW]|[NS]\.[EW]\.)$/.test(token)
+  )
+    return true;
   if (/^[$€£]\d/.test(r) && !entitySuffixes.has(leftToken)) return true; // approx. | $40
   // "4:00 a.m. | Pacific Time", "a.m. U.S. | Pacific Time"
   const zone =
@@ -3463,6 +3950,9 @@ export function joinReason(at, left, right, spans, options = {}) {
   if (/[?!][”"’)]*$/.test(tail) && /^\s*[a-z]/.test(right)) return 'lowercase continues'; // “Why?” and left
   if (!token.endsWith('.')) return null; // ? ! .” .) end sentences
   if (always.has(token) || always.has(titleCase(token))) return 'abbreviation';
+  // A cleric's title: "the Rev. Martin Luther King Jr.".
+  if (token === 'Rev.' && /^[Tt]he$/.test(tokenBefore(left)) && /^\s*[A-Z][a-z]/.test(right))
+    return 'abbreviation';
   if (prefixUnlessName.has(token)) {
     return /^[A-Z][a-z]+$/.test(tokenBefore(left)) && !continues(right, token)
       ? null

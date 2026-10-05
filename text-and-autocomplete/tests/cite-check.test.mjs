@@ -52,7 +52,7 @@ test('the memo: cases and the statute, each with how to look it up', () => {
       ['159–60', 159, 160],
     ],
   );
-  assert.equal(lakeside.quotes.length, 6);
+  assert.equal(lakeside.quotes.length, 7);
   assert.equal(lakeside.quotes[0].pin, '158');
   assert.ok(lakeside.quotes[0].text.startsWith('First, we must decide'));
   // The block quotation is sent without its citation.
@@ -722,4 +722,127 @@ test('the memo through a stand-in Midpage: every call carries only citations and
   }
   // Every case and the statute has a result.
   for (const item of MEMO_PLANS.values()) assert.ok(check.state(item).result, item.name);
+});
+
+test('cases from outside the United States are not sent', () => {
+  const plans = plansOf(
+    blocksOf(
+      'The mark is distinctive. Reckitt & Colman Products Ltd v Borden Inc [1990] 1 WLR 491, 499.',
+      'Review is for reasonableness. Canada (Minister of Citizenship and Immigration) v Vavilov, 2019 SCC 65, para 23.',
+      'The rule is the same here. Doe v. Lakeview Academy, 2019 IL 124321, ¶ 14.',
+    ),
+  );
+  const how = [...plans.values()].map(item => [item.name, item.how, item.why]);
+  assert.deepEqual(
+    how.filter(([, way]) => way === 'none').map(([, , why]) => why),
+    ['Midpage covers United States law only.', 'Midpage covers United States law only.'],
+  );
+  // A U.S. neutral citation is looked up.
+  assert.ok(how.some(([, way]) => way === 'citation'));
+  assert.equal(sectionCitation('9 U.S.C. § 1 et seq.'), '9 U.S.C. § 1');
+});
+
+const missed = {
+  code: 'tool_error',
+  result: { content: [{ type: 'text', text: '{"status":"not_found","message":"No case."}' }] },
+};
+const hitFor = (citation, extra = {}) => ({
+  case: { caseName: 'Acme Corp. v. Widget Co.', court: '2d Cir.', ...extra },
+  document: { documentId: 'doc-acme', opinion: { citation, dateDecided: '2001-03-02' } },
+});
+const WITH_FIND = {
+  ...ACME,
+  find: {
+    name: 'Acme Corp. v. Widget Co.',
+    volume: '123',
+    reporter: 'F.3d',
+    page: '456',
+    court: '2d Cir.',
+    year: '2001',
+  },
+};
+
+test('a citation Midpage does not match as written is found by name', async () => {
+  let calls = 0;
+  const mcp = standIn({
+    analyzeCaseDocument: input => (calls++ === 0 ? missed : answer()),
+    search: {
+      status: 'ok',
+      results: [hitFor('Acme Corp. v. Widget Co., 123 F. 3d 456 (2d Cir. 2001)')],
+    },
+  });
+  const check = await ready(new CiteCheck({ load: async () => mcp }));
+  await check.check(WITH_FIND);
+  assert.deepEqual(
+    mcp.calls.map(call => call.tool),
+    ['analyzeCaseDocument', 'search', 'analyzeCaseDocument'],
+  );
+  assert.equal(mcp.calls[2].input.documentId, 'doc-acme');
+  const { result } = check.state(WITH_FIND);
+  assert.equal(result.verdict, 'ok');
+  assert.equal(
+    result.lines[1].text,
+    'Midpage did not match the citation as written, so the case was found by name.',
+  );
+});
+
+test('a case Midpage has at another citation is a problem', async () => {
+  let calls = 0;
+  const mcp = standIn({
+    analyzeCaseDocument: () => (calls++ === 0 ? missed : answer()),
+    search: {
+      status: 'ok',
+      results: [hitFor('Acme Corp. v. Widget Co., 124 F.3d 1 (2d Cir. 2001)')],
+    },
+  });
+  const check = await ready(new CiteCheck({ load: async () => mcp }));
+  await check.check(WITH_FIND);
+  const { result } = check.state(WITH_FIND);
+  assert.equal(result.verdict, 'problem');
+  assert.equal(
+    result.lines[1].text,
+    'Midpage has this case as Acme Corp. v. Widget Co., 124 F.3d 1 (2d Cir. 2001); the document cites 123 F.3d 456. Check the citation.',
+  );
+});
+
+test('no case by that name either: not found', async () => {
+  const mcp = standIn({
+    analyzeCaseDocument: missed,
+    search: {
+      status: 'ok',
+      results: [hitFor('Other v. Party, 9 F.3d 9', { caseName: 'Other v. Party' })],
+    },
+  });
+  const check = await ready(new CiteCheck({ load: async () => mcp }));
+  await check.check(WITH_FIND);
+  assert.match(
+    check.state(WITH_FIND).result.lines[0].text,
+    /^Midpage has no case at 123 F\.3d 456/,
+  );
+});
+
+test('a Federal Register citation is looked up by its register citation', async () => {
+  const mcp = standIn({
+    analyzeLaw: {
+      citation: '76 FR 16978',
+      title: 'Regulations',
+      isCurrent: true,
+      analysis: { passages: [] },
+    },
+  });
+  const check = await ready(new CiteCheck({ load: async () => mcp }));
+  const register = {
+    ...ACME,
+    kind: 'law',
+    citation: '76 Fed. Reg. 16,978',
+    quotes: [],
+    pins: [],
+    signature: 'fr',
+  };
+  await check.check(register);
+  assert.deepEqual(mcp.calls[0].input, {
+    registerCitation: '76 FR 16978',
+    question:
+      'Answer only from this provision. Answer each numbered item.\nWhat does this provision cover?',
+  });
 });
